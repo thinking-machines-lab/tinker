@@ -1,0 +1,4 @@
+configured_endpoints: 15
+openapi_spec_url: https://storage.googleapis.com/stainless-sdk-openapi-specs/thinking-machines%2Ftinker-51afac49fce6fe0323489c3e809c5e2e50ce7384828362dcb0b7c2c7c9d77027.yml
+openapi_spec_hash: ed32399a1f1754a8e66918aefbe9fd07
+config_hash: 2ea282a8a1396267cb7c8a5e28467eb8

@@ -1,0 +1,185 @@
+[project]
+name = "tinker"
+version = "0.1.3"
+description = "The official Python SDK for the tinker API"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+{ name = "Tinker authors", email = "tinker@thinkingmachines.ai" },
+]
+keywords = ["tinker", "machine learning"]
+dependencies = [
+    "httpx[http2]>=0.23.0, <1",
+    "pydantic>=1.9.0, <3",
+    "typing-extensions>=4.10, <5",
+    "anyio>=3.5.0, <5",
+    "distro>=1.7.0, <2",
+    "sniffio",
+    "numpy",
+    "torch",
+]
+requires-python = ">= 3.11"
+classifiers = [
+  "Typing :: Typed",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Operating System :: POSIX",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "License :: OSI Approved :: Apache Software License"
+]
+
+[project.urls]
+Homepage = "https://thinkingmachines.ai/tinker"
+Repository = "https://github.com/thinking-machines-lab/tinker"
+Documentation = "https://tinker-docs.thinkingmachines.ai/"
+
+[project.optional-dependencies]
+aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
+
+[tool.uv]
+managed = true
+required-version = ">=0.5.0"
+# version pins are in uv.lock
+dev-dependencies = [
+    "pyright==1.1.402",
+    "mypy",
+    "respx",
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "time-machine",
+    "dirty-equals>=0.6.0",
+    "importlib-metadata>=6.7.0",
+    "rich>=13.7.1",
+    "nest_asyncio==1.6.0",
+    "pytest-xdist>=3.6.1",
+]
+
+[build-system]
+requires = ["hatchling==1.26.3", "hatch-fancy-pypi-readme"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = [
+  "src/*"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tinker"]
+
+[tool.hatch.build.targets.sdist]
+# Basically everything except hidden files/directories (such as .github, .devcontainers, .python-version, etc)
+include = [
+  "/*.toml",
+  "/*.json",
+  "/*.lock",
+  "/*.md",
+  "/mypy.ini",
+  "/noxfile.py",
+  "bin/*",
+  "examples/*",
+  "src/*",
+  "tests/*",
+]
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+# replace relative links with absolute links
+pattern = '\[(.+?)\]\(((?!https?://)\S+?)\)'
+replacement = '[\1](https://github.com/stainless-sdks/tinker-python/tree/main/\g<2>)'
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -n auto"
+xfail_strict = true
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+filterwarnings = [
+  "error"
+]
+
+[tool.pyright]
+# this enables practically every flag given by pyright.
+# there are a couple of flags that are still disabled by
+# default in strict mode as they are experimental and niche.
+typeCheckingMode = "strict"
+pythonVersion = "3.8"
+
+exclude = [
+    "_dev",
+    ".venv",
+    ".nox",
+]
+
+reportImplicitOverride = true
+reportOverlappingOverload = false
+
+reportImportCycles = false
+reportPrivateUsage = false
+
+[tool.ruff]
+line-length = 120
+output-format = "grouped"
+target-version = "py38"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  # isort
+  "I",
+  # bugbear rules
+  "B",
+  # remove unused imports
+  "F401",
+  # bare except statements
+  "E722",
+  # unused arguments
+  "ARG",
+  # print statements
+  "T201",
+  "T203",
+  # misuse of typing.TYPE_CHECKING
+  "TC004",
+  # import rules
+  "TID251",
+]
+ignore = [
+  # mutable defaults
+  "B006",
+]
+unfixable = [
+  # disable auto fix for print statements
+  "T201",
+  "T203",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"functools.lru_cache".msg = "This function does not retain type information for the wrapped function's arguments; The `lru_cache` function from `_utils` should be used instead"
+
+[tool.ruff.lint.isort]
+length-sort = true
+length-sort-straight = true
+combine-as-imports = true
+extra-standard-library = ["typing_extensions"]
+known-first-party = ["tinker", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"bin/**.py" = ["T201", "T203"]
+"scripts/**.py" = ["T201", "T203"]
+"tests/**.py" = ["T201", "T203"]
+"examples/**.py" = ["T201", "T203"]

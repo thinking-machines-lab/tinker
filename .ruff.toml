@@ -1,0 +1,40 @@
+line-length = 100
+include = []
+exclude = []
+force-exclude = true
+
+[lint]
+
+# Same as monorepo but removed UP007
+select = [
+  # https://docs.astral.sh/ruff/rules
+  # pyflakes, pycodestyle, isort
+  "B905", # zip-without-explicit-strict
+  "F",
+  "E",
+  "W",
+  "I001",
+
+  "PIE804", # unnecessary-dict-kwargs
+  "PIE800", # unnecessary-spread
+  "PIE796", #	non-unique-enums
+  "PIE794", # duplicate-class-field-definition
+  "PIE807", # reimplemented-container-builtin
+  "PIE810", #multiple-starts-ends-with
+
+  "FLY002",
+  "COM818",
+  "SIM",
+  "Q000",
+
+  #"UP007", # Use X | Y for type annotations
+  #  Going to leave these 2 commented out for now as they play interestingly with chz.
+  # We could consider using them though!
+  # "TC001", # typing-only-first-party-import
+  # "TC002", # typing-only-third-party-import
+  "TC004", # runtime-import-in-type-checking-block
+  "TC005", # empty-type-checking-block
+]
+ignore = ["E501", "SIM108", "SIM117"]
+unfixable = ["B905"]
+extend-safe-fixes = ["TC004", "TC005"]
