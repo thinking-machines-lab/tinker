@@ -444,6 +444,9 @@ def _get_tokenizer(
 
     info = holder.client.models.get_info(model_id=model_id)
     model_name = info.model_data.model_name
+    assert model_name is not None, "This shouldn't happen: model_name is None"
+
+    
     return AutoTokenizer.from_pretrained(model_name, fast=True)
 
 def _get_default_headers() -> dict[str, str]:
