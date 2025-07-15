@@ -1,0 +1,19 @@
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from typing import List
+from typing_extensions import Literal
+
+from .._models import StrictBase
+
+__all__ = ["EncodedTextChunk"]
+
+
+class EncodedTextChunk(StrictBase):
+    tokens: List[int]
+    """Array of token IDs"""
+
+    type: Literal["encoded_text"] = "encoded_text"
+
+    @property
+    def length(self) -> int:
+        return len(self.tokens)
