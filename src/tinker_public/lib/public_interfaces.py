@@ -177,7 +177,7 @@ class APIFuture(Generic[T]):
                 raise ValueError(f"Error retrieving result: {e} with status code {e.status_code=} for {self.untyped_future.request_id=} and expected type {self.model_cls=}") from e
 
             # Function hasn't been called yet, execute it now
-            result_dict: Dict[str, Any] = await response.json()  # type: ignore
+            result_dict: Dict[str, Any] = await response.json() # type: ignore
 
             if "type" in result_dict and result_dict["type"] == "try_again":
                 logger.warning(f"Retrying request {self.untyped_future.request_id=} because of try_again")
