@@ -374,24 +374,37 @@ class SamplingClient:
         self.retry_handler = get_retry_handler(model_path or base_model, retry_config=retry_config)
 
     @sync_only
-    def sample(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> ConcurrentFuture[types.SampleResponse]:
-        coro = self.sample_async(prompt, num_samples, sampling_params, include_prompt_logprobs)
+    def sample(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False, _extra_options: set[str] | None = None) -> ConcurrentFuture[types.SampleResponse]:
+        coro = self.sample_async(prompt, num_samples, sampling_params, include_prompt_logprobs, _extra_options)
         return asyncio.run_coroutine_threadsafe(coro, self.holder.get_loop())
 
-    async def _sample_async_internal(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams, include_prompt_logprobs: bool, timeout: float) -> types.SampleResponse:
+    async def _sample_async_internal(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams, include_prompt_logprobs: bool, timeout: float, _extra_options: set[str] | None) -> types.SampleResponse:
         """Internal method that does the actual API call without retry logic."""
-        return await self.holder.aclient.sampling.sample(
-            num_samples=num_samples,
-            prompt=cast(types._ModelInputParam, prompt.model_dump()),
-            sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
-            model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
-            prompt_logprobs=include_prompt_logprobs,
-            base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
-            max_retries=0,
-            timeout=timeout,
-        )
+        if _extra_options and "async_sampling" in _extra_options:
+            untyped_future = await self.holder.aclient.sampling.asample(
+                num_samples=num_samples,
+                prompt=cast(types._ModelInputParam, prompt.model_dump()),
+                sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
+                model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
+                prompt_logprobs=include_prompt_logprobs,
+                base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
+                max_retries=0,
+            )
+            return await APIFuture(types.SampleResponse, self.holder, untyped_future, request_start_time=time.time(), request_type="Sample").result_async(timeout=timeout)
+        else :
+            return await self.holder.aclient.sampling.sample(
+                num_samples=num_samples,
+                prompt=cast(types._ModelInputParam, prompt.model_dump()),
+                sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
+                model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
+                prompt_logprobs=include_prompt_logprobs,
+                base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
+                max_retries=0,
+                timeout=timeout,
+                )
 
-    async def sample_async(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> types.SampleResponse:
+
+    async def sample_async(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False, _extra_options: set[str] | None = None) -> types.SampleResponse:
         """Execute sample request using the retry handler."""
         timeout = 60.0 + (sampling_params.max_tokens or 1000) / 10.0 # 10 token per second
         # TODO make max_tokens a required field
@@ -403,6 +416,7 @@ class SamplingClient:
             sampling_params=sampling_params,
             include_prompt_logprobs=include_prompt_logprobs,
             timeout=timeout, # used by _sample_async_internal
+            _extra_options=_extra_options,
         )
 
     def sample_sync_for_debugging(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> ConcurrentFuture[types.SampleResponse]:
@@ -446,8 +460,20 @@ def _get_tokenizer(
     model_name = info.model_data.model_name
     assert model_name is not None, "This shouldn't happen: model_name is None"
 
-    
-    return AutoTokenizer.from_pretrained(model_name, fast=True)
+    # We generally adhere to the huggingface convention of "<org>/<model>" but
+    # in some cases we'll deploy variants using the format
+    # "<org>/<model>/<variant>". In that case, we want to load the tokenizer
+    # using the huggingface convention.
+    if model_name.startswith("meta-llama/Llama-3"):
+        # Avoid gating of Llama 3 models:
+        tokenizer_id = "baseten/Meta-Llama-3-tokenizer"
+    elif model_name.count("/") == 2:
+        org, model, _variant = model_name.split("/", 2)
+        tokenizer_id = f"{org}/{model}"
+    else:
+        tokenizer_id = model_name
+
+    return AutoTokenizer.from_pretrained(tokenizer_id, fast=True)
 
 def _get_default_headers() -> dict[str, str]:
     headers = {}

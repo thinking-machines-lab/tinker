@@ -56,6 +56,7 @@ from .training_forward_params import TrainingForwardParams as _TrainingForwardPa
 from .encoded_text_chunk_param import EncodedTextChunkParam as _EncodedTextChunkParam
 from .sampling_params_param import SamplingParamsParam as _SamplingParamsParam
 from .sampling_sample_params import SamplingSampleParams as _SamplingSampleParams
+from .sampling_asample_params import SamplingAsampleParams as _SamplingAsampleParams
 from .future_retrieve_response import FutureRetrieveResponse as FutureRetrieveResponse
 from .compute_logprobs_response import ComputeLogprobsResponse as ComputeLogprobsResponse
 from .image_asset_pointer_chunk import ImageAssetPointerChunk as ImageAssetPointerChunk

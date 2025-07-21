@@ -38,7 +38,7 @@ Homepage = "https://github.com/stainless-sdks/tinker-python"
 Repository = "https://github.com/stainless-sdks/tinker-python"
 
 [project.optional-dependencies]
-aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.6"]
+aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
 
 [tool.uv]
 managed = true
