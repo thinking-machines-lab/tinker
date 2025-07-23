@@ -31,6 +31,12 @@ T = TypeVar("T")
 def is_retryable_status_code(status_code: int) -> bool:
     return status_code in (408, 409, 429) or (500 <= status_code < 600)
 
+
+class RetryableException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 @dataclass
 class RetryConfig:
     max_connections: int = DEFAULT_CONNECTION_LIMITS.max_connections or 100
@@ -43,6 +49,7 @@ class RetryConfig:
         asyncio.TimeoutError,
         tinker_public.APIConnectionError,
         httpx.TimeoutException,
+        RetryableException,
     )
 
     def __post_init__(self):

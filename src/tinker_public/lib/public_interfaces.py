@@ -23,7 +23,7 @@ from tinker_public._types import NOT_GIVEN
 from tinker_public.types import training_optim_step_params
 
 from .._models import BaseModel
-from .retry_handler import RetryConfig, RetryHandler
+from .retry_handler import RetryConfig, RetryHandler, RetryableException
 from .sync_only import sync_only
 
 # pyright: reportPrivateImportUsage=false
@@ -153,7 +153,7 @@ class APIFuture(Generic[T]):
             iteration += 1
 
             if timeout is not None and time.time() - start_time > timeout:
-                raise TimeoutError(f"Timeout of {timeout} seconds reached while waiting for result of {self.untyped_future.request_id=}")
+                raise TimeoutError(f"Timeout of {timeout} seconds reached while waiting for result of {self.request_id=}")
 
             # Headers for telemetry
             headers = {
@@ -168,23 +168,27 @@ class APIFuture(Generic[T]):
                 # Get response with retries for everything except 408s,
                 # which we want to handle ourselves
                 response = await self.holder.aclient.futures.with_raw_response.retrieve(
-                    request_id=self.untyped_future.request_id, timeout=timeout, extra_headers=headers
+                    request_id=self.request_id, timeout=timeout, extra_headers=headers
                 )
             except tinker_public.APIStatusError as e:
                 # Retry 408s until we time out
                 if e.status_code == 408:
                     continue
-                raise ValueError(f"Error retrieving result: {e} with status code {e.status_code=} for {self.untyped_future.request_id=} and expected type {self.model_cls=}") from e
+                if e.status_code == 410:
+                    raise RetryableException(
+                        message=f"Promise expired for request {self.untyped_future.request_id}"
+                    ) from e
+                raise ValueError(f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}") from e
 
             # Function hasn't been called yet, execute it now
             result_dict: Dict[str, Any] = await response.json() # type: ignore
 
             if "type" in result_dict and result_dict["type"] == "try_again":
-                logger.warning(f"Retrying request {self.untyped_future.request_id=} because of try_again")
+                logger.warning(f"Retrying request {self.request_id=} because of try_again")
                 continue
 
             if "error" in result_dict:
-                raise ValueError(f"Error retrieving result: {result_dict} for {self.untyped_future.request_id=} and expected type {self.model_cls=}")
+                raise ValueError(f"Error retrieving result: {result_dict} for {self.request_id=} and expected type {self.model_cls=}")
 
             try:
                 # Check if model_cls is a BaseModel subclass before calling model_validate
@@ -195,7 +199,11 @@ class APIFuture(Generic[T]):
                     self._cached_result = result_dict
                 return cast(T, self._cached_result)
             except Exception as e:
-                raise ValueError(f"Error retrieving result: {e} for {self.untyped_future.request_id=} and expected type {self.model_cls=}") from e
+                raise ValueError(f"Error retrieving result: {e} for {self.request_id=} and expected type {self.model_cls=}") from e
+
+    @property
+    def request_id(self) -> str:
+        return self.untyped_future.request_id
 
     @sync_only
     def result(self, timeout: float | None = None) -> T:
@@ -373,14 +381,16 @@ class SamplingClient:
         # Create retry handler with the provided configuration
         self.retry_handler = get_retry_handler(model_path or base_model, retry_config=retry_config)
 
+        self.feature_gates = set(os.environ.get("TINKER_FEATURE_GATES", "async_sampling").split(","))
+
     @sync_only
-    def sample(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False, _extra_options: set[str] | None = None) -> ConcurrentFuture[types.SampleResponse]:
-        coro = self.sample_async(prompt, num_samples, sampling_params, include_prompt_logprobs, _extra_options)
+    def sample(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> ConcurrentFuture[types.SampleResponse]:
+        coro = self.sample_async(prompt, num_samples, sampling_params, include_prompt_logprobs)
         return asyncio.run_coroutine_threadsafe(coro, self.holder.get_loop())
 
-    async def _sample_async_internal(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams, include_prompt_logprobs: bool, timeout: float, _extra_options: set[str] | None) -> types.SampleResponse:
+    async def _sample_async_internal(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams, include_prompt_logprobs: bool, timeout: float) -> types.SampleResponse:
         """Internal method that does the actual API call without retry logic."""
-        if _extra_options and "async_sampling" in _extra_options:
+        if "async_sampling" in self.feature_gates:
             untyped_future = await self.holder.aclient.sampling.asample(
                 num_samples=num_samples,
                 prompt=cast(types._ModelInputParam, prompt.model_dump()),
@@ -404,7 +414,7 @@ class SamplingClient:
                 )
 
 
-    async def sample_async(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False, _extra_options: set[str] | None = None) -> types.SampleResponse:
+    async def sample_async(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> types.SampleResponse:
         """Execute sample request using the retry handler."""
         timeout = 60.0 + (sampling_params.max_tokens or 1000) / 10.0 # 10 token per second
         # TODO make max_tokens a required field
@@ -416,7 +426,6 @@ class SamplingClient:
             sampling_params=sampling_params,
             include_prompt_logprobs=include_prompt_logprobs,
             timeout=timeout, # used by _sample_async_internal
-            _extra_options=_extra_options,
         )
 
     def sample_sync_for_debugging(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> ConcurrentFuture[types.SampleResponse]:
