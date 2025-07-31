@@ -30,4 +30,3 @@ class OptimStepRequest(StrictBase):
     model_id: ModelID
 
     type: Optional[Literal["optim_step"]] = None
-

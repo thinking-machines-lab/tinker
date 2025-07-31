@@ -14,7 +14,7 @@
       "extensions": [
         "ms-python.python"
       ],
-      "settings": { 
+      "settings": {
         "terminal.integrated.shell.linux": "/bin/bash",
         "python.pythonPath": ".venv/bin/python",
         "python.defaultInterpreterPath": ".venv/bin/python",

@@ -24,7 +24,7 @@ class GetInfoResponse(BaseModel):
     is_lora: Optional[bool] = None
 
     lora_rank: Optional[int] = None
-      
+
     model_name: Optional[str] = None
 
     if PYDANTIC_V2:

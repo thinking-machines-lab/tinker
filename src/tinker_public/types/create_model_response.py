@@ -13,4 +13,3 @@ class CreateModelResponse(BaseModel):
     model_id: ModelID
 
     type: Literal["create_model"] = "create_model"
-

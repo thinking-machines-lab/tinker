@@ -16,7 +16,7 @@ class TestBaseClient(BaseClient):
 
     def make_status_error(self, err_msg: str, body: object, response: object) -> None:
         return None
-    
+
     def _enforce_trailing_slash(self, url: URL) -> URL:
         return url
 
@@ -46,7 +46,7 @@ model_data = {
 try:
     # Properly initialize the ForwardBackwardInput model
     input_obj = ForwardBackwardInput.model_validate(model_data)
-    
+
     # Test the convert function
     result = _convert_forward_backward_input(input_obj)
     print(f"Conversion successful: {result}")
@@ -55,4 +55,4 @@ except Exception as e:
     print(f"Note: Could not validate ForwardBackwardInput model: {e}")
     print("But that's okay since we're just testing the base_url parameter fix")
 
-print("All tests passed!") 
+print("All tests passed!")

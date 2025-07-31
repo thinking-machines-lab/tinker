@@ -1554,7 +1554,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as err:  # thrown on 4xx and 5xx status code
-                log.debug("Encountered httpx.HTTPStatusError. Response_type=%s", cast_to) 
+                log.debug("Encountered httpx.HTTPStatusError. Response_type=%s", cast_to)
 
                 if remaining_retries > 0 and self._should_retry(err.response):
                     await err.response.aclose()

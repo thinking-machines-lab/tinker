@@ -20,7 +20,7 @@ class ModelInput(StrictBase):
         Create a ModelInput from a list of ints (tokens).
         """
         return cls(chunks=[EncodedTextChunk(tokens=tokens)])
-    
+
     def to_ints(self) -> List[int]:
         """
         Convert the ModelInput to a list of ints (tokens)
@@ -29,14 +29,14 @@ class ModelInput(StrictBase):
         if not all(isinstance(chunk, EncodedTextChunk) for chunk in self.chunks):
             raise ValueError(f"to_ints only supported for ModelInput with EncodedTextChunks, got {[type(chunk) for chunk in self.chunks]}")
         return [token for chunk in self.chunks for token in chunk.tokens]
-    
+
     @property
     def length(self) -> int:
         """
         Return the total context length used by this ModelInput.
         """
         return sum(chunk.length for chunk in self.chunks)
-    
+
     @classmethod
     def empty(cls) -> "ModelInput":
         """

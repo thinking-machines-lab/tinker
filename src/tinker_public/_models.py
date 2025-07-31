@@ -87,7 +87,7 @@ class BaseModel(pydantic.BaseModel):
     """
     Use for classes that may appear in responses. Allow extra fields, so old clients can still work.
     """
-    
+
     # For future-proofing, we ignore extra fields in case the server adds new fields.
     model_config = ConfigDict(frozen=True, extra="ignore")
 

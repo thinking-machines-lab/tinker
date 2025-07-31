@@ -416,7 +416,9 @@ class SamplingClient:
 
     async def sample_async(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams,  include_prompt_logprobs: bool = False) -> types.SampleResponse:
         """Execute sample request using the retry handler."""
-        timeout = 60.0 + (sampling_params.max_tokens or 1000) / 10.0 # 10 token per second
+        # This timeout can't be determined based on the sampling_params because it also depends on
+        # the overall load of the system. So using a large value here.
+        timeout = 30 * 60
         # TODO make max_tokens a required field
         return await self.retry_handler.execute(
             self._sample_async_internal,

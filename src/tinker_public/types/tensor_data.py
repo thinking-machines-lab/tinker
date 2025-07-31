@@ -37,31 +37,31 @@ class TensorData(StrictBase):
         """Convert TensorData to numpy array."""
         # Convert dtype
         numpy_dtype = _convert_tensor_dtype_to_numpy(self.dtype)
-        
+
         # Create numpy array from data
         arr = np.array(self.data, dtype=numpy_dtype)
-        
+
         # Reshape if shape is provided
         if self.shape is not None:
             arr = arr.reshape(self.shape)
-        
+
         return arr
 
     def to_torch(self) -> 'torch.Tensor':
         """Convert TensorData to torch tensor."""
         if not _HAVE_TORCH:
             raise ImportError("PyTorch is not installed. Cannot convert to torch tensor.")
-        
+
         # Convert dtype
         torch_dtype = _convert_tensor_dtype_to_torch(self.dtype)
-        
+
         # Create torch tensor from data
         tensor = torch.tensor(self.data, dtype=torch_dtype)
-        
+
         # Reshape if shape is provided
         if self.shape is not None:
             tensor = tensor.reshape(self.shape)
-        
+
         return tensor
 
     def tolist(self) -> list:

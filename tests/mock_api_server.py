@@ -34,7 +34,7 @@ async def log_exceptions(request: Request, exc: Exception):
     logger.error(f"Exception type: {type(exc).__name__}")
     logger.error(f"Exception message: {str(exc)}")
     logger.error(f"Full traceback:\n{traceback.format_exc()}")
-    
+
     return JSONResponse(
         status_code=500,
         content={"detail": f"Internal server error: {str(exc)}"}
@@ -49,7 +49,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logger.error(f"Validation errors: {exc.errors()}")
     logger.error(f"Request body: {exc.body}")
     logger.error(f"Full traceback:\n{traceback.format_exc()}")
-    
+
     return JSONResponse(
         status_code=422,
         content={
@@ -70,7 +70,7 @@ async def pydantic_validation_exception_handler(request: Request, exc: Validatio
     logger.error(f"Pydantic validation error in {request.method} {request.url}")
     logger.error(f"Validation errors: {exc.errors()}")
     logger.error(f"Full traceback:\n{traceback.format_exc()}")
-    
+
     return JSONResponse(
         status_code=422,
         content={
@@ -202,10 +202,10 @@ async def retrieve_future(params: types.FutureRetrieveParams):
 
     future_data = futures_store[future_id]
     result = future_data["result"]
-    
+
     # Handle different result types explicitly
-    if isinstance(result, (types.FwdBwdOutput, types.AddLoraResponse, types.UnloadModelResponse, 
-                          types.LoadWeightsResponse, types.SaveWeightsResponse, 
+    if isinstance(result, (types.FwdBwdOutput, types.AddLoraResponse, types.UnloadModelResponse,
+                          types.LoadWeightsResponse, types.SaveWeightsResponse,
                           types.SaveWeightsForSamplerResponse)):
         serialized_result = result.model_dump()
         print(f"RETRIEVE_FUTURE: Returning Pydantic model result: {serialized_result}")
@@ -219,7 +219,7 @@ async def retrieve_future(params: types.FutureRetrieveParams):
 async def add_lora(params: types.LoraAddParams):
     """Add a LoRA adapter to the model."""
     future_id = generate_future_id()
-    
+
     # Generate new model_id with LoRA
     base_model = params["base_model"]
     lora_model_id = f"{base_model}_lora_{uuid.uuid4().hex[:8]}"
@@ -254,7 +254,7 @@ async def add_lora(params: types.LoraAddParams):
 async def remove_lora(params: types.LoraRemoveParams):
     """Remove a LoRA adapter from the model."""
     future_id = generate_future_id()
-    
+
     model_id = params["model_id"]
 
     # Check if this is a LoRA model
