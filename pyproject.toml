@@ -1,5 +1,5 @@
 [project]
-name = "tinker_public"
+name = "tinker"
 version = "0.0.1-alpha.0"
 description = "The official Python library for the tinker API"
 dynamic = ["readme"]
@@ -69,7 +69,7 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tinker_public"]
+packages = ["src/tinker"]
 
 [tool.hatch.build.targets.sdist]
 # Basically everything except hidden files/directories (such as .github, .devcontainers, .python-version, etc)
@@ -172,7 +172,7 @@ length-sort = true
 length-sort-straight = true
 combine-as-imports = true
 extra-standard-library = ["typing_extensions"]
-known-first-party = ["tinker_public", "tests"]
+known-first-party = ["tinker", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "bin/**.py" = ["T201", "T203"]

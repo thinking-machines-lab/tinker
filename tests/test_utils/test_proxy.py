@@ -2,7 +2,7 @@ import operator
 from typing import Any
 from typing_extensions import override
 
-from tinker_public._utils import LazyProxy
+from tinker._utils import LazyProxy
 
 
 class RecursiveLazyProxy(LazyProxy[Any]):

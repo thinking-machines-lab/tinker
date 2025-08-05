@@ -10,15 +10,15 @@ import httpx
 import pytest
 from pytest_asyncio import is_async_test
 
-from tinker_public import Tinker, AsyncTinker, DefaultAioHttpClient
-from tinker_public._utils import is_dict
+from tinker import Tinker, AsyncTinker, DefaultAioHttpClient
+from tinker._utils import is_dict
 
 if TYPE_CHECKING:
     from _pytest.fixtures import FixtureRequest  # pyright: ignore[reportPrivateImportUsage]
 
 pytest.register_assert_rewrite("tests.utils")
 
-logging.getLogger("tinker_public").setLevel(logging.DEBUG)
+logging.getLogger("tinker").setLevel(logging.DEBUG)
 
 
 # automatically add `pytest.mark.asyncio()` to all of our async tests

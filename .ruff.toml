@@ -1,5 +1,5 @@
 line-length = 100
-include = ["src/tinker_public/lib/**/*.py"]
+include = ["src/tinker/lib/**/*.py"]
 exclude = []
 force-exclude = true
 

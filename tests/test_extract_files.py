@@ -4,8 +4,8 @@ from typing import Sequence
 
 import pytest
 
-from tinker_public._types import FileTypes
-from tinker_public._utils import extract_files
+from tinker._types import FileTypes
+from tinker._utils import extract_files
 
 
 def test_removes_files_from_input() -> None:

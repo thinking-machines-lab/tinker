@@ -17,10 +17,11 @@ from concurrent.futures import Future as ConcurrentFuture
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Dict, Generic, List, Sequence, Type, TypeVar, cast
 
-import tinker_public
-from tinker_public import types
-from tinker_public._types import NOT_GIVEN
-from tinker_public.types import training_optim_step_params
+import httpx
+import tinker
+from tinker import types
+from tinker._types import NOT_GIVEN
+from tinker.types import training_optim_step_params
 
 from .._models import BaseModel
 from .retry_handler import RetryConfig, RetryHandler, RetryableException
@@ -65,12 +66,12 @@ class InternalClientHolder:
         self._started = threading.Event()
 
     @cached_property
-    def client(self) -> tinker_public.Tinker:
-        return tinker_public.Tinker(**self._constructor_kwargs)
+    def client(self) -> tinker.Tinker:
+        return tinker.Tinker(**self._constructor_kwargs)
 
     @cached_property
-    def aclient(self) -> tinker_public.AsyncTinker:
-        return tinker_public.AsyncTinker(**self._constructor_kwargs)
+    def aclient(self) -> tinker.AsyncTinker:
+        return tinker.AsyncTinker(**self._constructor_kwargs)
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None:
@@ -88,7 +89,7 @@ class InternalClientHolder:
     def _background_thread_func(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self.async_client = tinker_public.AsyncTinker(**self._constructor_kwargs)
+        self.async_client = tinker.AsyncTinker(**self._constructor_kwargs)
         self._started.set()
         self._loop.run_forever()
 
@@ -148,6 +149,7 @@ class APIFuture(Generic[T]):
 
         start_time = time.time()
         iteration = -1
+        connection_error_retries = 0
 
         while True:
             iteration += 1
@@ -165,20 +167,26 @@ class APIFuture(Generic[T]):
 
             # Function hasn't been called yet, execute it now
             try:
-                # Get response with retries for everything except 408s,
-                # which we want to handle ourselves
                 response = await self.holder.aclient.futures.with_raw_response.retrieve(
-                    request_id=self.request_id, timeout=timeout, extra_headers=headers
+                    request_id=self.request_id, timeout=45, extra_headers=headers, max_retries=0
                 )
-            except tinker_public.APIStatusError as e:
+            except tinker.APIStatusError as e:
+                connection_error_retries = 0
                 # Retry 408s until we time out
                 if e.status_code == 408:
                     continue
                 if e.status_code == 410:
                     raise RetryableException(
-                        message=f"Promise expired for request {self.untyped_future.request_id}"
+                        message=f"Promise expired/broken for request {self.untyped_future.request_id}"
                     ) from e
+                if e.status_code in range(500, 600):
+                    continue
                 raise ValueError(f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}") from e
+            except tinker.APIConnectionError as e:
+                # Retry all connection errors with exponential backoff
+                await asyncio.sleep(min(2 ** connection_error_retries, 30))
+                connection_error_retries += 1
+                continue
 
             # Function hasn't been called yet, execute it now
             result_dict: Dict[str, Any] = await response.json() # type: ignore
@@ -391,15 +399,28 @@ class SamplingClient:
     async def _sample_async_internal(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams, include_prompt_logprobs: bool, timeout: float) -> types.SampleResponse:
         """Internal method that does the actual API call without retry logic."""
         if "async_sampling" in self.feature_gates:
-            untyped_future = await self.holder.aclient.sampling.asample(
-                num_samples=num_samples,
-                prompt=cast(types._ModelInputParam, prompt.model_dump()),
-                sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
-                model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
-                prompt_logprobs=include_prompt_logprobs,
-                base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
-                max_retries=0,
-            )
+            async def _asample_with_retries():
+                start_time = time.time()
+                retries = 0
+                while True:
+                    try:
+                        return await self.holder.aclient.sampling.asample(
+                            num_samples=num_samples,
+                            prompt=cast(types._ModelInputParam, prompt.model_dump()),
+                            sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
+                            model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
+                            prompt_logprobs=include_prompt_logprobs,
+                            base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
+                            max_retries=0,
+                        )
+                    except tinker.APITimeoutError as e:
+                        # Connect timeouts are safe to retry
+                        if time.time() - start_time < timeout and e.__cause__ is not None and isinstance(e.__cause__, httpx.ConnectTimeout):
+                            await asyncio.sleep(min(2 ** retries, 30))
+                            retries += 1
+                            continue
+                        raise e
+            untyped_future = await _asample_with_retries()
             return await APIFuture(types.SampleResponse, self.holder, untyped_future, request_start_time=time.time(), request_type="Sample").result_async(timeout=timeout)
         else :
             return await self.holder.aclient.sampling.sample(

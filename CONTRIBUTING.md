@@ -36,7 +36,7 @@ $ pip install -r requirements-dev.lock
 
 Most of the SDK is generated code. Modifications to code will be persisted between generations, but may
 result in merge conflicts between manual patches and changes from the generator. The generator will never
-modify the contents of the `src/tinker_public/lib/` and `examples/` directories.
+modify the contents of the `src/tinker/lib/` and `examples/` directories.
 
 ## Adding and running examples
 

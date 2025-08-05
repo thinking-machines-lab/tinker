@@ -21,11 +21,11 @@ import pytest
 from respx import MockRouter
 from pydantic import ValidationError
 
-from tinker_public import Tinker, AsyncTinker, APIResponseValidationError
-from tinker_public._types import Omit
-from tinker_public._models import BaseModel, FinalRequestOptions
-from tinker_public._exceptions import TinkerError, APIStatusError, APITimeoutError, APIResponseValidationError
-from tinker_public._base_client import (
+from tinker import Tinker, AsyncTinker, APIResponseValidationError
+from tinker._types import Omit
+from tinker._models import BaseModel, FinalRequestOptions
+from tinker._exceptions import TinkerError, APIStatusError, APITimeoutError, APIResponseValidationError
+from tinker._base_client import (
     DEFAULT_TIMEOUT,
     HTTPX_DEFAULT_TIMEOUT,
     BaseClient,
@@ -232,10 +232,10 @@ class TestTinker:
                         # to_raw_response_wrapper leaks through the @functools.wraps() decorator.
                         #
                         # removing the decorator fixes the leak for reasons we don't understand.
-                        "tinker_public/_legacy_response.py",
-                        "tinker_public/_response.py",
+                        "tinker/_legacy_response.py",
+                        "tinker/_response.py",
                         # pydantic.BaseModel.model_dump || pydantic.BaseModel.dict leak memory for some reason.
-                        "tinker_public/_compat.py",
+                        "tinker/_compat.py",
                         # Standard library leaks we don't care about.
                         "/logging/__init__.py",
                     ]
@@ -740,7 +740,7 @@ class TestTinker:
         calculated = client._calculate_retry_timeout(remaining_retries, options, headers)
         assert calculated == pytest.approx(timeout, 0.5 * 0.875)  # pyright: ignore[reportUnknownMemberType]
 
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     def test_retrying_timeout_errors_doesnt_leak(self, respx_mock: MockRouter, client: Tinker) -> None:
         respx_mock.post("/api/v1/forward_backward").mock(side_effect=httpx.TimeoutException("Test timeout error"))
@@ -777,7 +777,7 @@ class TestTinker:
 
         assert _get_open_connections(self.client) == 0
 
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     def test_retrying_status_errors_doesnt_leak(self, respx_mock: MockRouter, client: Tinker) -> None:
         respx_mock.post("/api/v1/forward_backward").mock(return_value=httpx.Response(500))
@@ -814,7 +814,7 @@ class TestTinker:
         assert _get_open_connections(self.client) == 0
 
     @pytest.mark.parametrize("failures_before_success", [0, 2, 4])
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     @pytest.mark.parametrize("failure_mode", ["status", "exception"])
     def test_retries_taken(
@@ -872,7 +872,7 @@ class TestTinker:
         assert int(response.http_request.headers.get("x-stainless-retry-count")) == failures_before_success
 
     @pytest.mark.parametrize("failures_before_success", [0, 2, 4])
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     def test_omit_retry_count_header(
         self, client: Tinker, failures_before_success: int, respx_mock: MockRouter
@@ -923,7 +923,7 @@ class TestTinker:
         assert len(response.http_request.headers.get_list("x-stainless-retry-count")) == 0
 
     @pytest.mark.parametrize("failures_before_success", [0, 2, 4])
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     def test_overwrite_retry_count_header(
         self, client: Tinker, failures_before_success: int, respx_mock: MockRouter
@@ -1199,10 +1199,10 @@ class TestAsyncTinker:
                         # to_raw_response_wrapper leaks through the @functools.wraps() decorator.
                         #
                         # removing the decorator fixes the leak for reasons we don't understand.
-                        "tinker_public/_legacy_response.py",
-                        "tinker_public/_response.py",
+                        "tinker/_legacy_response.py",
+                        "tinker/_response.py",
                         # pydantic.BaseModel.model_dump || pydantic.BaseModel.dict leak memory for some reason.
-                        "tinker_public/_compat.py",
+                        "tinker/_compat.py",
                         # Standard library leaks we don't care about.
                         "/logging/__init__.py",
                     ]
@@ -1723,7 +1723,7 @@ class TestAsyncTinker:
         calculated = client._calculate_retry_timeout(remaining_retries, options, headers)
         assert calculated == pytest.approx(timeout, 0.5 * 0.875)  # pyright: ignore[reportUnknownMemberType]
 
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     async def test_retrying_timeout_errors_doesnt_leak(self, respx_mock: MockRouter, async_client: AsyncTinker) -> None:
         respx_mock.post("/api/v1/forward_backward").mock(side_effect=httpx.TimeoutException("Test timeout error"))
@@ -1760,7 +1760,7 @@ class TestAsyncTinker:
 
         assert _get_open_connections(self.client) == 0
 
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     async def test_retrying_status_errors_doesnt_leak(self, respx_mock: MockRouter, async_client: AsyncTinker) -> None:
         respx_mock.post("/api/v1/forward_backward").mock(return_value=httpx.Response(500))
@@ -1797,7 +1797,7 @@ class TestAsyncTinker:
         assert _get_open_connections(self.client) == 0
 
     @pytest.mark.parametrize("failures_before_success", [0, 2, 4])
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     @pytest.mark.asyncio
     @pytest.mark.parametrize("failure_mode", ["status", "exception"])
@@ -1856,7 +1856,7 @@ class TestAsyncTinker:
         assert int(response.http_request.headers.get("x-stainless-retry-count")) == failures_before_success
 
     @pytest.mark.parametrize("failures_before_success", [0, 2, 4])
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     @pytest.mark.asyncio
     async def test_omit_retry_count_header(
@@ -1908,7 +1908,7 @@ class TestAsyncTinker:
         assert len(response.http_request.headers.get_list("x-stainless-retry-count")) == 0
 
     @pytest.mark.parametrize("failures_before_success", [0, 2, 4])
-    @mock.patch("tinker_public._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
+    @mock.patch("tinker._base_client.BaseClient._calculate_retry_timeout", _low_retry_timeout)
     @pytest.mark.respx(base_url=base_url)
     @pytest.mark.asyncio
     async def test_overwrite_retry_count_header(
@@ -1970,8 +1970,8 @@ class TestAsyncTinker:
         import nest_asyncio
         import threading
 
-        from tinker_public._utils import asyncify
-        from tinker_public._base_client import get_platform
+        from tinker._utils import asyncify
+        from tinker._base_client import get_platform
 
         async def test_main() -> None:
             result = await asyncify(get_platform)()

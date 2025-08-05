@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable, Generic, Type, TypeVar
 
 import httpx
 
-import tinker_public
+import tinker
 
 from .._constants import (
     DEFAULT_CONNECTION_LIMITS,
@@ -40,14 +40,14 @@ class RetryableException(Exception):
 @dataclass
 class RetryConfig:
     max_connections: int = DEFAULT_CONNECTION_LIMITS.max_connections or 100
-    progress_timeout: float = 300.0 # Very long straggler
+    progress_timeout: float = 30 * 60 # Very long straggler
     retry_delay_base: float = INITIAL_RETRY_DELAY
     retry_delay_max: float = MAX_RETRY_DELAY
     jitter_factor: float = 0.25
     enable_retry_logic: bool = True
     retryable_exceptions: tuple[Type[Exception], ...] = (
         asyncio.TimeoutError,
-        tinker_public.APIConnectionError,
+        tinker.APIConnectionError,
         httpx.TimeoutException,
         RetryableException,
     )
@@ -123,7 +123,7 @@ class RetryHandler(Generic[T]):
             if (attempt_count > 0) and (elapsed_since_last_progress > self.config.progress_timeout):
                 # Create a dummy request for the exception (required by APIConnectionError)
                 dummy_request = httpx.Request("GET", "http://localhost")
-                raise tinker_public.APIConnectionError(
+                raise tinker.APIConnectionError(
                     message=f"No progress made in {self.config.progress_timeout}s. "
                         f"Requests appear to be stuck.",
                     request=dummy_request
@@ -171,7 +171,7 @@ class RetryHandler(Generic[T]):
             return True
 
         # Check for API status errors with retryable status codes
-        if isinstance(exception, tinker_public.APIStatusError):
+        if isinstance(exception, tinker.APIStatusError):
             return is_retryable_status_code(exception.status_code)
 
         return False
@@ -180,9 +180,9 @@ class RetryHandler(Generic[T]):
         """Log the reason for retrying."""
         if isinstance(exception, asyncio.TimeoutError):
             logger.debug(f"Request timed out after {request_timeout}s")
-        elif isinstance(exception, tinker_public.APIConnectionError):
+        elif isinstance(exception, tinker.APIConnectionError):
             logger.debug(f"Request failed with connection error: {exception}")
-        elif isinstance(exception, tinker_public.APIStatusError):
+        elif isinstance(exception, tinker.APIStatusError):
             logger.debug(f"Request attempt #{attempt_count} failed with status {exception.status_code}")
         else:
             logger.debug(f"Request attempt #{attempt_count} failed with error: {exception}")

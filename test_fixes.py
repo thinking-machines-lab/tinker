@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 from httpx import URL
-from tinker_public._base_client import BaseClient
-from tinker_public.lib.public_interfaces import _convert_forward_backward_input
-from tinker_public.types import ForwardBackwardInput
+from tinker._base_client import BaseClient
+from tinker.lib.public_interfaces import _convert_forward_backward_input
+from tinker.types import ForwardBackwardInput
 
 class TestBaseClient(BaseClient):
     def __init__(self, base_url: str = "http://localhost:8000"):

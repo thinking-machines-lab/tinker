@@ -6,11 +6,11 @@ annotated-types==0.7.0
 anyio==4.5.2 ; python_full_version < '3.9'
     # via
     #   httpx
-    #   tinker-public
+    #   tinker
 anyio==4.8.0 ; python_full_version >= '3.9'
     # via
     #   httpx
-    #   tinker-public
+    #   tinker
 certifi==2024.12.14
     # via
     #   httpcore
@@ -19,7 +19,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
 dirty-equals==0.9.0
 distro==1.9.0
-    # via tinker-public
+    # via tinker
 exceptiongroup==1.2.2 ; python_full_version < '3.11'
     # via
     #   anyio
@@ -33,7 +33,7 @@ httpcore==1.0.9
 httpx==0.28.1
     # via
     #   respx
-    #   tinker-public
+    #   tinker
 idna==3.10
     # via
     #   anyio
@@ -57,7 +57,7 @@ packaging==24.2
 pluggy==1.5.0
     # via pytest
 pydantic==2.10.3
-    # via tinker-public
+    # via tinker
 pydantic-core==2.27.1
     # via pydantic
 pygments==2.19.1
@@ -82,7 +82,7 @@ six==1.17.0
 sniffio==1.3.1
     # via
     #   anyio
-    #   tinker-public
+    #   tinker
 time-machine==2.15.0 ; python_full_version < '3.9'
 time-machine==2.16.0 ; python_full_version >= '3.9'
 tomli==2.2.1 ; python_full_version < '3.11'
@@ -98,7 +98,7 @@ typing-extensions==4.12.2
     #   pydantic-core
     #   pyright
     #   rich
-    #   tinker-public
+    #   tinker
 zipp==3.20.2 ; python_full_version < '3.9'
     # via importlib-metadata
 zipp==3.21.0 ; python_full_version >= '3.9'

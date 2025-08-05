@@ -14,4 +14,4 @@ echo "==> Running mypy"
 uv run mypy .
 
 echo "==> Making sure it imports"
-uv run python -c 'import tinker_public'
+uv run python -c 'import tinker'

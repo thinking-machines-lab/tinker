@@ -8,15 +8,15 @@ from typing_extensions import Required, Annotated, TypedDict
 
 import pytest
 
-from tinker_public._types import NOT_GIVEN, Base64FileInput
-from tinker_public._utils import (
+from tinker._types import NOT_GIVEN, Base64FileInput
+from tinker._utils import (
     PropertyInfo,
     transform as _transform,
     parse_datetime,
     async_transform as _async_transform,
 )
-from tinker_public._compat import PYDANTIC_V2
-from tinker_public._models import BaseModel
+from tinker._compat import PYDANTIC_V2
+from tinker._models import BaseModel
 
 _T = TypeVar("_T")
 

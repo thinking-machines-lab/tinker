@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Union, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Union, Optional, cast
 from datetime import datetime, timezone
 from typing_extensions import Literal, Annotated, TypeAliasType
 
@@ -7,9 +7,9 @@ import pytest
 import pydantic
 from pydantic import Field
 
-from tinker_public._utils import PropertyInfo
-from tinker_public._compat import PYDANTIC_V2, parse_obj, model_dump, model_json
-from tinker_public._models import BaseModel, construct_type
+from tinker._utils import PropertyInfo
+from tinker._compat import PYDANTIC_V2, parse_obj, model_dump, model_json
+from tinker._models import BaseModel, construct_type
 
 
 class BasicModel(BaseModel):
@@ -934,3 +934,30 @@ def test_nested_discriminated_union() -> None:
     )
     assert isinstance(model, Type1)
     assert isinstance(model.value, InnerType2)
+
+
+@pytest.mark.skipif(not PYDANTIC_V2, reason="this is only supported in pydantic v2 for now")
+def test_extra_properties() -> None:
+    class Item(BaseModel):
+        prop: int
+
+    class Model(BaseModel):
+        __pydantic_extra__: Dict[str, Item] = Field(init=False)  # pyright: ignore[reportIncompatibleVariableOverride]
+
+        other: str
+
+        if TYPE_CHECKING:
+
+            def __getattr__(self, attr: str) -> Item: ...
+
+    model = construct_type(
+        type_=Model,
+        value={
+            "a": {"prop": 1},
+            "other": "foo",
+        },
+    )
+    assert isinstance(model, Model)
+    assert model.a.prop == 1
+    assert isinstance(model.a, Item)
+    assert model.other == "foo"

@@ -17,8 +17,8 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
-# Import types from tinker-public
-from tinker_public import types
+# Import types from tinker
+from tinker import types
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

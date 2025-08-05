@@ -8,8 +8,8 @@ from typing import Any, TypeVar, Iterator, cast
 from datetime import date, datetime
 from typing_extensions import Literal, get_args, get_origin, assert_type
 
-from tinker_public._types import Omit, NoneType
-from tinker_public._utils import (
+from tinker._types import Omit, NoneType
+from tinker._utils import (
     is_dict,
     is_list,
     is_list_type,
@@ -18,8 +18,8 @@ from tinker_public._utils import (
     is_annotated_type,
     is_type_alias_type,
 )
-from tinker_public._compat import PYDANTIC_V2, field_outer_type, get_model_fields
-from tinker_public._models import BaseModel
+from tinker._compat import PYDANTIC_V2, field_outer_type, get_model_fields
+from tinker._models import BaseModel
 
 BaseModelT = TypeVar("BaseModelT", bound=BaseModel)
 

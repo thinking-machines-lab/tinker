@@ -5,8 +5,8 @@ from typing import Iterator, AsyncIterator
 import httpx
 import pytest
 
-from tinker_public import Tinker, AsyncTinker
-from tinker_public._streaming import Stream, AsyncStream, ServerSentEvent
+from tinker import Tinker, AsyncTinker
+from tinker._streaming import Stream, AsyncStream, ServerSentEvent
 
 
 @pytest.mark.asyncio

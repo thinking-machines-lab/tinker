@@ -129,6 +129,7 @@ class AsyncFuturesResource(AsyncAPIResource):
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         idempotency_key: str | None = None,
+        max_retries: int | NotGiven = NOT_GIVEN,
     ) -> FutureRetrieveResponse:
         """
         Retrieves the result of a future by its ID
@@ -144,6 +145,16 @@ class AsyncFuturesResource(AsyncAPIResource):
 
           idempotency_key: Specify a custom idempotency key for this request
         """
+        options=make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+            idempotency_key=idempotency_key,
+        )
+        if not isinstance(max_retries, NotGiven):
+            options["max_retries"] = max_retries
+
         return cast(
             FutureRetrieveResponse,
             await self._post(
@@ -155,13 +166,7 @@ class AsyncFuturesResource(AsyncAPIResource):
                     },
                     future_retrieve_params.FutureRetrieveParams,
                 ),
-                options=make_request_options(
-                    extra_headers=extra_headers,
-                    extra_query=extra_query,
-                    extra_body=extra_body,
-                    timeout=timeout,
-                    idempotency_key=idempotency_key,
-                ),
+                options=options,
                 cast_to=cast(
                     Any, FutureRetrieveResponse
                 ),  # Union types cannot be passed in as arguments in the type system

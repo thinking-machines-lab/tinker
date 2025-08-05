@@ -4,7 +4,7 @@ from urllib.parse import unquote
 
 import pytest
 
-from tinker_public._qs import Querystring, stringify
+from tinker._qs import Querystring, stringify
 
 
 def test_empty() -> None:

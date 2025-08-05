@@ -389,7 +389,7 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
 
         if max_retries is None:  # pyright: ignore[reportUnnecessaryComparison]
             raise TypeError(
-                "max_retries cannot be None. If you want to disable retries, pass `0`; if you want unlimited retries, pass `math.inf` or a very high number; if you want the default behavior, pass `tinker_public.DEFAULT_MAX_RETRIES`"
+                "max_retries cannot be None. If you want to disable retries, pass `0`; if you want unlimited retries, pass `math.inf` or a very high number; if you want the default behavior, pass `tinker.DEFAULT_MAX_RETRIES`"
             )
 
     def _enforce_trailing_slash(self, url: URL) -> URL:
@@ -532,7 +532,10 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
         is_body_allowed = options.method.lower() != "get"
 
         if is_body_allowed:
-            kwargs["json"] = json_data if is_given(json_data) else None
+            if isinstance(json_data, bytes):
+                kwargs["content"] = json_data
+            else:
+                kwargs["json"] = json_data if is_given(json_data) else None
             kwargs["files"] = files
         else:
             headers.pop("Content-Type", None)
