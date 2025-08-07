@@ -1394,7 +1394,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
             base_url=base_url,
             # cast to a valid type because mypy doesn't understand our type narrowing
             timeout=cast(Timeout, timeout),
-            http2=False,
+            http2=True,
         )
 
     def is_closed(self) -> bool:

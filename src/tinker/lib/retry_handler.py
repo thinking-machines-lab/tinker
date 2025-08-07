@@ -100,6 +100,7 @@ class RetryHandler(Generic[T]):
 
     async def execute(self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any) -> T:
         """Use as a direct function call."""
+
         self._waiting_at_semaphore_count += 1
         async with self._semaphore:
             self._waiting_at_semaphore_count -= 1
@@ -145,10 +146,11 @@ class RetryHandler(Generic[T]):
                 )
 
             except Exception as e:
-                self._errors_since_last_retry[str(e)] += 1
+                exception_str = f"{type(e).__name__}: {str(e) or 'No error message'}"
+                self._errors_since_last_retry[exception_str] += 1
 
                 if not self._should_retry(e):
-                    logger.error(f"Request failed with non-retryable error: {e}")
+                    logger.error(f"Request failed with non-retryable error: {exception_str}")
                     raise
 
                 self._log_retry_reason(e, attempt_count, request_timeout=request_timeout)

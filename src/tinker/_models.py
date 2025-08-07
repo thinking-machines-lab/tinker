@@ -83,6 +83,9 @@ class StrictBase(pydantic.BaseModel):
     """
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    def __str__(self) -> str:
+        return repr(self)
+
 class BaseModel(pydantic.BaseModel):
     """
     Use for classes that may appear in responses. Allow extra fields, so old clients can still work.
@@ -90,6 +93,9 @@ class BaseModel(pydantic.BaseModel):
 
     # For future-proofing, we ignore extra fields in case the server adds new fields.
     model_config = ConfigDict(frozen=True, extra="ignore")
+
+    def __str__(self) -> str:
+        return repr(self)
 
 
 def _construct_field(value: object, field: FieldInfo, key: str) -> object:
