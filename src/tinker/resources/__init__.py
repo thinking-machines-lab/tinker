@@ -48,6 +48,14 @@ from .training import (
     TrainingResourceWithStreamingResponse,
     AsyncTrainingResourceWithStreamingResponse,
 )
+from .telemetry import (
+    TelemetryResource,
+    AsyncTelemetryResource,
+    TelemetryResourceWithRawResponse,
+    AsyncTelemetryResourceWithRawResponse,
+    TelemetryResourceWithStreamingResponse,
+    AsyncTelemetryResourceWithStreamingResponse,
+)
 
 __all__ = [
     "ServiceResource",
@@ -86,4 +94,10 @@ __all__ = [
     "AsyncFuturesResourceWithRawResponse",
     "FuturesResourceWithStreamingResponse",
     "AsyncFuturesResourceWithStreamingResponse",
+    "TelemetryResource",
+    "AsyncTelemetryResource",
+    "TelemetryResourceWithRawResponse",
+    "AsyncTelemetryResourceWithRawResponse",
+    "TelemetryResourceWithStreamingResponse",
+    "AsyncTelemetryResourceWithStreamingResponse",
 ]

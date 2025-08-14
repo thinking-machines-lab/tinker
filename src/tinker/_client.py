@@ -31,13 +31,14 @@ from ._base_client import (
 )
 
 if TYPE_CHECKING:
-    from .resources import models, futures, service, weights, sampling, training
+    from .resources import models, futures, service, weights, sampling, training, telemetry
     from .resources.models import ModelsResource, AsyncModelsResource
     from .resources.futures import FuturesResource, AsyncFuturesResource
     from .resources.service import ServiceResource, AsyncServiceResource
     from .resources.weights import WeightsResource, AsyncWeightsResource
     from .resources.sampling import SamplingResource, AsyncSamplingResource
     from .resources.training import TrainingResource, AsyncTrainingResource
+    from .resources.telemetry import TelemetryResource, AsyncTelemetryResource
 
 __all__ = ["Timeout", "Transport", "ProxiesTypes", "RequestOptions", "Tinker", "AsyncTinker", "Client", "AsyncClient"]
 
@@ -134,6 +135,12 @@ class Tinker(SyncAPIClient):
         from .resources.futures import FuturesResource
 
         return FuturesResource(self)
+
+    @cached_property
+    def telemetry(self) -> TelemetryResource:
+        from .resources.telemetry import TelemetryResource
+
+        return TelemetryResource(self)
 
     @cached_property
     def with_raw_response(self) -> TinkerWithRawResponse:
@@ -342,6 +349,12 @@ class AsyncTinker(AsyncAPIClient):
         return AsyncFuturesResource(self)
 
     @cached_property
+    def telemetry(self) -> AsyncTelemetryResource:
+        from .resources.telemetry import AsyncTelemetryResource
+
+        return AsyncTelemetryResource(self)
+
+    @cached_property
     def with_raw_response(self) -> AsyncTinkerWithRawResponse:
         return AsyncTinkerWithRawResponse(self)
 
@@ -496,6 +509,12 @@ class TinkerWithRawResponse:
 
         return FuturesResourceWithRawResponse(self._client.futures)
 
+    @cached_property
+    def telemetry(self) -> telemetry.TelemetryResourceWithRawResponse:
+        from .resources.telemetry import TelemetryResourceWithRawResponse
+
+        return TelemetryResourceWithRawResponse(self._client.telemetry)
+
 
 class AsyncTinkerWithRawResponse:
     _client: AsyncTinker
@@ -538,6 +557,12 @@ class AsyncTinkerWithRawResponse:
         from .resources.futures import AsyncFuturesResourceWithRawResponse
 
         return AsyncFuturesResourceWithRawResponse(self._client.futures)
+
+    @cached_property
+    def telemetry(self) -> telemetry.AsyncTelemetryResourceWithRawResponse:
+        from .resources.telemetry import AsyncTelemetryResourceWithRawResponse
+
+        return AsyncTelemetryResourceWithRawResponse(self._client.telemetry)
 
 
 class TinkerWithStreamedResponse:
@@ -582,6 +607,12 @@ class TinkerWithStreamedResponse:
 
         return FuturesResourceWithStreamingResponse(self._client.futures)
 
+    @cached_property
+    def telemetry(self) -> telemetry.TelemetryResourceWithStreamingResponse:
+        from .resources.telemetry import TelemetryResourceWithStreamingResponse
+
+        return TelemetryResourceWithStreamingResponse(self._client.telemetry)
+
 
 class AsyncTinkerWithStreamedResponse:
     _client: AsyncTinker
@@ -624,6 +655,12 @@ class AsyncTinkerWithStreamedResponse:
         from .resources.futures import AsyncFuturesResourceWithStreamingResponse
 
         return AsyncFuturesResourceWithStreamingResponse(self._client.futures)
+
+    @cached_property
+    def telemetry(self) -> telemetry.AsyncTelemetryResourceWithStreamingResponse:
+        from .resources.telemetry import AsyncTelemetryResourceWithStreamingResponse
+
+        return AsyncTelemetryResourceWithStreamingResponse(self._client.telemetry)
 
 
 Client = Tinker

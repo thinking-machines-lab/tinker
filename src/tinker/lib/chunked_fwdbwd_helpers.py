@@ -1,19 +1,19 @@
-from typing import Any, Dict, List, Sequence, cast, Set
+import logging
+from typing import Any, Dict, List, Sequence, Set, cast
 
 import numpy as np
-
 from tinker.types import ForwardBackwardOutput, LossFnOutput
+
+logger = logging.getLogger(__name__)
 
 Metrics = Dict[str, float]
 
 
-def combine_fwd_bwd_output_results(results: Sequence[ForwardBackwardOutput]) -> ForwardBackwardOutput:
+def combine_fwd_bwd_output_results(
+    results: Sequence[ForwardBackwardOutput],
+) -> ForwardBackwardOutput:
     if not results:
-        return ForwardBackwardOutput(
-            loss_fn_output_type="",
-            metrics={},
-            loss_fn_outputs=[]
-        )
+        return ForwardBackwardOutput(loss_fn_output_type="", metrics={}, loss_fn_outputs=[])
 
     combined_metrics = _metrics_reduction(results)
     combined_outputs = _combine_loss_fn_outputs(results)
@@ -105,9 +105,12 @@ def _metrics_reduction(results: Sequence[ForwardBackwardOutput]) -> Metrics:
     res = {}
     for key in keys:
         name, reduction = key.split(":")
-        assert reduction in REDUCE_MAP, (
-            f"Invalid reduction {reduction} for metric {name}, must be one of {REDUCE_MAP.keys()}"
-        )
+        if reduction not in REDUCE_MAP:
+            # Can happen when a new reduction type is added
+            logger.debug(
+                f"Invalid {reduction=} for metric {name=}. Expecting one of {REDUCE_MAP.keys()}"
+            )
+            continue
         if not all(key in m.metrics for m in results):
             continue
         reduce_fn = REDUCE_MAP[reduction]
@@ -117,7 +120,7 @@ def _metrics_reduction(results: Sequence[ForwardBackwardOutput]) -> Metrics:
             res[key] = reduce_fn(values, weights)
         elif reduction in ["unique"]:
             res[key] = values[0]
-            res.update({f"{key}_{i+1}": v for i, v in enumerate(values[1:])})
+            res.update({f"{key}_{i + 1}": v for i, v in enumerate(values[1:])})
         else:
             res[key] = reduce_fn(values)
     return res

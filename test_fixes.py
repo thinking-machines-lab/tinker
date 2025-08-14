@@ -5,20 +5,18 @@ from tinker._base_client import BaseClient
 from tinker.lib.public_interfaces import _convert_forward_backward_input
 from tinker.types import ForwardBackwardInput
 
+
 class TestBaseClient(BaseClient):
     def __init__(self, base_url: str = "http://localhost:8000"):
         # Test the fixed base_url parameter handling
-        super().__init__(
-            version="1.0.0",
-            base_url=base_url,
-            _strict_response_validation=True
-        )
+        super().__init__(version="1.0.0", base_url=base_url, _strict_response_validation=True)
 
     def make_status_error(self, err_msg: str, body: object, response: object) -> None:
         return None
 
     def _enforce_trailing_slash(self, url: URL) -> URL:
         return url
+
 
 # Test that the base_url parameter is handled correctly
 client = TestBaseClient("http://example.com")
@@ -28,18 +26,11 @@ print(f"Base URL correctly set to: {client._base_url}")
 model_data = {
     "data": [
         {
-            "model_input": {
-                "chunks": [
-                    {
-                        "type": "encoded_text",
-                        "tokens": [1, 2, 3]
-                    }
-                ]
-            },
-            "loss_fn_inputs": {}
+            "model_input": {"chunks": [{"type": "encoded_text", "tokens": [1, 2, 3]}]},
+            "loss_fn_inputs": {},
         }
     ],
-    "loss_fn": "cross_entropy"  # Use a valid value from the enum
+    "loss_fn": "cross_entropy",  # Use a valid value from the enum
 }
 
 # Create a mock model just to test the base_url parameter

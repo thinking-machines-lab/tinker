@@ -20,7 +20,7 @@ base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
 class TestModels:
     parametrize = pytest.mark.parametrize("client", [False, True], indirect=True, ids=["loose", "strict"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_create(self, client: Tinker) -> None:
         model = client.models.create(
@@ -28,7 +28,7 @@ class TestModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_create_with_all_params(self, client: Tinker) -> None:
         model = client.models.create(
@@ -41,7 +41,7 @@ class TestModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_create(self, client: Tinker) -> None:
         response = client.models.with_raw_response.create(
@@ -53,7 +53,7 @@ class TestModels:
         model = response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_create(self, client: Tinker) -> None:
         with client.models.with_streaming_response.create(
@@ -67,7 +67,7 @@ class TestModels:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_get_info(self, client: Tinker) -> None:
         model = client.models.get_info(
@@ -75,7 +75,7 @@ class TestModels:
         )
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_get_info_with_all_params(self, client: Tinker) -> None:
         model = client.models.get_info(
@@ -84,7 +84,7 @@ class TestModels:
         )
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_get_info(self, client: Tinker) -> None:
         response = client.models.with_raw_response.get_info(
@@ -96,7 +96,7 @@ class TestModels:
         model = response.parse()
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_get_info(self, client: Tinker) -> None:
         with client.models.with_streaming_response.get_info(
@@ -110,7 +110,7 @@ class TestModels:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_unload(self, client: Tinker) -> None:
         model = client.models.unload(
@@ -118,7 +118,7 @@ class TestModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_unload_with_all_params(self, client: Tinker) -> None:
         model = client.models.unload(
@@ -127,7 +127,7 @@ class TestModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_unload(self, client: Tinker) -> None:
         response = client.models.with_raw_response.unload(
@@ -139,7 +139,7 @@ class TestModels:
         model = response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_unload(self, client: Tinker) -> None:
         with client.models.with_streaming_response.unload(
@@ -159,7 +159,7 @@ class TestAsyncModels:
         "async_client", [False, True, {"http_client": "aiohttp"}], indirect=True, ids=["loose", "strict", "aiohttp"]
     )
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_create(self, async_client: AsyncTinker) -> None:
         model = await async_client.models.create(
@@ -167,7 +167,7 @@ class TestAsyncModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_create_with_all_params(self, async_client: AsyncTinker) -> None:
         model = await async_client.models.create(
@@ -180,7 +180,7 @@ class TestAsyncModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_create(self, async_client: AsyncTinker) -> None:
         response = await async_client.models.with_raw_response.create(
@@ -192,7 +192,7 @@ class TestAsyncModels:
         model = await response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_create(self, async_client: AsyncTinker) -> None:
         async with async_client.models.with_streaming_response.create(
@@ -206,7 +206,7 @@ class TestAsyncModels:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_get_info(self, async_client: AsyncTinker) -> None:
         model = await async_client.models.get_info(
@@ -214,7 +214,7 @@ class TestAsyncModels:
         )
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_get_info_with_all_params(self, async_client: AsyncTinker) -> None:
         model = await async_client.models.get_info(
@@ -223,7 +223,7 @@ class TestAsyncModels:
         )
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_get_info(self, async_client: AsyncTinker) -> None:
         response = await async_client.models.with_raw_response.get_info(
@@ -235,7 +235,7 @@ class TestAsyncModels:
         model = await response.parse()
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_get_info(self, async_client: AsyncTinker) -> None:
         async with async_client.models.with_streaming_response.get_info(
@@ -249,7 +249,7 @@ class TestAsyncModels:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_unload(self, async_client: AsyncTinker) -> None:
         model = await async_client.models.unload(
@@ -257,7 +257,7 @@ class TestAsyncModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_unload_with_all_params(self, async_client: AsyncTinker) -> None:
         model = await async_client.models.unload(
@@ -266,7 +266,7 @@ class TestAsyncModels:
         )
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_unload(self, async_client: AsyncTinker) -> None:
         response = await async_client.models.with_raw_response.unload(
@@ -278,7 +278,7 @@ class TestAsyncModels:
         model = await response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_unload(self, async_client: AsyncTinker) -> None:
         async with async_client.models.with_streaming_response.unload(

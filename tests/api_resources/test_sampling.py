@@ -18,7 +18,7 @@ base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
 class TestSampling:
     parametrize = pytest.mark.parametrize("client", [False, True], indirect=True, ids=["loose", "strict"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_asample(self, client: Tinker) -> None:
         sampling = client.sampling.asample(
@@ -34,7 +34,7 @@ class TestSampling:
         )
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_asample_with_all_params(self, client: Tinker) -> None:
         sampling = client.sampling.asample(
@@ -62,7 +62,7 @@ class TestSampling:
         )
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_asample(self, client: Tinker) -> None:
         response = client.sampling.with_raw_response.asample(
@@ -82,7 +82,7 @@ class TestSampling:
         sampling = response.parse()
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_asample(self, client: Tinker) -> None:
         with client.sampling.with_streaming_response.asample(
@@ -104,7 +104,7 @@ class TestSampling:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_sample(self, client: Tinker) -> None:
         sampling = client.sampling.sample(
@@ -120,7 +120,7 @@ class TestSampling:
         )
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_sample_with_all_params(self, client: Tinker) -> None:
         sampling = client.sampling.sample(
@@ -148,7 +148,7 @@ class TestSampling:
         )
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_sample(self, client: Tinker) -> None:
         response = client.sampling.with_raw_response.sample(
@@ -168,7 +168,7 @@ class TestSampling:
         sampling = response.parse()
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_sample(self, client: Tinker) -> None:
         with client.sampling.with_streaming_response.sample(
@@ -196,7 +196,7 @@ class TestAsyncSampling:
         "async_client", [False, True, {"http_client": "aiohttp"}], indirect=True, ids=["loose", "strict", "aiohttp"]
     )
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_asample(self, async_client: AsyncTinker) -> None:
         sampling = await async_client.sampling.asample(
@@ -212,7 +212,7 @@ class TestAsyncSampling:
         )
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_asample_with_all_params(self, async_client: AsyncTinker) -> None:
         sampling = await async_client.sampling.asample(
@@ -240,7 +240,7 @@ class TestAsyncSampling:
         )
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_asample(self, async_client: AsyncTinker) -> None:
         response = await async_client.sampling.with_raw_response.asample(
@@ -260,7 +260,7 @@ class TestAsyncSampling:
         sampling = await response.parse()
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_asample(self, async_client: AsyncTinker) -> None:
         async with async_client.sampling.with_streaming_response.asample(
@@ -282,7 +282,7 @@ class TestAsyncSampling:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_sample(self, async_client: AsyncTinker) -> None:
         sampling = await async_client.sampling.sample(
@@ -298,7 +298,7 @@ class TestAsyncSampling:
         )
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_sample_with_all_params(self, async_client: AsyncTinker) -> None:
         sampling = await async_client.sampling.sample(
@@ -326,7 +326,7 @@ class TestAsyncSampling:
         )
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_sample(self, async_client: AsyncTinker) -> None:
         response = await async_client.sampling.with_raw_response.sample(
@@ -346,7 +346,7 @@ class TestAsyncSampling:
         sampling = await response.parse()
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_sample(self, async_client: AsyncTinker) -> None:
         async with async_client.sampling.with_streaming_response.sample(

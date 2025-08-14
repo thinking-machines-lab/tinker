@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Generic, Type, TypeVar
 
 import httpx
-
 import tinker
 
 from .._constants import (
@@ -40,7 +39,7 @@ class RetryableException(Exception):
 @dataclass
 class RetryConfig:
     max_connections: int = DEFAULT_CONNECTION_LIMITS.max_connections or 100
-    progress_timeout: float = 30 * 60 # Very long straggler
+    progress_timeout: float = 30 * 60  # Very long straggler
     retry_delay_base: float = INITIAL_RETRY_DELAY
     retry_delay_max: float = MAX_RETRY_DELAY
     jitter_factor: float = 0.25
@@ -57,10 +56,20 @@ class RetryConfig:
             raise ValueError(f"max_connections must be positive, got {self.max_connections}")
 
     def __hash__(self):
-        return hash((self.max_connections, self.progress_timeout, self.retry_delay_base, self.retry_delay_max, self.jitter_factor, self.enable_retry_logic, self.retryable_exceptions))
+        return hash(
+            (
+                self.max_connections,
+                self.progress_timeout,
+                self.retry_delay_base,
+                self.retry_delay_max,
+                self.jitter_factor,
+                self.enable_retry_logic,
+                self.retryable_exceptions,
+            )
+        )
 
 
-class RetryHandler(Generic[T]):
+class RetryHandler(Generic[T]):  # noqa: UP046
     """
     A generalizable retry handler for API requests.
 
@@ -75,10 +84,7 @@ class RetryHandler(Generic[T]):
         result = await handler.execute(my_function, *args, **kwargs)
     """
 
-    def __init__(
-        self,
-        config: RetryConfig = RetryConfig(), name: str = "default"
-    ):
+    def __init__(self, config: RetryConfig = RetryConfig(), name: str = "default"):
         self.config = config
         self.name = name
 
@@ -98,7 +104,9 @@ class RetryHandler(Generic[T]):
         # for limited httpx connections.
         self._semaphore = asyncio.Semaphore(config.max_connections)
 
-    async def execute(self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any) -> T:
+    async def execute(
+        self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any
+    ) -> T:
         """Use as a direct function call."""
 
         self._waiting_at_semaphore_count += 1
@@ -110,7 +118,9 @@ class RetryHandler(Generic[T]):
             finally:
                 self._in_retry_loop_count -= 1
 
-    async def _execute_with_retry(self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any) -> T:
+    async def _execute_with_retry(
+        self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any
+    ) -> T:
         """Main retry logic."""
         # Fast path: skip all retry logic if disabled
         if not self.config.enable_retry_logic:
@@ -126,14 +136,18 @@ class RetryHandler(Generic[T]):
                 dummy_request = httpx.Request("GET", "http://localhost")
                 raise tinker.APIConnectionError(
                     message=f"No progress made in {self.config.progress_timeout}s. "
-                        f"Requests appear to be stuck.",
-                    request=dummy_request
+                    f"Requests appear to be stuck.",
+                    request=dummy_request,
                 )
             elapsed_since_last_printed_progress = current_time - self._last_printed_progress
             if elapsed_since_last_printed_progress > 2:
-                print(f"[{self.name}]: {self._waiting_at_semaphore_count} waiting, {self._in_retry_loop_count} in retry loop, {self._processed_count} completed, {self._retry_count} retries")
+                print(
+                    f"[{self.name}]: {self._waiting_at_semaphore_count} waiting, {self._in_retry_loop_count} in retry loop, {self._processed_count} completed, {self._retry_count} retries"
+                )
                 if self._errors_since_last_retry:
-                    sorted_items = sorted(self._errors_since_last_retry.items(), key=lambda x: x[1], reverse=True)
+                    sorted_items = sorted(
+                        self._errors_since_last_retry.items(), key=lambda x: x[1], reverse=True
+                    )
                     print(f"[{self.name}]: Errors since last retry: {sorted_items}")
                 self._last_printed_progress = current_time
                 self._errors_since_last_retry.clear()
@@ -142,7 +156,8 @@ class RetryHandler(Generic[T]):
                 attempt_count += 1
                 logger.debug(f"Attempting request (attempt #{attempt_count})")
                 result = await asyncio.wait_for(
-                    func(*args, **kwargs), timeout=request_timeout,
+                    func(*args, **kwargs),
+                    timeout=request_timeout,
                 )
 
             except Exception as e:
@@ -185,7 +200,9 @@ class RetryHandler(Generic[T]):
         elif isinstance(exception, tinker.APIConnectionError):
             logger.debug(f"Request failed with connection error: {exception}")
         elif isinstance(exception, tinker.APIStatusError):
-            logger.debug(f"Request attempt #{attempt_count} failed with status {exception.status_code}")
+            logger.debug(
+                f"Request attempt #{attempt_count} failed with status {exception.status_code}"
+            )
         else:
             logger.debug(f"Request attempt #{attempt_count} failed with error: {exception}")
 
@@ -193,10 +210,7 @@ class RetryHandler(Generic[T]):
         """Calculate retry delay with exponential backoff and jitter."""
         delay = self.config.retry_delay_max
         try:
-            delay = min(
-                self.config.retry_delay_base * (2 ** attempt),
-                self.config.retry_delay_max
-            )
+            delay = min(self.config.retry_delay_base * (2**attempt), self.config.retry_delay_max)
         except OverflowError:
             # There are two possible overflow errors:
             # (1) `min` tries to convert the value to a float, which can overflow

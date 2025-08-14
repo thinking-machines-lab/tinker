@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+
 def is_in_async_context() -> bool:
     try:
         asyncio.get_running_loop()
@@ -22,7 +23,10 @@ def is_in_async_context() -> bool:
         return False
     return True
 
-def make_error_message(func: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+
+def make_error_message(  # noqa: UP047
+    func: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> str:
     # If we get here, we're in an async context - this is bad!
     method_name = func.__name__
     async_method_name = f"{method_name}_async"
@@ -40,7 +44,7 @@ def make_error_message(func: Callable[..., T], args: tuple[Any, ...], kwargs: di
     )
 
 
-def sync_only(func: Callable[..., T]) -> Callable[..., T]:
+def sync_only(func: Callable[..., T]) -> Callable[..., T]:  # noqa: UP047
     """Decorator to ensure a method is only called from sync context.
 
     This helps prevent a common footgun where users accidentally call
@@ -49,12 +53,15 @@ def sync_only(func: Callable[..., T]) -> Callable[..., T]:
     Assumes (in error message) that the wrapped method has a corresponding method name
     {method_name}_async.
     """
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> T:
         if is_in_async_context():
             error_message = make_error_message(func, args, kwargs)
             logger.warning(error_message)
-            logger.warning(f"===== Stack for calling sync from async ===== \n{traceback.format_stack()}\n ===========")
+            logger.warning(
+                f"===== Stack for calling sync from async ===== \n{traceback.format_stack()}\n ==========="
+            )
 
         return func(*args, **kwargs)
 

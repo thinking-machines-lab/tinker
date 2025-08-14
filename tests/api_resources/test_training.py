@@ -17,7 +17,7 @@ base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
 class TestTraining:
     parametrize = pytest.mark.parametrize("client", [False, True], indirect=True, ids=["loose", "strict"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_forward(self, client: Tinker) -> None:
         training = client.training.forward(
@@ -98,7 +98,7 @@ class TestTraining:
         training = client.training.forward(
             fwdbwd_input={
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_forward(self, client: Tinker) -> None:
         response = client.training.with_raw_response.forward(
@@ -135,7 +135,7 @@ class TestTraining:
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_forward(self, client: Tinker) -> None:
         with client.training.with_streaming_response.forward(
@@ -174,7 +174,7 @@ class TestTraining:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_forward_backward(self, client: Tinker) -> None:
         training = client.training.forward_backward(
@@ -207,7 +207,7 @@ class TestTraining:
         )
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_forward_backward(self, client: Tinker) -> None:
         response = client.training.with_raw_response.forward_backward(
@@ -244,7 +244,7 @@ class TestTraining:
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_forward_backward(self, client: Tinker) -> None:
         with client.training.with_streaming_response.forward_backward(
@@ -283,7 +283,7 @@ class TestTraining:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_optim_step(self, client: Tinker) -> None:
         training = client.training.optim_step(
@@ -292,7 +292,7 @@ class TestTraining:
         )
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_optim_step_with_all_params(self, client: Tinker) -> None:
         training = client.training.optim_step(
@@ -307,7 +307,7 @@ class TestTraining:
         )
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_optim_step(self, client: Tinker) -> None:
         response = client.training.with_raw_response.optim_step(
@@ -320,7 +320,7 @@ class TestTraining:
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_optim_step(self, client: Tinker) -> None:
         with client.training.with_streaming_response.optim_step(
@@ -384,7 +384,7 @@ class TestAsyncTraining:
         "async_client", [False, True, {"http_client": "aiohttp"}], indirect=True, ids=["loose", "strict", "aiohttp"]
     )
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_forward(self, async_client: AsyncTinker) -> None:
         training = await async_client.training.forward(
@@ -465,7 +465,7 @@ class TestAsyncTraining:
         training = await async_client.training.forward(
             fwdbwd_input={
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_forward(self, async_client: AsyncTinker) -> None:
         response = await async_client.training.with_raw_response.forward(
@@ -502,7 +502,7 @@ class TestAsyncTraining:
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_forward(self, async_client: AsyncTinker) -> None:
         async with async_client.training.with_streaming_response.forward(
@@ -541,7 +541,7 @@ class TestAsyncTraining:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_forward_backward(self, async_client: AsyncTinker) -> None:
         training = await async_client.training.forward_backward(
@@ -574,7 +574,7 @@ class TestAsyncTraining:
         )
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_forward_backward(self, async_client: AsyncTinker) -> None:
         response = await async_client.training.with_raw_response.forward_backward(
@@ -611,7 +611,7 @@ class TestAsyncTraining:
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_forward_backward(self, async_client: AsyncTinker) -> None:
         async with async_client.training.with_streaming_response.forward_backward(
@@ -650,7 +650,7 @@ class TestAsyncTraining:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_optim_step(self, async_client: AsyncTinker) -> None:
         training = await async_client.training.optim_step(
@@ -659,7 +659,7 @@ class TestAsyncTraining:
         )
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_optim_step_with_all_params(self, async_client: AsyncTinker) -> None:
         training = await async_client.training.optim_step(
@@ -674,7 +674,7 @@ class TestAsyncTraining:
         )
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_optim_step(self, async_client: AsyncTinker) -> None:
         response = await async_client.training.with_raw_response.optim_step(
@@ -687,7 +687,7 @@ class TestAsyncTraining:
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_optim_step(self, async_client: AsyncTinker) -> None:
         async with async_client.training.with_streaming_response.optim_step(

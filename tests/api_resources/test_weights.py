@@ -17,7 +17,7 @@ base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
 class TestWeights:
     parametrize = pytest.mark.parametrize("client", [False, True], indirect=True, ids=["loose", "strict"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_load(self, client: Tinker) -> None:
         weight = client.weights.load(
@@ -26,7 +26,7 @@ class TestWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_load_with_all_params(self, client: Tinker) -> None:
         weight = client.weights.load(
@@ -36,7 +36,7 @@ class TestWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_load(self, client: Tinker) -> None:
         response = client.weights.with_raw_response.load(
@@ -49,7 +49,7 @@ class TestWeights:
         weight = response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_load(self, client: Tinker) -> None:
         with client.weights.with_streaming_response.load(
@@ -64,7 +64,7 @@ class TestWeights:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_save(self, client: Tinker) -> None:
         weight = client.weights.save(
@@ -72,7 +72,7 @@ class TestWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_save_with_all_params(self, client: Tinker) -> None:
         weight = client.weights.save(
@@ -82,7 +82,7 @@ class TestWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_save(self, client: Tinker) -> None:
         response = client.weights.with_raw_response.save(
@@ -94,7 +94,7 @@ class TestWeights:
         weight = response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_save(self, client: Tinker) -> None:
         with client.weights.with_streaming_response.save(
@@ -108,7 +108,7 @@ class TestWeights:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_save_for_sampler(self, client: Tinker) -> None:
         weight = client.weights.save_for_sampler(
@@ -116,7 +116,7 @@ class TestWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_method_save_for_sampler_with_all_params(self, client: Tinker) -> None:
         weight = client.weights.save_for_sampler(
@@ -126,7 +126,7 @@ class TestWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_raw_response_save_for_sampler(self, client: Tinker) -> None:
         response = client.weights.with_raw_response.save_for_sampler(
@@ -138,7 +138,7 @@ class TestWeights:
         weight = response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     def test_streaming_response_save_for_sampler(self, client: Tinker) -> None:
         with client.weights.with_streaming_response.save_for_sampler(
@@ -158,7 +158,7 @@ class TestAsyncWeights:
         "async_client", [False, True, {"http_client": "aiohttp"}], indirect=True, ids=["loose", "strict", "aiohttp"]
     )
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_load(self, async_client: AsyncTinker) -> None:
         weight = await async_client.weights.load(
@@ -167,7 +167,7 @@ class TestAsyncWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_load_with_all_params(self, async_client: AsyncTinker) -> None:
         weight = await async_client.weights.load(
@@ -177,7 +177,7 @@ class TestAsyncWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_load(self, async_client: AsyncTinker) -> None:
         response = await async_client.weights.with_raw_response.load(
@@ -190,7 +190,7 @@ class TestAsyncWeights:
         weight = await response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_load(self, async_client: AsyncTinker) -> None:
         async with async_client.weights.with_streaming_response.load(
@@ -205,7 +205,7 @@ class TestAsyncWeights:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_save(self, async_client: AsyncTinker) -> None:
         weight = await async_client.weights.save(
@@ -213,7 +213,7 @@ class TestAsyncWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_save_with_all_params(self, async_client: AsyncTinker) -> None:
         weight = await async_client.weights.save(
@@ -223,7 +223,7 @@ class TestAsyncWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_save(self, async_client: AsyncTinker) -> None:
         response = await async_client.weights.with_raw_response.save(
@@ -235,7 +235,7 @@ class TestAsyncWeights:
         weight = await response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_save(self, async_client: AsyncTinker) -> None:
         async with async_client.weights.with_streaming_response.save(
@@ -249,7 +249,7 @@ class TestAsyncWeights:
 
         assert cast(Any, response.is_closed) is True
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_save_for_sampler(self, async_client: AsyncTinker) -> None:
         weight = await async_client.weights.save_for_sampler(
@@ -257,7 +257,7 @@ class TestAsyncWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_method_save_for_sampler_with_all_params(self, async_client: AsyncTinker) -> None:
         weight = await async_client.weights.save_for_sampler(
@@ -267,7 +267,7 @@ class TestAsyncWeights:
         )
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_raw_response_save_for_sampler(self, async_client: AsyncTinker) -> None:
         response = await async_client.weights.with_raw_response.save_for_sampler(
@@ -279,7 +279,7 @@ class TestAsyncWeights:
         weight = await response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Prism tests are disabled")
     @parametrize
     async def test_streaming_response_save_for_sampler(self, async_client: AsyncTinker) -> None:
         async with async_client.weights.with_streaming_response.save_for_sampler(
