@@ -113,10 +113,28 @@ class RetryHandler(Generic[T]):  # noqa: UP046
         async with self._semaphore:
             self._waiting_at_semaphore_count -= 1
             self._in_retry_loop_count += 1
+            self._maybe_log_progress()
             try:
                 return await self._execute_with_retry(func, request_timeout, *args, **kwargs)
             finally:
                 self._in_retry_loop_count -= 1
+                self._maybe_log_progress()
+
+    def _maybe_log_progress(self):
+        current_time = time.time()
+        elapsed_since_last_printed_progress = current_time - self._last_printed_progress
+        finished = self._waiting_at_semaphore_count + self._in_retry_loop_count == 0
+        if elapsed_since_last_printed_progress > 2 or finished:
+            print(
+                f"[{self.name}]: {self._waiting_at_semaphore_count} waiting, {self._in_retry_loop_count} in progress, {self._processed_count} completed"
+            )
+            if self._errors_since_last_retry:
+                sorted_items = sorted(
+                    self._errors_since_last_retry.items(), key=lambda x: x[1], reverse=True
+                )
+                logger.debug(f"[{self.name}]: {self._retry_count} total retries, errors since last log: {sorted_items}")
+            self._last_printed_progress = current_time
+            self._errors_since_last_retry.clear()
 
     async def _execute_with_retry(
         self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any
@@ -139,19 +157,7 @@ class RetryHandler(Generic[T]):  # noqa: UP046
                     f"Requests appear to be stuck.",
                     request=dummy_request,
                 )
-            elapsed_since_last_printed_progress = current_time - self._last_printed_progress
-            if elapsed_since_last_printed_progress > 2:
-                print(
-                    f"[{self.name}]: {self._waiting_at_semaphore_count} waiting, {self._in_retry_loop_count} in retry loop, {self._processed_count} completed, {self._retry_count} retries"
-                )
-                if self._errors_since_last_retry:
-                    sorted_items = sorted(
-                        self._errors_since_last_retry.items(), key=lambda x: x[1], reverse=True
-                    )
-                    print(f"[{self.name}]: Errors since last retry: {sorted_items}")
-                self._last_printed_progress = current_time
-                self._errors_since_last_retry.clear()
-
+            self._maybe_log_progress()
             try:
                 attempt_count += 1
                 logger.debug(f"Attempting request (attempt #{attempt_count})")

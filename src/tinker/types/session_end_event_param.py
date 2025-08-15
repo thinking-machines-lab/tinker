@@ -17,8 +17,6 @@ class SessionEndEventParam(TypedDict, total=False):
     duration: Required[str]
     """ISO 8601 duration string"""
 
-    end_time: Required[Annotated[Union[str, datetime], PropertyInfo(format="iso8601")]]
-
     event: Required[EventType]
     """Telemetry event type"""
 

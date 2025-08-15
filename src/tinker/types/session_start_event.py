@@ -20,6 +20,4 @@ class SessionStartEvent(BaseModel):
     severity: Severity
     """Log severity level"""
 
-    start_time: datetime
-
     timestamp: datetime

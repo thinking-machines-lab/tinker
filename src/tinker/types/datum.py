@@ -1,16 +1,15 @@
 # File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from pydantic import model_validator
 
 from .._models import StrictBase
 from .model_input import ModelInput
 from .loss_fn_inputs import LossFnInputs
 from .tensor_data import TensorData
-from .tensor_dtype import TensorDtype
 
 try:
-    import torch
+    import torch  # type: ignore[import-not-found]
     _HAVE_TORCH = True
 except ImportError:
     _HAVE_TORCH = False
@@ -47,34 +46,8 @@ class Datum(StrictBase):
     def _maybe_convert_array(cls, value: Any) -> Any:
         """Convert torch.Tensor or numpy array to TensorData if needed."""
         if _HAVE_TORCH and isinstance(value, torch.Tensor):
-            return TensorData(
-                data=value.flatten().tolist(),
-                dtype=_convert_torch_type(value.dtype),
-                shape=[float(dim) for dim in value.shape]
-            )
+            return TensorData.from_torch(value)
         elif isinstance(value, np.ndarray):
-            return TensorData(
-                data=value.flatten().tolist(),
-                dtype=_convert_numpy_type(value.dtype),
-                shape=[float(dim) for dim in value.shape]
-            )
+            return TensorData.from_numpy(value)
         else:
             return value
-
-
-def _convert_torch_type(dtype: 'torch.dtype') -> TensorDtype:
-    """Convert torch dtype to TensorDtype."""
-    if dtype.is_floating_point:
-        return "float32"
-    else:
-        return "int64"
-
-
-def _convert_numpy_type(dtype: np.dtype) -> TensorDtype:
-    """Convert numpy dtype to TensorDtype."""
-    if dtype.kind == "f":
-        return "float32"
-    elif dtype.kind == "i":
-        return "int64"
-    else:
-        raise ValueError(f"Unsupported numpy dtype: {dtype}")

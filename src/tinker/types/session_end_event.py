@@ -13,8 +13,6 @@ class SessionEndEvent(BaseModel):
     duration: str
     """ISO 8601 duration string"""
 
-    end_time: datetime
-
     event: EventType
     """Telemetry event type"""
 

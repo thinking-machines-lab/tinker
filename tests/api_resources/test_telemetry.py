@@ -28,7 +28,6 @@ class TestTelemetry:
                     "event_id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
                     "event_session_index": 0,
                     "severity": "DEBUG",
-                    "start_time": parse_datetime("2019-12-27T18:11:19.117Z"),
                     "timestamp": parse_datetime("2019-12-27T18:11:19.117Z"),
                 }
             ],
@@ -48,7 +47,6 @@ class TestTelemetry:
                     "event_id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
                     "event_session_index": 0,
                     "severity": "DEBUG",
-                    "start_time": parse_datetime("2019-12-27T18:11:19.117Z"),
                     "timestamp": parse_datetime("2019-12-27T18:11:19.117Z"),
                 }
             ],
@@ -72,7 +70,6 @@ class TestTelemetry:
                     "event_id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
                     "event_session_index": 0,
                     "severity": "DEBUG",
-                    "start_time": parse_datetime("2019-12-27T18:11:19.117Z"),
                     "timestamp": parse_datetime("2019-12-27T18:11:19.117Z"),
                 }
             ],
@@ -104,7 +101,6 @@ class TestAsyncTelemetry:
                     "event_id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
                     "event_session_index": 0,
                     "severity": "DEBUG",
-                    "start_time": parse_datetime("2019-12-27T18:11:19.117Z"),
                     "timestamp": parse_datetime("2019-12-27T18:11:19.117Z"),
                 }
             ],
@@ -124,7 +120,6 @@ class TestAsyncTelemetry:
                     "event_id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
                     "event_session_index": 0,
                     "severity": "DEBUG",
-                    "start_time": parse_datetime("2019-12-27T18:11:19.117Z"),
                     "timestamp": parse_datetime("2019-12-27T18:11:19.117Z"),
                 }
             ],
@@ -148,7 +143,6 @@ class TestAsyncTelemetry:
                     "event_id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
                     "event_session_index": 0,
                     "severity": "DEBUG",
-                    "start_time": parse_datetime("2019-12-27T18:11:19.117Z"),
                     "timestamp": parse_datetime("2019-12-27T18:11:19.117Z"),
                 }
             ],

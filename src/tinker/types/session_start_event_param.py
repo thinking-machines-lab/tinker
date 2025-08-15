@@ -24,6 +24,4 @@ class SessionStartEventParam(TypedDict, total=False):
     severity: Required[Severity]
     """Log severity level"""
 
-    start_time: Required[Annotated[Union[str, datetime], PropertyInfo(format="iso8601")]]
-
     timestamp: Required[Annotated[Union[str, datetime], PropertyInfo(format="iso8601")]]
