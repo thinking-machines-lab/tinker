@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
+from functools import cache
 from typing import TYPE_CHECKING, List, cast
 
 from tinker import types
+from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
 from tinker.types import training_optim_step_params
 
 from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
@@ -34,7 +36,7 @@ CHUNK_SIZE = 128  # TODO: pick this less arbitrarily
 MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initializing the TrainingClient with a model_id by either calling create_lora_training_client on the ServiceClient, or initiliazing the TrainingClient with an existing model_id."
 
 
-class TrainingClient:
+class TrainingClient(TelemetryProvider):
     def __init__(self, holder: InternalClientHolder, model_id: types.ModelID | None = None):
         self.holder = holder
         self.model_id = model_id
@@ -72,11 +74,13 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_forward_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def forward(
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
         return self._forward_submit(data, loss_fn).result()
 
+    @capture_exceptions(fatal=True)
     async def forward_async(
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
@@ -113,11 +117,13 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_forward_backward_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def forward_backward(
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
         return self._forward_backward_submit(data, loss_fn).result()
 
+    @capture_exceptions(fatal=True)
     async def forward_backward_async(
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
@@ -143,9 +149,11 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_optim_step_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def optim_step(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:
         return self._optim_step_submit(adam_params).result()
 
+    @capture_exceptions(fatal=True)
     async def optim_step_async(
         self, adam_params: types.AdamParams
     ) -> APIFuture[types.OptimStepResponse]:
@@ -169,9 +177,11 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_save_state_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def save_state(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
         return self._save_state_submit(name).result()
 
+    @capture_exceptions(fatal=True)
     async def save_state_async(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
         return await self._save_state_submit(name)
 
@@ -193,9 +203,11 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_load_state_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def load_state(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
         return self._load_state_submit(path).result()
 
+    @capture_exceptions(fatal=True)
     async def load_state_async(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
         return await self._load_state_submit(path)
 
@@ -219,9 +231,11 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def save_weights_for_sampler(self, name: str) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         return self._save_weights_for_sampler_submit(name).result()
 
+    @capture_exceptions(fatal=True)
     async def save_weights_for_sampler_async(
         self, name: str
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
@@ -245,9 +259,11 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_unload_model_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def unload_model(self) -> APIFuture[types.UnloadModelResponse]:
         return self._unload_model_submit().result()
 
+    @capture_exceptions(fatal=True)
     async def unload_model_async(self) -> APIFuture[types.UnloadModelResponse]:
         return await self._unload_model_submit()
 
@@ -259,15 +275,20 @@ class TrainingClient:
         return self.holder.run_coroutine_threadsafe(_get_info_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def get_info(self) -> types.GetInfoResponse:
         return self._get_info_submit().result()
 
+    @capture_exceptions(fatal=True)
     async def get_info_async(self) -> types.GetInfoResponse:
         return await self._get_info_submit()
 
+    @cache
+    @capture_exceptions(fatal=True)
     def get_tokenizer(self) -> PreTrainedTokenizer:
         return _get_tokenizer(self._guaranteed_model_id(), self.holder)
 
+    @capture_exceptions(fatal=True)
     def create_sampling_client(
         self, model_path: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -275,6 +296,7 @@ class TrainingClient:
 
         return SamplingClient(self.holder, model_path=model_path, retry_config=retry_config)
 
+    @capture_exceptions(fatal=True)
     def save_weights_and_get_sampling_client(
         self, name: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -283,6 +305,7 @@ class TrainingClient:
         path = self.save_weights_for_sampler(name).result().path
         return SamplingClient(self.holder, model_path=path, retry_config=retry_config)
 
+    @capture_exceptions(fatal=True)
     async def save_weights_and_get_sampling_client_async(
         self, name: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -292,6 +315,9 @@ class TrainingClient:
         save_weights_result = await save_weights_future.result_async()
         model_path = save_weights_result.path
         return SamplingClient(self.holder, model_path=model_path, retry_config=retry_config)
+
+    def get_telemetry(self) -> Telemetry | None:
+        return self.holder.get_telemetry()
 
 
 def _to_fwdbwd_input_params(x: types.ForwardBackwardInput) -> types._ForwardBackwardInputParam:

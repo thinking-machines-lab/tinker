@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 
 from tinker import types
+from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
 
 from ..internal_client_holder import InternalClientHolder
 from ..retry_handler import RetryConfig
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ServiceClient:
+class ServiceClient(TelemetryProvider):
     def __init__(self, **kwargs: Any):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
         self.holder = InternalClientHolder(
@@ -40,9 +41,11 @@ class ServiceClient:
         return self.holder.run_coroutine_threadsafe(_get_server_capabilities_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def get_server_capabilities(self) -> types.GetServerCapabilitiesResponse:
         return self._get_server_capabilities_submit().result()
 
+    @capture_exceptions(fatal=True)
     async def get_server_capabilities_async(self) -> types.GetServerCapabilitiesResponse:
         return await self._get_server_capabilities_submit()
 
@@ -67,6 +70,7 @@ class ServiceClient:
         return self.holder.run_coroutine_threadsafe(_create_model_async())
 
     @sync_only
+    @capture_exceptions(fatal=True)
     def create_lora_training_client(
         self, base_model: str, rank: int = 32, seed: int | None = None
     ) -> TrainingClient:
@@ -76,6 +80,7 @@ class ServiceClient:
         logger.info(f"Creating TrainingClient for {model_id=}")
         return self.create_training_client(model_id)
 
+    @capture_exceptions(fatal=True)
     async def create_lora_training_client_async(
         self, base_model: str, rank: int = 32, seed: int | None = None
     ) -> TrainingClient:
@@ -85,11 +90,13 @@ class ServiceClient:
         logger.info(f"Creating TrainingClient for {model_id=}")
         return self.create_training_client(model_id)
 
+    @capture_exceptions(fatal=True)
     def create_training_client(self, model_id: types.ModelID | None = None) -> TrainingClient:
         from .training_client import TrainingClient
 
         return TrainingClient(self.holder, model_id=model_id)
 
+    @capture_exceptions(fatal=True)
     def create_sampling_client(
         self,
         model_path: str | None = None,
@@ -106,6 +113,9 @@ class ServiceClient:
             base_model=base_model,
             retry_config=retry_config,
         )
+
+    def get_telemetry(self) -> Telemetry | None:
+        return self.holder.get_telemetry()
 
 
 def _get_default_headers() -> dict[str, str]:

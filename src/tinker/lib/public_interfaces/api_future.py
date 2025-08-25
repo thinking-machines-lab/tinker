@@ -5,6 +5,7 @@ API Future classes for handling async operations with retry logic.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -155,7 +156,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
 
             try:
                 # Check if model_cls is a BaseModel subclass before calling model_validate
-                if issubclass(self.model_cls, BaseModel):
+                if inspect.isclass(self.model_cls) and issubclass(self.model_cls, BaseModel):
                     self._cached_result = self.model_cls.model_validate(result_dict)
                 else:
                     # For non-BaseModel types, just return the result directly
