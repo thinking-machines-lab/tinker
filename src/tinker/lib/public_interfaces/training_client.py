@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import time
 from functools import cache
-from typing import TYPE_CHECKING, List, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, cast
+
+import torch
 
 from tinker import types
 from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
@@ -34,6 +36,8 @@ logger = logging.getLogger(__name__)
 # FwdBwdChunkSize
 CHUNK_SIZE = 128  # TODO: pick this less arbitrarily
 MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initializing the TrainingClient with a model_id by either calling create_lora_training_client on the ServiceClient, or initiliazing the TrainingClient with an existing model_id."
+
+CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
 
 
 class TrainingClient(TelemetryProvider):
@@ -128,6 +132,66 @@ class TrainingClient(TelemetryProvider):
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
         return await self._forward_backward_submit(data, loss_fn)
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def forward_backward_custom(
+        self, data: List[types.Datum], loss_fn: CustomLossFnV1
+    ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Synchronous version of forward_backward_custom_async."""
+        return self.holder.run_coroutine_threadsafe(
+            self.forward_backward_custom_async(data, loss_fn)
+        ).result()
+
+    @capture_exceptions(fatal=True)
+    async def forward_backward_custom_async(
+        self, data: List[types.Datum], loss_fn: CustomLossFnV1
+    ) -> APIFuture[types.ForwardBackwardOutput]:
+        import torch
+
+        # First do a forward pass and get logprobs
+        forward_future = await self.forward_async(data, "cross_entropy")
+        forward_result = await forward_future.result_async()
+        logprobs_list: List[torch.Tensor] = []
+        for out in forward_result.loss_fn_outputs:
+            logprob = torch.tensor(out["logprobs"].data).clone().detach().requires_grad_(True)
+            logprobs_list.append(logprob)
+
+        # Now apply user-provided function
+        loss, metrics = loss_fn(data, logprobs_list)
+        loss.backward()
+        grads = []
+        for logprob in logprobs_list:
+            if logprob.grad is None:
+                raise ValueError("No gradient computed for logprob tensor")
+            grads.append(logprob.grad)
+
+        linear_loss_data = []
+        for datum, grad in zip(data, grads):
+            loss_fn_inputs: Any = {
+                "target_tokens": datum.loss_fn_inputs["target_tokens"],
+                "weights": -grad,  # Pass PyTorch tensor directly (will be converted to TensorData)
+            }
+            linear_loss_data.append(
+                types.Datum(
+                    model_input=datum.model_input,
+                    loss_fn_inputs=loss_fn_inputs,
+                )
+            )
+
+        # Do the backward pass with the gradients
+        backward_future = await self.forward_backward_async(linear_loss_data, "cross_entropy")
+
+        # We need to slightly modify the future to add the custom metrics, so we use _CombinedAPIFuture
+        # to transform the future.
+        def add_custom_metrics(
+            results: List[types.ForwardBackwardOutput],
+        ) -> types.ForwardBackwardOutput:
+            result = results[0]  # Single result
+            result.metrics.update(metrics)
+            return result
+
+        return _CombinedAPIFuture([backward_future], add_custom_metrics, self.holder)
 
     def _optim_step_submit(
         self, adam_params: types.AdamParams
