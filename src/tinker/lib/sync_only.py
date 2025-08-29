@@ -16,6 +16,18 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def is_jupyter() -> bool:
+    """Check if code is running in a Jupyter notebook."""
+    try:
+        get_ipython  # type: ignore
+    except NameError:
+        return False
+    shell = get_ipython().__class__.__name__  # type: ignore
+    if shell in ("ZMQInteractiveShell", "Shell"):
+        return True  # Jupyter notebook or qtconsole
+    return False  # Other type of shell
+
+
 def is_in_async_context() -> bool:
     try:
         asyncio.get_running_loop()
@@ -39,8 +51,7 @@ def make_error_message(  # noqa: UP047
     return (
         f"Synchronous method '{class_name}{method_name}()' called from async context. "
         f"Use '{class_name}{async_method_name}()' instead.\n"
-        f"Calling sync methods from async code can cause deadlocks and performance issues.\n"
-        f"But if you're in a Jupyter notebook, then ignore this message."
+        f"Calling sync methods from async code can cause deadlocks and performance issues."
     )
 
 
@@ -56,7 +67,7 @@ def sync_only(func: Callable[..., T]) -> Callable[..., T]:  # noqa: UP047
 
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> T:
-        if is_in_async_context():
+        if is_in_async_context() and not is_jupyter():
             error_message = make_error_message(func, args, kwargs)
             logger.warning(error_message)
             logger.warning(

@@ -33,6 +33,29 @@ U = TypeVar("U")
 
 
 class SamplingClient(TelemetryProvider):
+    """Client for text generation and inference from trained or base models.
+
+    The SamplingClient lets you generate text tokens from either a base model or from weights
+    you've saved using a TrainingClient. You typically get one by calling
+    `service_client.create_sampling_client()` or `training_client.save_weights_and_get_sampling_client()`.
+    Key methods:
+    - sample() - generate text completions with customizable parameters
+    - compute_logprobs() - get log probabilities for prompt tokens
+
+    Args:
+        holder: Internal client managing HTTP connections and async operations
+        model_path: Path to saved model weights (starts with 'tinker://')
+        base_model: Name of base model to use for inference
+        retry_config: Configuration for retrying failed requests
+
+    Example:
+        >>> sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen2.5-7B")
+        >>> prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
+        >>> params = types.SamplingParams(max_tokens=20, temperature=0.7)
+        >>> future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
+        >>> result = future.result()
+    """
+
     def __init__(
         self,
         holder: InternalClientHolder,
@@ -55,7 +78,14 @@ class SamplingClient(TelemetryProvider):
             os.environ.get("TINKER_FEATURE_GATES", "async_sampling").split(",")
         )
 
-    async def _sample_async_impl(self, prompt: types.ModelInput, num_samples: int, sampling_params: types.SamplingParams, include_prompt_logprobs: bool, timeout: float) -> types.SampleResponse:
+    async def _sample_async_impl(
+        self,
+        prompt: types.ModelInput,
+        num_samples: int,
+        sampling_params: types.SamplingParams,
+        include_prompt_logprobs: bool,
+        timeout: float,
+    ) -> types.SampleResponse:
         async def _asample_with_retries():
             start_time = time.time()
             retries = 0
@@ -124,7 +154,9 @@ class SamplingClient(TelemetryProvider):
         timeout = 30 * 60
 
         async def _sample_async():
-            return await self._sample_async_impl(prompt, num_samples, sampling_params, include_prompt_logprobs, timeout)
+            return await self._sample_async_impl(
+                prompt, num_samples, sampling_params, include_prompt_logprobs, timeout
+            )
 
         # TODO make max_tokens a required field
         return self.holder.run_coroutine_threadsafe(
@@ -164,7 +196,13 @@ class SamplingClient(TelemetryProvider):
         timeout = 30 * 60
 
         async def _compute_logprobs_async():
-            sample_res = await self._sample_async_impl(prompt, num_samples=1, sampling_params=types.SamplingParams(max_tokens=1), include_prompt_logprobs=True, timeout=timeout)
+            sample_res = await self._sample_async_impl(
+                prompt,
+                num_samples=1,
+                sampling_params=types.SamplingParams(max_tokens=1),
+                include_prompt_logprobs=True,
+                timeout=timeout,
+            )
             return cast(list[float | None], sample_res.prompt_logprobs)
 
         return self.holder.run_coroutine_threadsafe(

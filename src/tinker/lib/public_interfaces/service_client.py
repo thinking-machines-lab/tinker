@@ -25,6 +25,24 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceClient(TelemetryProvider):
+    """The ServiceClient is the main entry point for the Tinker API. It provides methods to:
+    - Query server capabilities and health status
+    - Generate TrainingClient instances for model training workflows
+    - Generate SamplingClient instances for text generation and inference
+
+    Args:
+        **kwargs: advanced options passed to the underlying HTTP client,
+                 including API keys, headers, and connection settings.
+
+    Example:
+        >>> client = ServiceClient()
+            # ^^^ near-instant
+        >>> training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
+            # ^^^ takes a moment as we initialize the model and assign resources
+        >>> sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
+            # ^^^ near-instant
+    """
+
     def __init__(self, **kwargs: Any):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
         self.holder = InternalClientHolder(

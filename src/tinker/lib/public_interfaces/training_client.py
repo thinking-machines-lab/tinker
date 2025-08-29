@@ -41,6 +41,28 @@ CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, f
 
 
 class TrainingClient(TelemetryProvider):
+    """Client for training ML models with forward/backward passes and optimization.
+
+    The TrainingClient corresponds to a fine-tuned model that you can train and sample from.
+    You typically get one by calling `service_client.create_lora_training_client()`.
+    Key methods:
+    - forward_backward() - compute gradients for training
+    - optim_step() - update model parameters with Adam optimizer
+    - save_weights_and_get_sampling_client() - export trained model for inference
+
+    Args:
+        holder: Internal client managing HTTP connections and async operations
+        model_id: Unique identifier for the model to train. Required for training operations.
+
+    Example:
+        >>> training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen2.5-7B")
+        >>> fwdbwd_future = training_client.forward_backward(training_data, "cross_entropy")
+        >>> optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+        >>> fwdbwd_result = fwdbwd_future.result()  # Wait for gradients
+        >>> optim_result = optim_future.result()    # Wait for parameter update
+        >>> sampling_client = training_client.save_weights_and_get_sampling_client("my-model")
+    """
+
     def __init__(self, holder: InternalClientHolder, model_id: types.ModelID | None = None):
         self.holder = holder
         self.model_id = model_id
