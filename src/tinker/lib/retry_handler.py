@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Generic, Type, TypeVar
 
 import httpx
+
 import tinker
 
 from .._constants import (
@@ -125,14 +126,16 @@ class RetryHandler(Generic[T]):  # noqa: UP046
         elapsed_since_last_printed_progress = current_time - self._last_printed_progress
         finished = self._waiting_at_semaphore_count + self._in_retry_loop_count == 0
         if elapsed_since_last_printed_progress > 2 or finished:
-            print(
+            logger.debug(
                 f"[{self.name}]: {self._waiting_at_semaphore_count} waiting, {self._in_retry_loop_count} in progress, {self._processed_count} completed"
             )
             if self._errors_since_last_retry:
                 sorted_items = sorted(
                     self._errors_since_last_retry.items(), key=lambda x: x[1], reverse=True
                 )
-                logger.debug(f"[{self.name}]: {self._retry_count} total retries, errors since last log: {sorted_items}")
+                logger.debug(
+                    f"[{self.name}]: {self._retry_count} total retries, errors since last log: {sorted_items}"
+                )
             self._last_printed_progress = current_time
             self._errors_since_last_retry.clear()
 

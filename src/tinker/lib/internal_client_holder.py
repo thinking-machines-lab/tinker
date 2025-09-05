@@ -6,9 +6,12 @@ import asyncio
 import logging
 import threading
 from collections.abc import Generator
-from contextlib import AbstractContextManager
-from typing import Any, TypeVar
+from contextlib import AbstractContextManager, asynccontextmanager
+import time
+from typing import Any, Awaitable, Callable, TypeVar
+import uuid
 
+import httpx
 import tinker
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.telemetry import Telemetry, TelemetryProvider, init_telemetry
@@ -34,6 +37,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(200)
         self._telemetry: Telemetry | None = init_telemetry(self)
+        self._request_id_prefix: str = str(uuid.uuid4())
+        self._request_id_lock: threading.Lock = threading.Lock()
+        self._request_id_counter: int = 0
+
+        self._turn_counter: int = 0
+        self._turn_waiters: dict[int, asyncio.Event] = {}
 
     def aclient(self) -> AbstractContextManager[tinker.AsyncTinker]:
         from contextlib import contextmanager
@@ -104,6 +113,86 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
     def __del__(self):
         self.close()
+
+    # Reserves a request id for a request. Requests are to be executed in the order of request ids.
+    def get_request_id(self) -> int:
+        with self._request_id_lock:
+            request_id = self._request_id_counter
+            self._request_id_counter += 1
+            return request_id
+
+    # Waits for the turn for a given request id to be executed.
+    # This has to be used via a with statement so that the turn is released
+    # only after current request was successfully dispatched.
+    @asynccontextmanager
+    async def take_turn(self, request_id: int):
+        assert self._turn_counter <= request_id, "Same request id cannot be taken twice"
+
+        if self._turn_counter < request_id:
+            try:
+                event = asyncio.Event()
+                self._turn_waiters[request_id] = event
+                await event.wait()
+            finally:
+                del self._turn_waiters[request_id]
+
+        assert self._turn_counter == request_id
+
+        try:
+            yield
+        finally:
+            self._turn_counter += 1
+            if self._turn_counter in self._turn_waiters:
+                self._turn_waiters[self._turn_counter].set()
+
+    # Combines take_turn and aclient in a single context manager.
+    @asynccontextmanager
+    async def aclient_take_turn(self, request_id: int):
+        async with self.take_turn(request_id):
+            with self.aclient() as client:
+                yield client
+
+    def make_idempotency_key(self, request_id: int) -> str:
+        return f"{self._request_id_prefix}:{request_id}"
+
+
+    @staticmethod
+    def _is_retryable_status_code(status_code: int) -> bool:
+        return status_code in (408, 409, 429) or (500 <= status_code < 600)
+
+    @staticmethod
+    def _is_retryable_exception(exception: Exception) -> bool:
+        RETRYABLE_EXCEPTIONS = (
+            asyncio.TimeoutError,
+            tinker.APIConnectionError,
+            httpx.TimeoutException,
+        )
+        if isinstance(exception, RETRYABLE_EXCEPTIONS):
+            return True
+        if isinstance(exception, tinker.APIStatusError):
+            return InternalClientHolder._is_retryable_status_code(exception.status_code)
+        return False
+
+    async def execute_with_retries(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
+        MAX_WAIT_TIME = 60
+        start_time = time.time()
+        attempt_count = 0
+        while True:
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                if self._is_retryable_exception(e):
+                    current_time = time.time()
+                    if current_time - start_time < MAX_WAIT_TIME:
+                        # Apply exponential backoff
+                        time_to_wait = min(2**attempt_count, 30)
+                        attempt_count += 1
+                        # Don't wait too long if we're almost at the max wait time
+                        time_to_wait = min(time_to_wait, start_time + MAX_WAIT_TIME - current_time)
+                        await asyncio.sleep(time_to_wait)
+                        continue
+
+                raise e
 
 
 def _current_loop() -> asyncio.AbstractEventLoop | None:

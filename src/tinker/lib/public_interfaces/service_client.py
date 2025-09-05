@@ -53,8 +53,10 @@ class ServiceClient(TelemetryProvider):
         self,
     ) -> AwaitableConcurrentFuture[types.GetServerCapabilitiesResponse]:
         async def _get_server_capabilities_async():
-            with self.holder.aclient() as client:
-                return await client.service.get_server_capabilities()
+            async def _send_request():
+                with self.holder.aclient() as client:
+                    return await client.service.get_server_capabilities()
+            return await self.holder.execute_with_retries(_send_request)
 
         return self.holder.run_coroutine_threadsafe(_get_server_capabilities_async())
 
