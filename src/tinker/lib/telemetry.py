@@ -11,7 +11,6 @@ from collections import deque
 from collections.abc import Awaitable
 from datetime import datetime, timezone
 from typing import (
-    Annotated,
     Callable,
     ParamSpec,
     Protocol,
@@ -20,17 +19,16 @@ from typing import (
     overload,
     runtime_checkable,
 )
-from uuid import UUID, uuid4
-
-from pydantic import Field
+from uuid import uuid4
 
 from tinker._exceptions import APIError
 from tinker._version import __version__
-from tinker.lib.async_tinker_provider import AsyncTinkerProvider
+from tinker.lib.async_tinker_provider import AsyncTinkerProvider, ClientConnectionPoolType
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent
 from tinker.types.severity import Severity
 from tinker.types.telemetry_batch import TelemetryBatch
+from tinker.types.telemetry_event import TelemetryEvent
 from tinker.types.telemetry_response import TelemetryResponse
 from tinker.types.telemetry_send_params import TelemetrySendParams
 from tinker.types.unhandled_exception_event import UnhandledExceptionEvent
@@ -45,16 +43,11 @@ FLUSH_TIMEOUT: float = 30.0
 MAX_QUEUE_SIZE: int = 10000
 HTTP_TIMEOUT_SECONDS: float = 5.0
 
-TelemetryEvent = Annotated[
-    SessionStartEvent | SessionEndEvent | UnhandledExceptionEvent,
-    Field(discriminator="event"),
-]
-
 
 class Telemetry:
-    def __init__(self, tinker_provider: AsyncTinkerProvider):
+    def __init__(self, tinker_provider: AsyncTinkerProvider, session_id: str):
         self._tinker_provider: AsyncTinkerProvider = tinker_provider
-        self._session_id: UUID = uuid4()
+        self._session_id: str = session_id
         self._session_start: datetime = datetime.now(timezone.utc)
         self._session_index: int = 0
         self._session_index_lock: threading.Lock = threading.Lock()
@@ -142,7 +135,7 @@ class Telemetry:
                 continue
 
     async def _send_batch(self, batch: TelemetryBatch) -> TelemetryResponse:
-        with self._tinker_provider.aclient() as client:
+        with self._tinker_provider.aclient(ClientConnectionPoolType.TELEMETRY) as client:
             params = _to_send_params(batch)
             return await client.telemetry.send(**params, timeout=HTTP_TIMEOUT_SECONDS)
 
@@ -200,7 +193,7 @@ class Telemetry:
         return TelemetryBatch(
             platform=platform.system(),
             sdk_version=__version__,
-            session_id=str(self._session_id),
+            session_id=self._session_id,
             events=events,
         )
 
@@ -272,7 +265,7 @@ class Telemetry:
 
 
 def _is_telemetry_enabled() -> bool:
-    return os.environ.get("TINKER_TELEMETRY", "0").lower() in {
+    return os.environ.get("TINKER_TELEMETRY", "1").lower() in {
         "1",
         "true",
         "yes",
@@ -280,9 +273,9 @@ def _is_telemetry_enabled() -> bool:
     }
 
 
-def init_telemetry(tinker_provider: AsyncTinkerProvider) -> Telemetry | None:
+def init_telemetry(tinker_provider: AsyncTinkerProvider, session_id: str) -> Telemetry | None:
     try:
-        return Telemetry(tinker_provider) if _is_telemetry_enabled() else None
+        return Telemetry(tinker_provider, session_id) if _is_telemetry_enabled() else None
     except Exception as e:
         logger.warning(f"Error initializing telemetry: {e}")
         return None
@@ -323,18 +316,22 @@ def capture_exceptions(
 def capture_exceptions(
     func: Callable[P, R] | None = None, *, fatal: bool = False, severity: Severity = "ERROR"
 ) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
-    def _get_telemetry(args: tuple[object, ...]) -> Telemetry | None:
-        if not args:
-            return None
-        bound_self = args[0]
-        return bound_self.get_telemetry() if isinstance(bound_self, TelemetryProvider) else None
+    def _get_telemetry(func: Callable[..., object], args: tuple[object, ...]) -> Telemetry | None:
+        if args and isinstance(args[0], TelemetryProvider):
+            return args[0].get_telemetry()
+        with contextlib.suppress(TypeError, AttributeError):
+            self = inspect.getclosurevars(func).nonlocals.get("self")
+            if isinstance(self, TelemetryProvider):
+                return self.get_telemetry()
+        logger.warning("@capture_exceptions used without TelemetryProvider: %s", func.__name__)
+        return None
 
     def _decorate(func: Callable[P, R]) -> Callable[P, R]:
         if inspect.iscoroutinefunction(func):
 
             @functools.wraps(func)
             async def _awrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-                telemetry = _get_telemetry(args)
+                telemetry = _get_telemetry(func, args)
                 if telemetry is None:
                     return await cast(Callable[..., Awaitable[R]], func)(*args, **kwargs)
                 async with telemetry.acapture_exceptions(fatal=fatal, severity=severity):
@@ -344,7 +341,7 @@ def capture_exceptions(
 
         @functools.wraps(func)
         def _wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            telemetry = _get_telemetry(args)
+            telemetry = _get_telemetry(func, args)
             if telemetry is None:
                 return func(*args, **kwargs)
             with telemetry.capture_exceptions(fatal=fatal, severity=severity):

@@ -16,10 +16,10 @@ import httpx
 import tinker
 from tinker import types
 from tinker._types import NOT_GIVEN
+from tinker.lib.async_tinker_provider import ClientConnectionPoolType
 from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
 
 from ..retry_handler import RetryConfig, RetryHandler
-from ..sync_only import sync_only
 from .api_future import AwaitableConcurrentFuture, _APIFuture
 
 if TYPE_CHECKING:
@@ -98,7 +98,7 @@ class SamplingClient(TelemetryProvider):
                         await asyncio.sleep(1)
                         continue
                     try:
-                        with self.holder.aclient() as client:
+                        with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
                             return await client.sampling.asample(
                                 num_samples=num_samples,
                                 prompt=cast(types._ModelInputParam, prompt.model_dump()),
@@ -114,6 +114,7 @@ class SamplingClient(TelemetryProvider):
                                 else NOT_GIVEN,
                                 max_retries=0,
                                 extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
+                                idempotency_key=self.holder.make_idempotency_key(),
                             )
                     except tinker.APIStatusError as e:
                         if e.status_code == 429:
@@ -141,13 +142,14 @@ class SamplingClient(TelemetryProvider):
             request_type="Sample",
         ).result_async(timeout=timeout)
 
-    def _sample_submit(
+    @capture_exceptions(fatal=True)
+    def sample(
         self,
         prompt: types.ModelInput,
         num_samples: int,
         sampling_params: types.SamplingParams,
-        include_prompt_logprobs: bool,
-    ) -> AwaitableConcurrentFuture[types.SampleResponse]:
+        include_prompt_logprobs: bool = False,
+    ) -> ConcurrentFuture[types.SampleResponse]:
         """Internal method that does the actual API call without retry logic."""
         # This timeout can't be determined based on the sampling_params because it also depends on
         # the overall load of the system. So using a large value here.
@@ -158,25 +160,15 @@ class SamplingClient(TelemetryProvider):
                 prompt, num_samples, sampling_params, include_prompt_logprobs, timeout
             )
 
+        @capture_exceptions(fatal=True)
+        async def _sample_async_with_retries() -> types.SampleResponse:
+            return await self.retry_handler.execute(_sample_async, request_timeout=timeout)
+
         # TODO make max_tokens a required field
         return self.holder.run_coroutine_threadsafe(
-            self.retry_handler.execute(_sample_async, request_timeout=timeout)
-        )
-
-    @sync_only
-    @capture_exceptions(fatal=True)
-    def sample(
-        self,
-        prompt: types.ModelInput,
-        num_samples: int,
-        sampling_params: types.SamplingParams,
-        include_prompt_logprobs: bool = False,
-    ) -> ConcurrentFuture[types.SampleResponse]:
-        return self._sample_submit(
-            prompt, num_samples, sampling_params, include_prompt_logprobs
+            _sample_async_with_retries()
         ).future()
 
-    @capture_exceptions(fatal=True)
     async def sample_async(
         self,
         prompt: types.ModelInput,
@@ -184,18 +176,19 @@ class SamplingClient(TelemetryProvider):
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
     ) -> types.SampleResponse:
-        return await self._sample_submit(
+        return await AwaitableConcurrentFuture(self.sample(
             prompt, num_samples, sampling_params, include_prompt_logprobs
-        )
+        ))
 
-    def _compute_logprobs_submit(
+    @capture_exceptions(fatal=True)
+    def compute_logprobs(
         self, prompt: types.ModelInput
-    ) -> AwaitableConcurrentFuture[Sequence[float | None]]:
+    ) -> ConcurrentFuture[Sequence[float | None]]:
         # This timeout can't be determined based on the sampling_params because it also depends on
         # the overall load of the system. So using a large value here.
         timeout = 30 * 60
 
-        async def _compute_logprobs_async():
+        async def _compute_logprobs_async() -> Sequence[float | None]:
             sample_res = await self._sample_async_impl(
                 prompt,
                 num_samples=1,
@@ -205,20 +198,16 @@ class SamplingClient(TelemetryProvider):
             )
             return cast(list[float | None], sample_res.prompt_logprobs)
 
+        @capture_exceptions(fatal=True)
+        async def _compute_logprobs_async_with_retries() -> Sequence[float | None]:
+            return await self.retry_handler.execute(_compute_logprobs_async, request_timeout=timeout)
+
         return self.holder.run_coroutine_threadsafe(
-            self.retry_handler.execute(_compute_logprobs_async, request_timeout=timeout)
-        )
+            _compute_logprobs_async_with_retries()
+        ).future()
 
-    @sync_only
-    @capture_exceptions(fatal=True)
-    def compute_logprobs(
-        self, prompt: types.ModelInput
-    ) -> ConcurrentFuture[Sequence[float | None]]:
-        return self._compute_logprobs_submit(prompt).future()
-
-    @capture_exceptions(fatal=True)
     async def compute_logprobs_async(self, prompt: types.ModelInput) -> Sequence[float | None]:
-        return await self._compute_logprobs_submit(prompt)
+        return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

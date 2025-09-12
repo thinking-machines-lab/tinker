@@ -6,14 +6,14 @@ import asyncio
 import logging
 import threading
 from collections.abc import Generator
-from contextlib import AbstractContextManager, asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 import time
 from typing import Any, Awaitable, Callable, TypeVar
 import uuid
 
 import httpx
 import tinker
-from tinker.lib.async_tinker_provider import AsyncTinkerProvider
+from tinker.lib.async_tinker_provider import AsyncTinkerProvider, ClientConnectionPoolType
 from tinker.lib.telemetry import Telemetry, TelemetryProvider, init_telemetry
 
 logger = logging.getLogger(__name__)
@@ -23,93 +23,106 @@ T = TypeVar("T")
 MAX_REQUESTS_PER_HTTPX_CLIENT = 100
 
 
+class ClientConnectionPool:
+    def __init__(self, loop: asyncio.AbstractEventLoop, max_requests_per_client: int, constructor_kwargs: dict[str, Any]):
+        self._loop = loop
+        self._max_requests_per_client = max_requests_per_client
+        self._constructor_kwargs = constructor_kwargs
+        self._clients: list[tinker.AsyncTinker] = []
+        self._client_active_refcount: list[int] = []
+
+    @contextmanager
+    def aclient(self) -> Generator[tinker.AsyncTinker, None, None]:
+        assert _current_loop() is self._loop, (
+            "AsyncTinker client called from incorrect event loop"
+        )
+        client_idx = -1
+        for i, ref_count in enumerate(self._client_active_refcount):
+            if ref_count < self._max_requests_per_client:
+                client_idx = i
+                break
+        if client_idx == -1:
+            self._clients.append(tinker.AsyncTinker(**self._constructor_kwargs))
+            client_idx = len(self._clients) - 1
+            self._client_active_refcount.append(0)
+
+        self._client_active_refcount[client_idx] += 1
+        try:
+            yield self._clients[client_idx]
+        finally:
+            self._client_active_refcount[client_idx] -= 1
+
+
+class InternalClientHolderThreadSingleton:
+    def __init__(self):
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread : threading.Thread | None = None
+        self._started: bool = False
+        self._lifecycle_lock: threading.Lock = threading.Lock()
+
+    def _ensure_started(self):
+        if self._started:
+            return
+
+        with self._lifecycle_lock:
+            if self._started:
+                return
+            self._loop = asyncio.new_event_loop()
+            self._thread = threading.Thread(target=self._background_thread_func, daemon=True)
+            self._thread.start()
+            self._started = True
+
+    def _background_thread_func(self):
+        assert self._loop is not None, "Loop must not be None"
+        self._loop.run_forever()
+
+    def get_loop(self) -> asyncio.AbstractEventLoop:
+        self._ensure_started()
+        assert self._loop is not None, "Loop must not be None"
+        return self._loop
+
+
+
+_internal_client_holder_thread_singleton = InternalClientHolderThreadSingleton()
+
+
 class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def __init__(self, **kwargs: Any) -> None:
         self._constructor_kwargs = kwargs
         # So we can use async eventloop for parallel sampling requests
         # in sync code.
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._thread: threading.Thread | None = None
-        self._started: threading.Event = threading.Event()
-        self._lifecycle_lock: threading.Lock = threading.Lock()
-        self._clients: list[tinker.AsyncTinker] = []
-        self._client_active_refcount: list[int] = []
+        self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
+        self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
         self._sample_backoff_until: float | None = None
-        self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(200)
-        self._telemetry: Telemetry | None = init_telemetry(self)
-        self._request_id_prefix: str = str(uuid.uuid4())
+        self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
+        self._session_id: str = str(uuid.uuid4())
+        self._telemetry: Telemetry | None = init_telemetry(self, session_id=self._session_id)
         self._request_id_lock: threading.Lock = threading.Lock()
         self._request_id_counter: int = 0
 
         self._turn_counter: int = 0
         self._turn_waiters: dict[int, asyncio.Event] = {}
 
-    def aclient(self) -> AbstractContextManager[tinker.AsyncTinker]:
-        from contextlib import contextmanager
+        self._unordered_id_counter: int = 0
 
-        @contextmanager
-        def _aclient() -> Generator[tinker.AsyncTinker, None, None]:
-            assert _current_loop() is self.get_loop(), (
-                "AsyncTinker client called from incorrect event loop"
-            )
-            client_idx = -1
-            for i, ref_count in enumerate(self._client_active_refcount):
-                if ref_count < MAX_REQUESTS_PER_HTTPX_CLIENT:
-                    client_idx = i
-                    break
-            if client_idx == -1:
-                self._clients.append(tinker.AsyncTinker(**self._constructor_kwargs))
-                client_idx = len(self._clients) - 1
-                self._client_active_refcount.append(1)
+    def _get_client_connection_pool(self, client_pool_type: ClientConnectionPoolType) -> ClientConnectionPool:
+        if client_pool_type not in self._client_pools:
+            max_requests_per_client = 1 if client_pool_type == ClientConnectionPoolType.TRAIN else MAX_REQUESTS_PER_HTTPX_CLIENT
+            self._client_pools[client_pool_type] = ClientConnectionPool(self.get_loop(), max_requests_per_client, self._constructor_kwargs)
+        return self._client_pools[client_pool_type]
 
-            self._client_active_refcount[client_idx] += 1
-            try:
-                yield self._clients[client_idx]
-            finally:
-                self._client_active_refcount[client_idx] -= 1
-
-        return _aclient()
+    def aclient(self, client_pool_type: ClientConnectionPoolType) -> AbstractContextManager[tinker.AsyncTinker]:
+        return self._get_client_connection_pool(client_pool_type).aclient()
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is not None:
-            return self._loop
-        with self._lifecycle_lock:
-            if self._loop is None:
-                self._start_background_thread()
-            assert self._loop is not None, "Background thread not started"
-            return self._loop
+        return self._loop
 
     def get_telemetry(self) -> Telemetry | None:
         return self._telemetry
 
-    def _start_background_thread(self):
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._started.clear()
-        self._thread = threading.Thread(target=self._background_thread_func, daemon=True)
-        self._thread.start()
-        self._started.wait()
-
-    def _background_thread_func(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._started.set()
-        self._loop.run_forever()
-
     def close(self):
-        with self._lifecycle_lock:
-            if telemetry := self._telemetry:
-                telemetry.stop()
-            if self._thread is not None:
-                if self._loop and self._loop.is_running():
-                    _ = self._loop.call_soon_threadsafe(self._loop.stop)
-                self._thread.join(timeout=2)
-                if self._thread.is_alive():
-                    logger.warning("Background thread did not join")
-                self._thread = None
-            if self._loop is not None:
-                self._loop.close()
-                self._loop = None
+        if telemetry := self._telemetry:
+            telemetry.stop()
 
     def __del__(self):
         self.close()
@@ -145,15 +158,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             if self._turn_counter in self._turn_waiters:
                 self._turn_waiters[self._turn_counter].set()
 
-    # Combines take_turn and aclient in a single context manager.
-    @asynccontextmanager
-    async def aclient_take_turn(self, request_id: int):
-        async with self.take_turn(request_id):
-            with self.aclient() as client:
-                yield client
 
-    def make_idempotency_key(self, request_id: int) -> str:
-        return f"{self._request_id_prefix}:{request_id}"
+    def make_idempotency_key(self, request_id: int | None = None) -> str:
+        if request_id is None:
+            self._unordered_id_counter += 1
+            return f"{self._session_id}:unordered:{self._unordered_id_counter}"
+        return f"{self._session_id}:{request_id}"
 
 
     @staticmethod
@@ -174,7 +184,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         return False
 
     async def execute_with_retries(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
-        MAX_WAIT_TIME = 60
+        MAX_WAIT_TIME = 60 * 5
         start_time = time.time()
         attempt_count = 0
         while True:

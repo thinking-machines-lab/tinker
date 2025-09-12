@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from tinker.lib.async_tinker_provider import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import (
     MAX_BATCH_SIZE,
     MAX_QUEUE_SIZE,
     Telemetry,
-    TelemetryEvent,
     TelemetryProvider,
     _is_telemetry_enabled,
     capture_exceptions,
@@ -24,6 +24,7 @@ from tinker.lib.telemetry import (
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent
 from tinker.types.telemetry_batch import TelemetryBatch
+from tinker.types.telemetry_event import TelemetryEvent
 from tinker.types.telemetry_response import TelemetryResponse
 from tinker.types.unhandled_exception_event import UnhandledExceptionEvent
 
@@ -80,14 +81,15 @@ class MockAsyncTinkerProvider:
         _ = asyncio.get_event_loop_policy().get_event_loop().create_task(_runner())
         return AwaitableConcurrentFuture(fut)
 
-    def aclient(self):
+    def aclient(self, client_pool_type: ClientConnectionPoolType):
+        _ = client_pool_type
         return self._client_cm
 
 
 class TestTelemetryClass:
     def setup_method(self):
         self.tinker_provider = MockAsyncTinkerProvider()
-        self.telemetry = Telemetry(self.tinker_provider)
+        self.telemetry = Telemetry(self.tinker_provider, session_id="test-session-id")
 
     def teardown_method(self):
         if hasattr(self, "telemetry"):
@@ -294,12 +296,12 @@ class TestTelemetryEnvironment:
 
     def test_is_telemetry_enabled_not_set(self):
         with patch.dict(os.environ, {}, clear=True):
-            assert _is_telemetry_enabled() is False
+            assert _is_telemetry_enabled() is True
 
     def test_init_telemetry_enabled(self):
         with patch.dict(os.environ, {"TINKER_TELEMETRY": "1"}):
             tinker_provider = MockAsyncTinkerProvider()
-            telemetry = init_telemetry(tinker_provider)
+            telemetry = init_telemetry(tinker_provider, session_id="test-session-id")
             assert telemetry is not None
             assert isinstance(telemetry, Telemetry)
             telemetry.stop()
@@ -307,7 +309,7 @@ class TestTelemetryEnvironment:
     def test_init_telemetry_disabled(self):
         with patch.dict(os.environ, {"TINKER_TELEMETRY": "0"}):
             tinker_provider = MockAsyncTinkerProvider()
-            telemetry = init_telemetry(tinker_provider)
+            telemetry = init_telemetry(tinker_provider, session_id="test-session-id")
             assert telemetry is None
 
     def test_init_telemetry_with_exception(self):
@@ -315,7 +317,7 @@ class TestTelemetryEnvironment:
             tinker_provider = Mock()
             tinker_provider.get_loop.side_effect = Exception("Init error")
             with patch("tinker.lib.telemetry.logger") as mock_logger:
-                telemetry = init_telemetry(tinker_provider)
+                telemetry = init_telemetry(tinker_provider, session_id="test-session-id")
             assert telemetry is None
             mock_logger.warning.assert_called_once()
             assert "Error initializing telemetry" in str(mock_logger.warning.call_args)
@@ -429,11 +431,68 @@ class TestCaptureExceptionsDecorator:
         result = test_func()
         assert result == "decorator with parens"
 
+    def test_decorator_on_inner_sync_function_closing_over_self(self):
+        provider = self.MockTelemetryProvider()
+
+        class Wrapper:
+            def __init__(self, p: Any):
+                self.p: Any = p
+
+            @capture_exceptions
+            def outer(self) -> str:
+                @capture_exceptions
+                def inner() -> str:
+                    # reference `self` so it is captured in the closure
+                    return "ok" if self else "bad"
+
+                return inner()
+
+            def get_telemetry(self) -> Telemetry | None:
+                return self.p.get_telemetry()
+
+        wrapper = Wrapper(provider)
+        provider.telemetry.capture_exceptions.return_value.__enter__ = Mock()
+        provider.telemetry.capture_exceptions.return_value.__exit__ = Mock(return_value=False)
+        result = wrapper.outer()
+        assert result == "ok"
+        # Called twice: once for outer, once for inner via closure lookup
+        assert provider.telemetry.capture_exceptions.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_decorator_on_inner_async_function_closing_over_self(self):
+        provider = self.MockTelemetryProvider()
+
+        class Wrapper:
+            def __init__(self, p: Any):
+                self.p: Any = p
+
+            @capture_exceptions
+            async def outer(self) -> str:
+                @capture_exceptions
+                async def inner() -> str:
+                    # reference `self` so it is captured in the closure
+                    return "ok-async" if self else "bad"
+
+                return await inner()
+
+            def get_telemetry(self) -> Telemetry | None:
+                return self.p.get_telemetry()
+
+        wrapper = Wrapper(provider)
+        async_cm = AsyncMock()
+        async_cm.__aenter__ = AsyncMock(return_value=None)
+        async_cm.__aexit__ = AsyncMock(return_value=False)
+        provider.telemetry.acapture_exceptions.return_value = async_cm
+        result = await wrapper.outer()
+        assert result == "ok-async"
+        # Called twice: once for outer, once for inner via closure lookup
+        assert provider.telemetry.acapture_exceptions.call_count == 2
+
 
 class TestTelemetryFlush:
     def setup_method(self):
         self.tinker_provider = MockAsyncTinkerProvider()
-        self.telemetry = Telemetry(self.tinker_provider)
+        self.telemetry = Telemetry(self.tinker_provider, session_id="test-session-id")
 
     def teardown_method(self):
         if hasattr(self, "telemetry"):
@@ -509,7 +568,7 @@ class TestSyncContextManager:
     @pytest.mark.asyncio
     async def test_send_batch_uses_sync_context_manager(self):
         tinker_provider = MockAsyncTinkerProvider()
-        telemetry = Telemetry(tinker_provider)
+        telemetry = Telemetry(tinker_provider, session_id="test-session-id")
         events = [telemetry._session_start_event()]
         batch = telemetry._batch(cast(list[TelemetryEvent], events))
         result = await telemetry._send_batch(batch)
@@ -524,7 +583,7 @@ class TestCrossLoopSafety:
     @pytest.mark.asyncio
     async def test_trigger_flush_from_different_loop(self):
         tinker_provider = MockAsyncTinkerProvider()
-        telemetry = Telemetry(tinker_provider)
+        telemetry = Telemetry(tinker_provider, session_id="test-session-id")
         tinker_provider.execute_callbacks()
 
         def trigger_from_thread():
@@ -540,7 +599,7 @@ class TestCrossLoopSafety:
     @pytest.mark.asyncio
     async def test_periodic_flush_with_asyncio_event(self):
         tinker_provider = MockAsyncTinkerProvider()
-        telemetry = Telemetry(tinker_provider)
+        telemetry = Telemetry(tinker_provider, session_id="test-session-id")
         tinker_provider.execute_callbacks()
         telemetry.log(telemetry._session_end_event())
         with patch.object(telemetry, "_flush", new_callable=AsyncMock) as mock_flush:

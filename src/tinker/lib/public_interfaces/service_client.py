@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 
 from tinker import types
+from tinker.lib.async_tinker_provider import ClientConnectionPoolType
 from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
 
 from ..internal_client_holder import InternalClientHolder
@@ -16,6 +17,7 @@ from ..sync_only import sync_only
 from .api_future import AwaitableConcurrentFuture, _APIFuture
 
 if TYPE_CHECKING:
+    from .rest_client import RestClient
     from .sampling_client import SamplingClient
     from .training_client import TrainingClient
 
@@ -29,6 +31,7 @@ class ServiceClient(TelemetryProvider):
     - Query server capabilities and health status
     - Generate TrainingClient instances for model training workflows
     - Generate SamplingClient instances for text generation and inference
+    - Generate RestClient instances for REST API operations like listing weights
 
     Args:
         **kwargs: advanced options passed to the underlying HTTP client,
@@ -40,6 +43,8 @@ class ServiceClient(TelemetryProvider):
         >>> training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
             # ^^^ takes a moment as we initialize the model and assign resources
         >>> sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
+            # ^^^ near-instant
+        >>> rest_client = client.create_rest_client()
             # ^^^ near-instant
     """
 
@@ -54,7 +59,7 @@ class ServiceClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.GetServerCapabilitiesResponse]:
         async def _get_server_capabilities_async():
             async def _send_request():
-                with self.holder.aclient() as client:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.service.get_server_capabilities()
             return await self.holder.execute_with_retries(_send_request)
 
@@ -74,7 +79,7 @@ class ServiceClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.ModelID]:
         async def _create_model_async():
             start_time = time.time()
-            with self.holder.aclient() as client:
+            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                 future = await client.models.create(
                     base_model=base_model, lora_config=_to_lora_config_params(lora_config)
                 )
@@ -133,6 +138,21 @@ class ServiceClient(TelemetryProvider):
             base_model=base_model,
             retry_config=retry_config,
         )
+
+    @capture_exceptions(fatal=True)
+    def create_rest_client(self) -> RestClient:
+        """Create a RestClient for REST API operations.
+
+        Returns:
+            RestClient: A client for listing weights and other REST operations
+
+        Example:
+            >>> rest_client = service_client.create_rest_client()
+            >>> weights = rest_client.list_model_weights("my-model-id").result()
+        """
+        from .rest_client import RestClient
+
+        return RestClient(self.holder)
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

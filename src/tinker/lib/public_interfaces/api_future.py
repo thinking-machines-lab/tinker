@@ -95,6 +95,9 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
 
     async def _result_async(self, timeout: float | None = None) -> T:
         """Get the result of this future, with automatic retries for transient errors."""
+        # TODO: move _APIFuture and _CombinedAPIFuture into a separate file to avoid circular imports
+        from tinker.lib.async_tinker_provider import ClientConnectionPoolType
+
         if self._cached_result is not _UNCOMPUTED:
             return cast(T, self._cached_result)
 
@@ -122,7 +125,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
 
             # Function hasn't been called yet, execute it now
             try:
-                with self.holder.aclient() as client:
+                with self.holder.aclient(ClientConnectionPoolType.RETRIEVE_PROMISE) as client:
                     response = await client.futures.with_raw_response.retrieve(
                         request_id=self.request_id, timeout=45, extra_headers=headers, max_retries=0
                     )
