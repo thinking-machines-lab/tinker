@@ -21,6 +21,7 @@ from tinker.lib.telemetry import (
     capture_exceptions,
     init_telemetry,
 )
+from tinker.types.generic_event import GenericEvent
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent
 from tinker.types.telemetry_batch import TelemetryBatch
@@ -105,7 +106,7 @@ class TestTelemetryClass:
 
     def test_log_single_event(self):
         event = self.telemetry._session_end_event()
-        result = self.telemetry.log(event)
+        result = self.telemetry._log(event)
         assert result is True
         assert len(self.telemetry._queue) == 2
         assert self.telemetry._queue[-1] == event
@@ -113,11 +114,39 @@ class TestTelemetryClass:
     def test_log_multiple_events(self):
         event1 = self.telemetry._session_end_event()
         event2 = self.telemetry._exception_event(ValueError("test"), "ERROR")
-        result = self.telemetry.log(event1, event2)
+        result = self.telemetry._log(event1, event2)
         assert result is True
         assert len(self.telemetry._queue) == 3
         assert self.telemetry._queue[-2] == event1
         assert self.telemetry._queue[-1] == event2
+
+    def test_log_generic_event_default(self):
+        idx_before = self.telemetry._session_index
+        result = self.telemetry.log("test-event")
+        assert result is True
+        assert len(self.telemetry._queue) == 2
+        event = self.telemetry._queue[-1]
+        assert isinstance(event, GenericEvent)
+        assert event.event == "GENERIC_EVENT"
+        assert event.event_name == "test-event"
+        assert event.severity == "INFO"
+        assert event.event_data == {}
+        assert event.event_session_index == idx_before
+        assert isinstance(event.event_id, str) and event.event_id
+
+    def test_log_generic_event_custom(self):
+        idx_before = self.telemetry._session_index
+        payload: dict[str, object] = {"a": 1, "b": "x"}
+        result = self.telemetry.log("custom-event", event_data=payload, severity="WARNING")
+        assert result is True
+        assert len(self.telemetry._queue) == 2
+        event = self.telemetry._queue[-1]
+        assert isinstance(event, GenericEvent)
+        assert event.event == "GENERIC_EVENT"
+        assert event.event_name == "custom-event"
+        assert event.severity == "WARNING"
+        assert event.event_data == payload
+        assert event.event_session_index == idx_before
 
     def test_log_queue_full(self):
         initial_size = len(self.telemetry._queue)
@@ -128,7 +157,7 @@ class TestTelemetryClass:
         event1 = self.telemetry._session_end_event()
         event2 = self.telemetry._session_end_event()
         with patch("tinker.lib.telemetry.logger") as mock_logger:
-            result = self.telemetry.log(event1, event2)
+            result = self.telemetry._log(event1, event2)
         assert result is False
         assert len(self.telemetry._queue) == MAX_QUEUE_SIZE - 1
         mock_logger.warning.assert_called_once_with("Telemetry queue full, dropping events")
@@ -508,7 +537,7 @@ class TestTelemetryFlush:
 
     def test_flush_small_batch(self):
         for _ in range(5):
-            _ = self.telemetry.log(self.telemetry._session_end_event())
+            _ = self.telemetry._log(self.telemetry._session_end_event())
         with patch.object(
             self.telemetry, "_send_batch_with_retry", new_callable=AsyncMock
         ) as mock_send:
@@ -518,7 +547,7 @@ class TestTelemetryFlush:
 
     def test_flush_large_batch(self):
         for _ in range(MAX_BATCH_SIZE + 10):
-            _ = self.telemetry.log(self.telemetry._session_end_event())
+            _ = self.telemetry._log(self.telemetry._session_end_event())
         with patch.object(
             self.telemetry, "_send_batch_with_retry", new_callable=AsyncMock
         ) as mock_send:
@@ -529,7 +558,7 @@ class TestTelemetryFlush:
     def test_counters_and_wait(self):
         initial_push = self.telemetry._push_counter
         for _ in range(3):
-            _ = self.telemetry.log(self.telemetry._session_end_event())
+            _ = self.telemetry._log(self.telemetry._session_end_event())
         assert self.telemetry._push_counter == initial_push + 3
         with patch.object(
             self.telemetry,
@@ -601,7 +630,7 @@ class TestCrossLoopSafety:
         tinker_provider = MockAsyncTinkerProvider()
         telemetry = Telemetry(tinker_provider, session_id="test-session-id")
         tinker_provider.execute_callbacks()
-        telemetry.log(telemetry._session_end_event())
+        telemetry._log(telemetry._session_end_event())
         with patch.object(telemetry, "_flush", new_callable=AsyncMock) as mock_flush:
             telemetry._flush_event.set()
             task = asyncio.create_task(telemetry._periodic_flush())

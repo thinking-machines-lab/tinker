@@ -11,8 +11,6 @@ from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
 from typing import TYPE_CHECKING, TypeVar, cast
 
-import httpx
-
 import tinker
 from tinker import types
 from tinker._types import NOT_GIVEN
@@ -78,6 +76,33 @@ class SamplingClient(TelemetryProvider):
             os.environ.get("TINKER_FEATURE_GATES", "async_sampling").split(",")
         )
 
+    async def _send_asample_request(
+        self,
+        num_samples: int,
+        prompt: types.ModelInput,
+        sampling_params: types.SamplingParams,
+        include_prompt_logprobs: bool,
+        idempotency_key: str,
+    ):
+        with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
+            return await client.sampling.asample(
+                num_samples=num_samples,
+                prompt=cast(types._ModelInputParam, prompt.model_dump()),
+                sampling_params=cast(
+                    types._SamplingParamsParam, sampling_params.model_dump()
+                ),
+                model_path=self.model_path
+                if self.model_path is not None
+                else NOT_GIVEN,
+                prompt_logprobs=include_prompt_logprobs,
+                base_model=self.base_model
+                if self.base_model is not None
+                else NOT_GIVEN,
+                max_retries=0,
+                extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
+                idempotency_key=idempotency_key,
+            )
+
     async def _sample_async_impl(
         self,
         prompt: types.ModelInput,
@@ -86,54 +111,24 @@ class SamplingClient(TelemetryProvider):
         include_prompt_logprobs: bool,
         timeout: float,
     ) -> types.SampleResponse:
-        async def _asample_with_retries():
-            start_time = time.time()
-            retries = 0
-            async with self.holder._sample_dispatch_semaphore:
-                while True:
-                    if (
-                        self.holder._sample_backoff_until is not None
-                        and time.time() < self.holder._sample_backoff_until
-                    ):
-                        await asyncio.sleep(1)
+        idempotency_key = self.holder.make_idempotency_key()
+        async with self.holder._sample_dispatch_semaphore:
+            while True:
+                if (
+                    self.holder._sample_backoff_until is not None
+                    and time.time() < self.holder._sample_backoff_until
+                ):
+                    await asyncio.sleep(1)
+                    continue
+                try:
+                    untyped_future = await self.holder.execute_with_retries(self._send_asample_request, num_samples, prompt, sampling_params, include_prompt_logprobs, idempotency_key)
+                    break
+                except tinker.APIStatusError as e:
+                    if e.status_code == 429:
+                        self.holder._sample_backoff_until = time.time() + 1
                         continue
-                    try:
-                        with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
-                            return await client.sampling.asample(
-                                num_samples=num_samples,
-                                prompt=cast(types._ModelInputParam, prompt.model_dump()),
-                                sampling_params=cast(
-                                    types._SamplingParamsParam, sampling_params.model_dump()
-                                ),
-                                model_path=self.model_path
-                                if self.model_path is not None
-                                else NOT_GIVEN,
-                                prompt_logprobs=include_prompt_logprobs,
-                                base_model=self.base_model
-                                if self.base_model is not None
-                                else NOT_GIVEN,
-                                max_retries=0,
-                                extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
-                                idempotency_key=self.holder.make_idempotency_key(),
-                            )
-                    except tinker.APIStatusError as e:
-                        if e.status_code == 429:
-                            self.holder._sample_backoff_until = time.time() + 1
-                            continue
-                        raise e
-                    except tinker.APITimeoutError as e:
-                        # Connect timeouts are safe to retry
-                        if (
-                            time.time() - start_time < timeout
-                            and e.__cause__ is not None
-                            and isinstance(e.__cause__, httpx.ConnectTimeout)
-                        ):
-                            await asyncio.sleep(min(2**retries, 30))
-                            retries += 1
-                            continue
-                        raise e
+                    raise e
 
-        untyped_future = await _asample_with_retries()
         return await _APIFuture(
             types.SampleResponse,
             self.holder,

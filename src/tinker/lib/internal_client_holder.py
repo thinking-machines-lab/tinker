@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
+import traceback
+import uuid
 from collections.abc import Generator
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
-import time
 from typing import Any, Awaitable, Callable, TypeVar
-import uuid
 
 import httpx
+
 import tinker
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider, ClientConnectionPoolType
 from tinker.lib.telemetry import Telemetry, TelemetryProvider, init_telemetry
@@ -24,7 +26,12 @@ MAX_REQUESTS_PER_HTTPX_CLIENT = 100
 
 
 class ClientConnectionPool:
-    def __init__(self, loop: asyncio.AbstractEventLoop, max_requests_per_client: int, constructor_kwargs: dict[str, Any]):
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        max_requests_per_client: int,
+        constructor_kwargs: dict[str, Any],
+    ):
         self._loop = loop
         self._max_requests_per_client = max_requests_per_client
         self._constructor_kwargs = constructor_kwargs
@@ -33,9 +40,7 @@ class ClientConnectionPool:
 
     @contextmanager
     def aclient(self) -> Generator[tinker.AsyncTinker, None, None]:
-        assert _current_loop() is self._loop, (
-            "AsyncTinker client called from incorrect event loop"
-        )
+        assert _current_loop() is self._loop, "AsyncTinker client called from incorrect event loop"
         client_idx = -1
         for i, ref_count in enumerate(self._client_active_refcount):
             if ref_count < self._max_requests_per_client:
@@ -56,7 +61,7 @@ class ClientConnectionPool:
 class InternalClientHolderThreadSingleton:
     def __init__(self):
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._thread : threading.Thread | None = None
+        self._thread: threading.Thread | None = None
         self._started: bool = False
         self._lifecycle_lock: threading.Lock = threading.Lock()
 
@@ -82,7 +87,6 @@ class InternalClientHolderThreadSingleton:
         return self._loop
 
 
-
 _internal_client_holder_thread_singleton = InternalClientHolderThreadSingleton()
 
 
@@ -105,13 +109,23 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
         self._unordered_id_counter: int = 0
 
-    def _get_client_connection_pool(self, client_pool_type: ClientConnectionPoolType) -> ClientConnectionPool:
+    def _get_client_connection_pool(
+        self, client_pool_type: ClientConnectionPoolType
+    ) -> ClientConnectionPool:
         if client_pool_type not in self._client_pools:
-            max_requests_per_client = 1 if client_pool_type == ClientConnectionPoolType.TRAIN else MAX_REQUESTS_PER_HTTPX_CLIENT
-            self._client_pools[client_pool_type] = ClientConnectionPool(self.get_loop(), max_requests_per_client, self._constructor_kwargs)
+            max_requests_per_client = (
+                1
+                if client_pool_type == ClientConnectionPoolType.TRAIN
+                else MAX_REQUESTS_PER_HTTPX_CLIENT
+            )
+            self._client_pools[client_pool_type] = ClientConnectionPool(
+                self.get_loop(), max_requests_per_client, self._constructor_kwargs
+            )
         return self._client_pools[client_pool_type]
 
-    def aclient(self, client_pool_type: ClientConnectionPoolType) -> AbstractContextManager[tinker.AsyncTinker]:
+    def aclient(
+        self, client_pool_type: ClientConnectionPoolType
+    ) -> AbstractContextManager[tinker.AsyncTinker]:
         return self._get_client_connection_pool(client_pool_type).aclient()
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
@@ -158,13 +172,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             if self._turn_counter in self._turn_waiters:
                 self._turn_waiters[self._turn_counter].set()
 
-
     def make_idempotency_key(self, request_id: int | None = None) -> str:
         if request_id is None:
             self._unordered_id_counter += 1
             return f"{self._session_id}:unordered:{self._unordered_id_counter}"
         return f"{self._session_id}:{request_id}"
-
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:
@@ -183,7 +195,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             return InternalClientHolder._is_retryable_status_code(exception.status_code)
         return False
 
-    async def execute_with_retries(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
+    async def execute_with_retries(
+        self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
+    ) -> T:
         MAX_WAIT_TIME = 60 * 5
         start_time = time.time()
         attempt_count = 0
@@ -191,16 +205,40 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                if self._is_retryable_exception(e):
-                    current_time = time.time()
-                    if current_time - start_time < MAX_WAIT_TIME:
-                        # Apply exponential backoff
-                        time_to_wait = min(2**attempt_count, 30)
-                        attempt_count += 1
-                        # Don't wait too long if we're almost at the max wait time
-                        time_to_wait = min(time_to_wait, start_time + MAX_WAIT_TIME - current_time)
-                        await asyncio.sleep(time_to_wait)
-                        continue
+                is_retryable = self._is_retryable_exception(e)
+                current_time = time.time()
+                elapsed_time = current_time - start_time
+                if telemetry := self.get_telemetry():
+                    telemetry.log(
+                        "InternalClientHolder.execute_with_retries.exception",
+                        event_data={
+                            "func": getattr(
+                                func, "__qualname__", getattr(func, "__name__", type(func).__name__)
+                            ),
+                            "exception": str(e),
+                            "exception_type": type(e).__name__,
+                            "exception_stack": "".join(
+                                traceback.format_exception(type(e), e, e.__traceback__)
+                            )
+                            if e.__traceback__
+                            else None,
+                            "status_code": getattr(e, "status_code", None),
+                            "is_retryable": is_retryable,
+                            "attempt_count": attempt_count,
+                            "start_time": start_time,
+                            "current_time": current_time,
+                            "elapsed_time": elapsed_time,
+                        },
+                        severity="WARNING" if is_retryable else "ERROR",
+                    )
+                if is_retryable and elapsed_time < MAX_WAIT_TIME:
+                    # Apply exponential backoff
+                    time_to_wait = min(2**attempt_count, 30)
+                    attempt_count += 1
+                    # Don't wait too long if we're almost at the max wait time
+                    time_to_wait = min(time_to_wait, start_time + MAX_WAIT_TIME - current_time)
+                    await asyncio.sleep(time_to_wait)
+                    continue
 
                 raise e
 

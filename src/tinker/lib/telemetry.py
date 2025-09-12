@@ -24,6 +24,7 @@ from uuid import uuid4
 from tinker._exceptions import APIError
 from tinker._version import __version__
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider, ClientConnectionPoolType
+from tinker.types.generic_event import GenericEvent
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent
 from tinker.types.severity import Severity
@@ -58,7 +59,7 @@ class Telemetry:
         self._push_counter: int = 0
         self._flush_counter: int = 0
         self._counter_lock: threading.Lock = threading.Lock()
-        _ = self.log(self._session_start_event())
+        _ = self._log(self._session_start_event())
         self._start()
 
     def _start(self):
@@ -139,7 +140,7 @@ class Telemetry:
             params = _to_send_params(batch)
             return await client.telemetry.send(**params, timeout=HTTP_TIMEOUT_SECONDS)
 
-    def log(self, *events: TelemetryEvent) -> bool:
+    def _log(self, *events: TelemetryEvent) -> bool:
         with self._queue_lock:
             if len(self._queue) + len(events) > MAX_QUEUE_SIZE:
                 logger.warning("Telemetry queue full, dropping events")
@@ -149,8 +150,16 @@ class Telemetry:
             self._push_counter += len(events)
         return True
 
+    def log(
+        self,
+        event_name: str,  # should be low cardinality
+        event_data: dict[str, object] | None = None,
+        severity: Severity = "INFO",
+    ) -> bool:
+        return self._log(self._generic_event(event_name, event_data, severity))
+
     async def log_exception(self, exception: BaseException, severity: Severity = "ERROR") -> bool:
-        logged = self.log(self._exception_event(exception, severity))
+        logged = self._log(self._exception_event(exception, severity))
         # trigger flush but don't block on it
         self._trigger_flush()
         return logged
@@ -158,7 +167,7 @@ class Telemetry:
     async def log_fatal_exception(
         self, exception: BaseException, severity: Severity = "ERROR"
     ) -> bool:
-        logged = self.log(self._exception_event(exception, severity), self._session_end_event())
+        logged = self._log(self._exception_event(exception, severity), self._session_end_event())
         self._trigger_flush()
         # wait for the flush to complete
         _ = await self._wait_until_drained()
@@ -168,7 +177,7 @@ class Telemetry:
 
     @sync_only
     def log_exception_sync(self, exception: BaseException, severity: Severity = "ERROR") -> bool:
-        logged = self.log(self._exception_event(exception, severity))
+        logged = self._log(self._exception_event(exception, severity))
         # trigger flush but don't block on it
         self._trigger_flush()
         return logged
@@ -177,7 +186,7 @@ class Telemetry:
     def log_fatal_exception_sync(
         self, exception: BaseException, severity: Severity = "ERROR"
     ) -> bool:
-        logged = self.log(self._exception_event(exception, severity), self._session_end_event())
+        logged = self._log(self._exception_event(exception, severity), self._session_end_event())
         self._trigger_flush()
         # wait for the flush to complete
         if _current_loop() is None:
@@ -195,6 +204,22 @@ class Telemetry:
             sdk_version=__version__,
             session_id=self._session_id,
             events=events,
+        )
+
+    def _generic_event(
+        self,
+        event_name: str,
+        event_data: dict[str, object] | None = None,
+        severity: Severity = "INFO",
+    ) -> GenericEvent:
+        return GenericEvent(
+            event="GENERIC_EVENT",
+            event_id=str(uuid4()),
+            event_session_index=self._next_session_index(),
+            timestamp=datetime.now(timezone.utc),
+            severity=severity,
+            event_name=event_name,
+            event_data=event_data or {},
         )
 
     def _session_start_event(self) -> SessionStartEvent:
