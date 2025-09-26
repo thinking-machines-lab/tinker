@@ -13,7 +13,7 @@ from ..types import (
     weight_save_params,
     weight_save_for_sampler_params,
 )
-from .._types import NOT_GIVEN, Body, Query, Headers, NotGiven
+from .._types import NOT_GIVEN, Body, Query, Headers, NotGiven, NoneType
 from .._utils import maybe_transform, async_maybe_transform
 from .._compat import cached_property
 from .._resource import SyncAPIResource, AsyncAPIResource
@@ -237,6 +237,39 @@ class WeightsResource(SyncAPIResource):
             cast_to=CheckpointsListResponse,
         )
 
+    def delete_checkpoint(
+        self,
+        *,
+        model_id: ModelID,
+        checkpoint_id: str,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> None:
+        """Delete a checkpoint for the given training run."""
+        if not model_id:
+            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
+        if not checkpoint_id:
+            raise ValueError(
+                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
+            )
+
+        self._delete(
+            f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}",
+            options=make_request_options(
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+            ),
+            cast_to=NoneType,
+        )
+
+        return None
+
 class AsyncWeightsResource(AsyncAPIResource):
     @cached_property
     def with_raw_response(self) -> AsyncWeightsResourceWithRawResponse:
@@ -445,6 +478,39 @@ class AsyncWeightsResource(AsyncAPIResource):
             cast_to=CheckpointsListResponse,
         )
 
+    async def delete_checkpoint(
+        self,
+        *,
+        model_id: ModelID,
+        checkpoint_id: str,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> None:
+        """Delete a checkpoint for the given training run."""
+        if not model_id:
+            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
+        if not checkpoint_id:
+            raise ValueError(
+                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
+            )
+
+        await self._delete(
+            f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}",
+            options=make_request_options(
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+            ),
+            cast_to=NoneType,
+        )
+
+        return None
+
 
 class WeightsResourceWithRawResponse:
     def __init__(self, weights: WeightsResource) -> None:
@@ -461,6 +527,9 @@ class WeightsResourceWithRawResponse:
         )
         self.list = to_raw_response_wrapper(
             weights.list,
+        )
+        self.delete_checkpoint = to_raw_response_wrapper(
+            weights.delete_checkpoint,
         )
 
 
@@ -480,6 +549,9 @@ class AsyncWeightsResourceWithRawResponse:
         self.list = async_to_raw_response_wrapper(
             weights.list,
         )
+        self.delete_checkpoint = async_to_raw_response_wrapper(
+            weights.delete_checkpoint,
+        )
 
 
 class WeightsResourceWithStreamingResponse:
@@ -498,6 +570,9 @@ class WeightsResourceWithStreamingResponse:
         self.list = to_streamed_response_wrapper(
             weights.list,
         )
+        self.delete_checkpoint = to_streamed_response_wrapper(
+            weights.delete_checkpoint,
+        )
 
 
 class AsyncWeightsResourceWithStreamingResponse:
@@ -515,4 +590,7 @@ class AsyncWeightsResourceWithStreamingResponse:
         )
         self.list = async_to_streamed_response_wrapper(
             weights.list,
+        )
+        self.delete_checkpoint = async_to_streamed_response_wrapper(
+            weights.delete_checkpoint,
         )

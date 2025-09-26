@@ -1,6 +1,6 @@
 # File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 
-from typing import List, Union, Optional
+from typing import Optional, Sequence, Union
 
 from .._models import BaseModel
 
@@ -14,7 +14,7 @@ class SamplingParams(BaseModel):
     seed: Optional[int] = None
     """Random seed for reproducible generation"""
 
-    stop: Union[str, List[str], List[int], None] = None
+    stop: Union[str, Sequence[str], Sequence[int], None] = None
     """Stop sequences for generation"""
 
     temperature: float = 1

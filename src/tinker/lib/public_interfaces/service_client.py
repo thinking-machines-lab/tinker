@@ -8,13 +8,15 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 
 from tinker import types
-from tinker.lib.async_tinker_provider import ClientConnectionPoolType
-from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.telemetry import Telemetry, capture_exceptions
+from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..internal_client_holder import InternalClientHolder
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
-from .api_future import AwaitableConcurrentFuture, _APIFuture
+from ..api_future_impl import _APIFuture
 
 if TYPE_CHECKING:
     from .rest_client import RestClient

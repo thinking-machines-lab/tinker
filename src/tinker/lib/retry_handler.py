@@ -9,6 +9,7 @@ import asyncio
 import logging
 import random
 import time
+import traceback
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Generic, Type, TypeVar
@@ -16,12 +17,14 @@ from typing import Any, Awaitable, Callable, Generic, Type, TypeVar
 import httpx
 
 import tinker
+from tinker.lib.telemetry import Telemetry
 
 from .._constants import (
     DEFAULT_CONNECTION_LIMITS,
     INITIAL_RETRY_DELAY,
     MAX_RETRY_DELAY,
 )
+from .retryable_exception import RetryableException
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +33,6 @@ T = TypeVar("T")
 
 def is_retryable_status_code(status_code: int) -> bool:
     return status_code in (408, 409, 429) or (500 <= status_code < 600)
-
-
-class RetryableException(Exception):
-    def __init__(self, message: str):
-        super().__init__(message)
 
 
 @dataclass
@@ -85,10 +83,15 @@ class RetryHandler(Generic[T]):  # noqa: UP046
         result = await handler.execute(my_function, *args, **kwargs)
     """
 
-    def __init__(self, config: RetryConfig = RetryConfig(), name: str = "default"):
+    def __init__(
+        self,
+        config: RetryConfig = RetryConfig(),
+        name: str = "default",
+        telemetry: Telemetry | None = None,
+    ):
         self.config = config
         self.name = name
-
+        self._telemetry = telemetry
         current_time = time.time()
         self._last_global_progress = current_time
         self._last_printed_progress = current_time
@@ -105,21 +108,48 @@ class RetryHandler(Generic[T]):  # noqa: UP046
         # for limited httpx connections.
         self._semaphore = asyncio.Semaphore(config.max_connections)
 
-    async def execute(
-        self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any
-    ) -> T:
+    async def execute(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
         """Use as a direct function call."""
 
         self._waiting_at_semaphore_count += 1
         async with self._semaphore:
             self._waiting_at_semaphore_count -= 1
+            if self._in_retry_loop_count == 0:
+                self._last_global_progress = time.time()
             self._in_retry_loop_count += 1
             self._maybe_log_progress()
+
+            async def _check_progress(parent_task: asyncio.Task[T]):
+                while True:
+                    deadline = self._last_global_progress + self.config.progress_timeout
+                    if time.time() > deadline:
+                        parent_task._no_progress_made_marker = True  # pyright: ignore[reportAttributeAccessIssue]
+                        parent_task.cancel()
+                    await asyncio.sleep(deadline - time.time())
+
+            current_task = asyncio.current_task()
+            assert current_task is not None
+            current_task._no_progress_made_marker = False  # pyright: ignore[reportAttributeAccessIssue]
+            progress_task = asyncio.create_task(_check_progress(current_task))
+
             try:
-                return await self._execute_with_retry(func, request_timeout, *args, **kwargs)
+                result = await self._execute_with_retry(func, *args, **kwargs)
+                self._last_global_progress = time.time()
+                return result
+            except asyncio.CancelledError:
+                if current_task._no_progress_made_marker:  # pyright: ignore[reportAttributeAccessIssue]
+                    current_task.uncancel()
+                    # Create a dummy request for the exception (required by APIConnectionError)
+                    dummy_request = httpx.Request("GET", "http://localhost")
+                    raise tinker.APIConnectionError(
+                        message=f"No progress made in {self.config.progress_timeout}s. Requests appear to be stuck.",
+                        request=dummy_request,
+                    )
+                raise
             finally:
                 self._in_retry_loop_count -= 1
                 self._maybe_log_progress()
+                progress_task.cancel()
 
     def _maybe_log_progress(self):
         current_time = time.time()
@@ -140,44 +170,58 @@ class RetryHandler(Generic[T]):  # noqa: UP046
             self._errors_since_last_retry.clear()
 
     async def _execute_with_retry(
-        self, func: Callable[..., Awaitable[T]], request_timeout: float, *args: Any, **kwargs: Any
+        self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
     ) -> T:
         """Main retry logic."""
         # Fast path: skip all retry logic if disabled
         if not self.config.enable_retry_logic:
             return await func(*args, **kwargs)
 
+        start_time = time.time()
         attempt_count = 0
         while True:
             current_time = time.time()
-            # Only check timeout after first failure
-            elapsed_since_last_progress = current_time - self._last_global_progress
-            if (attempt_count > 0) and (elapsed_since_last_progress > self.config.progress_timeout):
-                # Create a dummy request for the exception (required by APIConnectionError)
-                dummy_request = httpx.Request("GET", "http://localhost")
-                raise tinker.APIConnectionError(
-                    message=f"No progress made in {self.config.progress_timeout}s. "
-                    f"Requests appear to be stuck.",
-                    request=dummy_request,
-                )
             self._maybe_log_progress()
             try:
                 attempt_count += 1
                 logger.debug(f"Attempting request (attempt #{attempt_count})")
-                result = await asyncio.wait_for(
-                    func(*args, **kwargs),
-                    timeout=request_timeout,
-                )
+                result = await func(*args, **kwargs)
 
             except Exception as e:
                 exception_str = f"{type(e).__name__}: {str(e) or 'No error message'}"
                 self._errors_since_last_retry[exception_str] += 1
+                should_retry = self._should_retry(e)
 
-                if not self._should_retry(e):
+                if telemetry := self.get_telemetry():
+                    current_time = time.time()
+                    telemetry.log(
+                        "RetryHandler.execute.exception",
+                        event_data={
+                            "func": getattr(
+                                func, "__qualname__", getattr(func, "__name__", type(func).__name__)
+                            ),
+                            "exception": str(e),
+                            "exception_type": type(e).__name__,
+                            "exception_stack": "".join(
+                                traceback.format_exception(type(e), e, e.__traceback__)
+                            )
+                            if e.__traceback__
+                            else None,
+                            "status_code": getattr(e, "status_code", None),
+                            "should_retry": should_retry,
+                            "attempt_count": attempt_count,
+                            "start_time": start_time,
+                            "current_time": current_time,
+                            "elapsed_time": current_time - start_time,
+                        },
+                        severity="WARNING" if should_retry else "ERROR",
+                    )
+
+                if not should_retry:
                     logger.error(f"Request failed with non-retryable error: {exception_str}")
                     raise
 
-                self._log_retry_reason(e, attempt_count, request_timeout=request_timeout)
+                self._log_retry_reason(e, attempt_count)
                 self._retry_count += 1
 
                 # Calculate retry delay with exponential backoff and jitter
@@ -187,7 +231,6 @@ class RetryHandler(Generic[T]):  # noqa: UP046
             else:
                 logger.debug(f"Request succeeded after {attempt_count} attempts")
                 self._processed_count += 1
-                self._last_global_progress = time.time()
                 return result
 
     def _should_retry(self, exception: Exception) -> bool:
@@ -202,10 +245,10 @@ class RetryHandler(Generic[T]):  # noqa: UP046
 
         return False
 
-    def _log_retry_reason(self, exception: Exception, attempt_count: int, request_timeout: float):
+    def _log_retry_reason(self, exception: Exception, attempt_count: int):
         """Log the reason for retrying."""
         if isinstance(exception, asyncio.TimeoutError):
-            logger.debug(f"Request timed out after {request_timeout}s")
+            logger.debug("Request timed out")
         elif isinstance(exception, tinker.APIConnectionError):
             logger.debug(f"Request failed with connection error: {exception}")
         elif isinstance(exception, tinker.APIStatusError):
@@ -230,3 +273,6 @@ class RetryHandler(Generic[T]):  # noqa: UP046
         jitter = delay * self.config.jitter_factor * (2 * random.random() - 1)
         # Ensure the final delay doesn't exceed the maximum, even with jitter
         return max(0, min(delay + jitter, self.config.retry_delay_max))
+
+    def get_telemetry(self) -> Telemetry | None:
+        return self._telemetry

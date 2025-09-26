@@ -2,27 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import time
+from contextlib import asynccontextmanager
 from functools import cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Tuple, cast
 
-from tinker.lib.async_tinker_provider import ClientConnectionPoolType
 import torch
 
 from tinker import types
-from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.telemetry import Telemetry, capture_exceptions
+from tinker.lib.telemetry_provider import TelemetryProvider
 from tinker.types import training_optim_step_params
 
-from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
-from ..retry_handler import RetryConfig
-from ..sync_only import sync_only
-from .api_future import (
-    APIFuture,
-    AwaitableConcurrentFuture,
+from ..api_future_impl import (
+    QueueState,
+    QueueStateObserver,
     _APIFuture,
     _CombinedAPIFuture,
 )
+from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
+from ..retry_handler import RetryConfig
+from ..sync_only import sync_only
 
 if TYPE_CHECKING:
     from transformers.tokenization_utils import PreTrainedTokenizer
@@ -42,7 +47,7 @@ MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initi
 CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
 
 
-class TrainingClient(TelemetryProvider):
+class TrainingClient(TelemetryProvider, QueueStateObserver):
     """Client for training ML models with forward/backward passes and optimization.
 
     The TrainingClient corresponds to a fine-tuned model that you can train and sample from.
@@ -69,23 +74,73 @@ class TrainingClient(TelemetryProvider):
         self.holder = holder
         self.model_id = model_id
 
+        self._training_client_id: int = self.holder.get_training_client_id()
+
+        self._request_id_lock: threading.Lock = threading.Lock()
+        self._request_id_counter: int = 0
+
+        self._turn_counter: int = 0
+        self._turn_waiters: dict[int, asyncio.Event] = {}
+
+        self._last_queue_state_logged: float = 0
+
+    # Reserves a request id for a request. Requests are to be executed in the order of request ids.
+    def _get_request_id(self) -> int:
+        with self._request_id_lock:
+            request_id = self._request_id_counter
+            self._request_id_counter += 1
+            return request_id
+
+    # Waits for the turn for a given request id to be executed.
+    # This has to be used via a with statement so that the turn is released
+    # only after current request was successfully dispatched.
+    @asynccontextmanager
+    async def _take_turn(self, request_id: int):
+        assert self._turn_counter <= request_id, "Same request id cannot be taken twice"
+
+        if self._turn_counter < request_id:
+            try:
+                event = asyncio.Event()
+                self._turn_waiters[request_id] = event
+                await event.wait()
+            finally:
+                del self._turn_waiters[request_id]
+
+        assert self._turn_counter == request_id
+
+        try:
+            yield
+        finally:
+            self._turn_counter += 1
+            if self._turn_counter in self._turn_waiters:
+                self._turn_waiters[self._turn_counter].set()
+
+    def _make_idempotency_key(self, request_id: int) -> str:
+        return self.holder.make_training_client_idempotency_key(
+            self._training_client_id, request_id
+        )
+
     def _guaranteed_model_id(self) -> types.ModelID:
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
         return self.model_id
 
     def _estimate_number_count(self, datum: types.Datum) -> int:
-        return datum.model_input.length + sum(len(value.data) for _, value in datum.loss_fn_inputs.items())
+        return datum.model_input.length + sum(
+            len(value.data) for _, value in datum.loss_fn_inputs.items()
+        )
 
-    def _chunked_requests_generator(self, data: List[types.Datum]) -> Generator[List[types.Datum], None, None]:
+    def _chunked_requests_generator(
+        self, data: List[types.Datum]
+    ) -> Generator[List[types.Datum], None, None]:
         current_chunk: List[types.Datum] = []
         current_chunk_number_count = 0
 
         for datum in data:
             estimated_number_count = self._estimate_number_count(datum)
             if (
-                (len(current_chunk) > 0 and current_chunk_number_count + estimated_number_count > MAX_CHUNK_NUMBER_COUNT) or
-                (len(current_chunk) == MAX_CHUNK_LEN)
-            ):
+                len(current_chunk) > 0
+                and current_chunk_number_count + estimated_number_count > MAX_CHUNK_NUMBER_COUNT
+            ) or (len(current_chunk) == MAX_CHUNK_LEN):
                 yield current_chunk
                 current_chunk = []
                 current_chunk_number_count = 0
@@ -97,14 +152,18 @@ class TrainingClient(TelemetryProvider):
             yield current_chunk
 
     def _chunked_requests(self, data: List[types.Datum]) -> List[tuple[int, List[types.Datum]]]:
-        return [(self.holder.get_request_id(), chunk) for chunk in self._chunked_requests_generator(data)]
+        return [(self._get_request_id(), chunk) for chunk in self._chunked_requests_generator(data)]
 
-    async def _send_single_forward_request(self, request_id: int, data: List[types.Datum], loss_fn: types.LossFnType):
+    async def _send_single_forward_request(
+        self, request_id: int, data: List[types.Datum], loss_fn: types.LossFnType
+    ):
         with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
             return await client.training.forward(
                 model_id=self._guaranteed_model_id(),
-                forward_input=_to_fwdbwd_input_params(types.ForwardBackwardInput(data=data, loss_fn=loss_fn)),
-                idempotency_key=self.holder.make_idempotency_key(request_id),
+                forward_input=_to_fwdbwd_input_params(
+                    types.ForwardBackwardInput(data=data, loss_fn=loss_fn)
+                ),
+                idempotency_key=self._make_idempotency_key(request_id),
             )
 
     @capture_exceptions(fatal=True)
@@ -112,19 +171,23 @@ class TrainingClient(TelemetryProvider):
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
         requests = self._chunked_requests(data)
+
         @capture_exceptions(fatal=True)
         async def _forward_async():
             start_time = time.time()
             futures = []
             for request_id, data in requests:
-                async with self.holder.take_turn(request_id):
-                    untyped_future = await self.holder.execute_with_retries(self._send_single_forward_request, request_id, data, loss_fn)
+                async with self._take_turn(request_id):
+                    untyped_future = await self.holder.execute_with_retries(
+                        self._send_single_forward_request, request_id, data, loss_fn
+                    )
                 api_future = _APIFuture(
                     types.ForwardBackwardOutput,
                     self.holder,
                     untyped_future,
                     request_start_time=start_time,
                     request_type="Forward",
+                    queue_state_observer=self,
                 )
                 futures.append(api_future)
             return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
@@ -136,12 +199,16 @@ class TrainingClient(TelemetryProvider):
     ) -> APIFuture[types.ForwardBackwardOutput]:
         return self.forward(data, loss_fn)
 
-    async def _send_single_forward_backward_request(self, request_id: int, data: List[types.Datum], loss_fn: types.LossFnType):
+    async def _send_single_forward_backward_request(
+        self, request_id: int, data: List[types.Datum], loss_fn: types.LossFnType
+    ):
         with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
             return await client.training.forward_backward(
                 model_id=self._guaranteed_model_id(),
-                forward_backward_input=_to_fwdbwd_input_params(types.ForwardBackwardInput(data=data, loss_fn=loss_fn)),
-                idempotency_key=self.holder.make_idempotency_key(request_id),
+                forward_backward_input=_to_fwdbwd_input_params(
+                    types.ForwardBackwardInput(data=data, loss_fn=loss_fn)
+                ),
+                idempotency_key=self._make_idempotency_key(request_id),
             )
 
     @capture_exceptions(fatal=True)
@@ -149,20 +216,24 @@ class TrainingClient(TelemetryProvider):
         self, data: List[types.Datum], loss_fn: types.LossFnType
     ) -> APIFuture[types.ForwardBackwardOutput]:
         requests = self._chunked_requests(data)
+
         @capture_exceptions(fatal=True)
         async def _forward_backward_async():
             futures = []
             start_time = time.time()
 
             for request_id, data in requests:
-                async with self.holder.take_turn(request_id):
-                    untyped_future = await self.holder.execute_with_retries(self._send_single_forward_backward_request, request_id, data, loss_fn)
+                async with self._take_turn(request_id):
+                    untyped_future = await self.holder.execute_with_retries(
+                        self._send_single_forward_backward_request, request_id, data, loss_fn
+                    )
                 api_future = _APIFuture(
                     types.ForwardBackwardOutput,
                     self.holder,
                     untyped_future,
                     request_start_time=start_time,
                     request_type="ForwardBackward",
+                    queue_state_observer=self,
                 )
                 futures.append(api_future)
 
@@ -236,19 +307,22 @@ class TrainingClient(TelemetryProvider):
         return _CombinedAPIFuture([backward_future], add_custom_metrics, self.holder)
 
     @capture_exceptions(fatal=True)
-    def optim_step(
-        self, adam_params: types.AdamParams
-    ) -> APIFuture[types.OptimStepResponse]:
-        request_id = self.holder.get_request_id()
+    def optim_step(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:
+        request_id = self._get_request_id()
+
         @capture_exceptions(fatal=True)
         async def _optim_step_async():
             start_time = time.time()
+
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.training.optim_step(
-                        model_id=self._guaranteed_model_id(), adam_params=_to_adam_params(adam_params), idempotency_key=self.holder.make_idempotency_key(request_id)
+                        model_id=self._guaranteed_model_id(),
+                        adam_params=_to_adam_params(adam_params),
+                        idempotency_key=self._make_idempotency_key(request_id),
                     )
-            async with self.holder.take_turn(request_id):
+
+            async with self._take_turn(request_id):
                 untyped_future = await self.holder.execute_with_retries(_send_request)
             return await _APIFuture(
                 types.OptimStepResponse,
@@ -256,6 +330,7 @@ class TrainingClient(TelemetryProvider):
                 untyped_future,
                 request_start_time=start_time,
                 request_type="OptimStep",
+                queue_state_observer=self,
             )
 
         return self.holder.run_coroutine_threadsafe(_optim_step_async())
@@ -266,17 +341,22 @@ class TrainingClient(TelemetryProvider):
         return self.optim_step(adam_params)
 
     @capture_exceptions(fatal=True)
-    def save_state(
-        self, name: str
-    ) -> APIFuture[types.SaveWeightsResponse]:
-        request_id = self.holder.get_request_id()
+    def save_state(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
+        request_id = self._get_request_id()
+
         @capture_exceptions(fatal=True)
         async def _save_state_async():
             start_time = time.time()
+
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.weights.save(model_id=self._guaranteed_model_id(), path=name, idempotency_key=self.holder.make_idempotency_key(request_id))
-            async with self.holder.take_turn(request_id):
+                    return await client.weights.save(
+                        model_id=self._guaranteed_model_id(),
+                        path=name,
+                        idempotency_key=self._make_idempotency_key(request_id),
+                    )
+
+            async with self._take_turn(request_id):
                 future = await self.holder.execute_with_retries(_send_request)
             return await _APIFuture(
                 types.SaveWeightsResponse,
@@ -284,6 +364,7 @@ class TrainingClient(TelemetryProvider):
                 future,
                 request_start_time=start_time,
                 request_type="SaveWeights",
+                queue_state_observer=self,
             )
 
         return self.holder.run_coroutine_threadsafe(_save_state_async())
@@ -292,17 +373,22 @@ class TrainingClient(TelemetryProvider):
         return self.save_state(name)
 
     @capture_exceptions(fatal=True)
-    def load_state(
-        self, path: str
-    ) -> APIFuture[types.LoadWeightsResponse]:
-        request_id = self.holder.get_request_id()
+    def load_state(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+        request_id = self._get_request_id()
+
         @capture_exceptions(fatal=True)
         async def _load_state_async():
             start_time = time.time()
+
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.weights.load(model_id=self._guaranteed_model_id(), path=path, idempotency_key=self.holder.make_idempotency_key(request_id))
-            async with self.holder.take_turn(request_id):
+                    return await client.weights.load(
+                        model_id=self._guaranteed_model_id(),
+                        path=path,
+                        idempotency_key=self._make_idempotency_key(request_id),
+                    )
+
+            async with self._take_turn(request_id):
                 future = await self.holder.execute_with_retries(_send_request)
             return await _APIFuture(
                 types.LoadWeightsResponse,
@@ -310,6 +396,7 @@ class TrainingClient(TelemetryProvider):
                 future,
                 request_start_time=start_time,
                 request_type="LoadWeights",
+                queue_state_observer=self,
             )
 
         return self.holder.run_coroutine_threadsafe(_load_state_async())
@@ -318,19 +405,22 @@ class TrainingClient(TelemetryProvider):
         return self.load_state(path)
 
     @capture_exceptions(fatal=True)
-    def save_weights_for_sampler(
-        self, name: str
-    ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
-        request_id = self.holder.get_request_id()
+    def save_weights_for_sampler(self, name: str) -> APIFuture[types.SaveWeightsForSamplerResponse]:
+        request_id = self._get_request_id()
+
         @capture_exceptions(fatal=True)
         async def _save_weights_for_sampler_async():
             start_time = time.time()
+
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.save_for_sampler(
-                        model_id=self._guaranteed_model_id(), path=name, idempotency_key=self.holder.make_idempotency_key(request_id)
+                        model_id=self._guaranteed_model_id(),
+                        path=name,
+                        idempotency_key=self._make_idempotency_key(request_id),
                     )
-            async with self.holder.take_turn(request_id):
+
+            async with self._take_turn(request_id):
                 future = await self.holder.execute_with_retries(_send_request)
             return await _APIFuture(
                 types.SaveWeightsForSamplerResponse,
@@ -338,6 +428,7 @@ class TrainingClient(TelemetryProvider):
                 future,
                 request_start_time=start_time,
                 request_type="SaveWeightsForSampler",
+                queue_state_observer=self,
             )
 
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
@@ -351,14 +442,20 @@ class TrainingClient(TelemetryProvider):
     def unload_model(
         self,
     ) -> APIFuture[types.UnloadModelResponse]:
-        request_id = self.holder.get_request_id()
+        request_id = self._get_request_id()
+
         @capture_exceptions(fatal=True)
         async def _unload_model_async():
             start_time = time.time()
+
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.models.unload(model_id=self._guaranteed_model_id(), idempotency_key=self.holder.make_idempotency_key(request_id))
-            async with self.holder.take_turn(request_id):
+                    return await client.models.unload(
+                        model_id=self._guaranteed_model_id(),
+                        idempotency_key=self._make_idempotency_key(request_id),
+                    )
+
+            async with self._take_turn(request_id):
                 future = await self.holder.execute_with_retries(_send_request)
             return await _APIFuture(
                 types.UnloadModelResponse,
@@ -366,6 +463,7 @@ class TrainingClient(TelemetryProvider):
                 future,
                 request_start_time=start_time,
                 request_type="UnloadModel",
+                queue_state_observer=self,
             )
 
         return self.holder.run_coroutine_threadsafe(_unload_model_async())
@@ -374,12 +472,17 @@ class TrainingClient(TelemetryProvider):
         return self.unload_model()
 
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
-        request_id = self.holder.get_request_id()
+        request_id = self._get_request_id()
+
         async def _get_info_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.models.get_info(model_id=self._guaranteed_model_id(), idempotency_key=self.holder.make_idempotency_key(request_id))
-            async with self.holder.take_turn(request_id):
+                    return await client.models.get_info(
+                        model_id=self._guaranteed_model_id(),
+                        idempotency_key=self._make_idempotency_key(request_id),
+                    )
+
+            async with self._take_turn(request_id):
                 return await self.holder.execute_with_retries(_send_request)
 
         return self.holder.run_coroutine_threadsafe(_get_info_async())
@@ -428,6 +531,22 @@ class TrainingClient(TelemetryProvider):
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
+
+    def on_queue_state_change(self, queue_state: QueueState) -> None:
+        QUEUE_STATE_LOG_INTERVAL = 60
+        if queue_state == QueueState.ACTIVE:
+            return
+        if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
+            return
+        self._last_queue_state_logged = time.time()
+
+        if queue_state == QueueState.PAUSED_RATE_LIMIT:
+            reason = "concurrent models rate limit hit"
+        elif queue_state == QueueState.PAUSED_CAPACITY:
+            reason = "out of capacity"
+        else:
+            reason = "unknown"
+        logger.warning(f"Training is paused for {self.model_id}. Reason: {reason}")
 
 
 def _to_fwdbwd_input_params(x: types.ForwardBackwardInput) -> types._ForwardBackwardInputParam:

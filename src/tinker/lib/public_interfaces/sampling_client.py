@@ -14,11 +14,13 @@ from typing import TYPE_CHECKING, TypeVar, cast
 import tinker
 from tinker import types
 from tinker._types import NOT_GIVEN
-from tinker.lib.async_tinker_provider import ClientConnectionPoolType
-from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.telemetry import Telemetry, capture_exceptions
+from tinker.lib.telemetry_provider import TelemetryProvider
 
+from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
 from ..retry_handler import RetryConfig, RetryHandler
-from .api_future import AwaitableConcurrentFuture, _APIFuture
 
 if TYPE_CHECKING:
     from ..internal_client_holder import InternalClientHolder
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 U = TypeVar("U")
 
 
-class SamplingClient(TelemetryProvider):
+class SamplingClient(TelemetryProvider, QueueStateObserver):
     """Client for text generation and inference from trained or base models.
 
     The SamplingClient lets you generate text tokens from either a base model or from weights
@@ -70,11 +72,15 @@ class SamplingClient(TelemetryProvider):
         self.base_model = base_model
 
         # Create retry handler with the provided configuration
-        self.retry_handler = _get_retry_handler(model_path or base_model, retry_config=retry_config)
+        self.retry_handler = _get_retry_handler(
+            model_path or base_model, retry_config=retry_config, telemetry=holder.get_telemetry()
+        )
 
         self.feature_gates = set(
             os.environ.get("TINKER_FEATURE_GATES", "async_sampling").split(",")
         )
+
+        self._last_queue_state_logged: float = 0
 
     async def _send_asample_request(
         self,
@@ -84,24 +90,23 @@ class SamplingClient(TelemetryProvider):
         include_prompt_logprobs: bool,
         idempotency_key: str,
     ):
-        with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
-            return await client.sampling.asample(
-                num_samples=num_samples,
-                prompt=cast(types._ModelInputParam, prompt.model_dump()),
-                sampling_params=cast(
-                    types._SamplingParamsParam, sampling_params.model_dump()
-                ),
-                model_path=self.model_path
-                if self.model_path is not None
-                else NOT_GIVEN,
-                prompt_logprobs=include_prompt_logprobs,
-                base_model=self.base_model
-                if self.base_model is not None
-                else NOT_GIVEN,
-                max_retries=0,
-                extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
-                idempotency_key=idempotency_key,
-            )
+        try:
+            with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
+                return await client.sampling.asample(
+                    num_samples=num_samples,
+                    prompt=cast(types._ModelInputParam, prompt.model_dump()),
+                    sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
+                    model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
+                    prompt_logprobs=include_prompt_logprobs,
+                    base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
+                    max_retries=0,
+                    extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
+                    idempotency_key=idempotency_key,
+                )
+        except tinker.APIStatusError as e:
+            if e.status_code == 429:
+                return None
+            raise e
 
     async def _sample_async_impl(
         self,
@@ -109,7 +114,6 @@ class SamplingClient(TelemetryProvider):
         num_samples: int,
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool,
-        timeout: float,
     ) -> types.SampleResponse:
         idempotency_key = self.holder.make_idempotency_key()
         async with self.holder._sample_dispatch_semaphore:
@@ -120,14 +124,20 @@ class SamplingClient(TelemetryProvider):
                 ):
                     await asyncio.sleep(1)
                     continue
-                try:
-                    untyped_future = await self.holder.execute_with_retries(self._send_asample_request, num_samples, prompt, sampling_params, include_prompt_logprobs, idempotency_key)
+
+                untyped_future = await self.holder.execute_with_retries(
+                    self._send_asample_request,
+                    num_samples,
+                    prompt,
+                    sampling_params,
+                    include_prompt_logprobs,
+                    idempotency_key,
+                )
+                if untyped_future is not None:
                     break
-                except tinker.APIStatusError as e:
-                    if e.status_code == 429:
-                        self.holder._sample_backoff_until = time.time() + 1
-                        continue
-                    raise e
+                # Handle backoff
+                self.holder._sample_backoff_until = time.time() + 1
+                continue
 
         return await _APIFuture(
             types.SampleResponse,
@@ -135,7 +145,8 @@ class SamplingClient(TelemetryProvider):
             untyped_future,
             request_start_time=time.time(),
             request_type="Sample",
-        ).result_async(timeout=timeout)
+            queue_state_observer=self,
+        ).result_async()
 
     @capture_exceptions(fatal=True)
     def sample(
@@ -146,23 +157,18 @@ class SamplingClient(TelemetryProvider):
         include_prompt_logprobs: bool = False,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Internal method that does the actual API call without retry logic."""
-        # This timeout can't be determined based on the sampling_params because it also depends on
-        # the overall load of the system. So using a large value here.
-        timeout = 30 * 60
 
         async def _sample_async():
             return await self._sample_async_impl(
-                prompt, num_samples, sampling_params, include_prompt_logprobs, timeout
+                prompt, num_samples, sampling_params, include_prompt_logprobs
             )
 
         @capture_exceptions(fatal=True)
         async def _sample_async_with_retries() -> types.SampleResponse:
-            return await self.retry_handler.execute(_sample_async, request_timeout=timeout)
+            return await self.retry_handler.execute(_sample_async)
 
         # TODO make max_tokens a required field
-        return self.holder.run_coroutine_threadsafe(
-            _sample_async_with_retries()
-        ).future()
+        return self.holder.run_coroutine_threadsafe(_sample_async_with_retries()).future()
 
     async def sample_async(
         self,
@@ -171,35 +177,28 @@ class SamplingClient(TelemetryProvider):
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
     ) -> types.SampleResponse:
-        return await AwaitableConcurrentFuture(self.sample(
-            prompt, num_samples, sampling_params, include_prompt_logprobs
-        ))
+        return await AwaitableConcurrentFuture(
+            self.sample(prompt, num_samples, sampling_params, include_prompt_logprobs)
+        )
 
     @capture_exceptions(fatal=True)
     def compute_logprobs(
         self, prompt: types.ModelInput
     ) -> ConcurrentFuture[Sequence[float | None]]:
-        # This timeout can't be determined based on the sampling_params because it also depends on
-        # the overall load of the system. So using a large value here.
-        timeout = 30 * 60
-
         async def _compute_logprobs_async() -> Sequence[float | None]:
             sample_res = await self._sample_async_impl(
                 prompt,
                 num_samples=1,
                 sampling_params=types.SamplingParams(max_tokens=1),
                 include_prompt_logprobs=True,
-                timeout=timeout,
             )
             return cast(list[float | None], sample_res.prompt_logprobs)
 
         @capture_exceptions(fatal=True)
         async def _compute_logprobs_async_with_retries() -> Sequence[float | None]:
-            return await self.retry_handler.execute(_compute_logprobs_async, request_timeout=timeout)
+            return await self.retry_handler.execute(_compute_logprobs_async)
 
-        return self.holder.run_coroutine_threadsafe(
-            _compute_logprobs_async_with_retries()
-        ).future()
+        return self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()
 
     async def compute_logprobs_async(self, prompt: types.ModelInput) -> Sequence[float | None]:
         return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
@@ -207,8 +206,26 @@ class SamplingClient(TelemetryProvider):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
+    def on_queue_state_change(self, queue_state: QueueState) -> None:
+        QUEUE_STATE_LOG_INTERVAL = 60
+        if queue_state == QueueState.ACTIVE:
+            return
+        if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
+            return
+        if queue_state == QueueState.PAUSED_RATE_LIMIT:
+            reason = "concurrent LoRA rate limit hit"
+        elif queue_state == QueueState.PAUSED_CAPACITY:
+            reason = "out of capacity"
+        else:
+            reason = "unknown"
+        self._last_queue_state_logged = time.time()
+
+        logger.warning(f"Sampling is paused for {self.model_path}. Reason: {reason}")
+
 
 @lru_cache(maxsize=100)
-def _get_retry_handler(name: str, retry_config: RetryConfig | None = None) -> RetryHandler:
+def _get_retry_handler(
+    name: str, retry_config: RetryConfig | None = None, telemetry: Telemetry | None = None
+) -> RetryHandler:
     retry_config = retry_config or RetryConfig()
-    return RetryHandler(config=retry_config, name=name)
+    return RetryHandler(config=retry_config, name=name, telemetry=telemetry)

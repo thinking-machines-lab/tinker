@@ -1,8 +1,12 @@
 # File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
 
-from typing import Dict, Union
-from typing_extensions import TypeAlias
+from typing import Dict, Optional
+
+from .._models import BaseModel
 
 __all__ = ["OptimStepResponse"]
 
-OptimStepResponse: TypeAlias = Dict[str, Union[float, str]]
+
+class OptimStepResponse(BaseModel):
+    metrics: Optional[Dict[str, float]] = None
+    """Optimization step metrics as key-value pairs"""

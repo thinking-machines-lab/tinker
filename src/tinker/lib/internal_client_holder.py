@@ -8,21 +8,24 @@ import threading
 import time
 import traceback
 import uuid
-from collections.abc import Generator
-from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
+from collections.abc import Coroutine, Generator
+from contextlib import AbstractContextManager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
 
 import httpx
 
 import tinker
-from tinker.lib.async_tinker_provider import AsyncTinkerProvider, ClientConnectionPoolType
-from tinker.lib.telemetry import Telemetry, TelemetryProvider, init_telemetry
+from tinker.lib.async_tinker_provider import AsyncTinkerProvider
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.telemetry import Telemetry, init_telemetry
+from tinker.lib.telemetry_provider import TelemetryProvider
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-MAX_REQUESTS_PER_HTTPX_CLIENT = 100
+MAX_REQUESTS_PER_HTTPX_CLIENT = 50
 
 
 class ClientConnectionPool:
@@ -101,11 +104,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._session_id: str = str(uuid.uuid4())
         self._telemetry: Telemetry | None = init_telemetry(self, session_id=self._session_id)
-        self._request_id_lock: threading.Lock = threading.Lock()
-        self._request_id_counter: int = 0
 
-        self._turn_counter: int = 0
-        self._turn_waiters: dict[int, asyncio.Event] = {}
+        self._training_client_counter: int = 0
+        self._training_client_lock: threading.Lock = threading.Lock()
 
         self._unordered_id_counter: int = 0
 
@@ -123,6 +124,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             )
         return self._client_pools[client_pool_type]
 
+    def get_training_client_id(self) -> int:
+        with self._training_client_lock:
+            training_client_id = self._training_client_counter
+            self._training_client_counter += 1
+            return training_client_id
+
     def aclient(
         self, client_pool_type: ClientConnectionPoolType
     ) -> AbstractContextManager[tinker.AsyncTinker]:
@@ -134,6 +141,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def get_telemetry(self) -> Telemetry | None:
         return self._telemetry
 
+    def run_coroutine_threadsafe(
+        self,
+        coro: Coroutine[Any, Any, T],
+    ) -> AwaitableConcurrentFuture[T]:
+        return AwaitableConcurrentFuture(asyncio.run_coroutine_threadsafe(coro, self.get_loop()))
+
     def close(self):
         if telemetry := self._telemetry:
             telemetry.stop()
@@ -141,42 +154,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def __del__(self):
         self.close()
 
-    # Reserves a request id for a request. Requests are to be executed in the order of request ids.
-    def get_request_id(self) -> int:
-        with self._request_id_lock:
-            request_id = self._request_id_counter
-            self._request_id_counter += 1
-            return request_id
+    def make_training_client_idempotency_key(self, training_client_id: int, request_id: int) -> str:
+        return f"{self._session_id}:{training_client_id}:{request_id}"
 
-    # Waits for the turn for a given request id to be executed.
-    # This has to be used via a with statement so that the turn is released
-    # only after current request was successfully dispatched.
-    @asynccontextmanager
-    async def take_turn(self, request_id: int):
-        assert self._turn_counter <= request_id, "Same request id cannot be taken twice"
-
-        if self._turn_counter < request_id:
-            try:
-                event = asyncio.Event()
-                self._turn_waiters[request_id] = event
-                await event.wait()
-            finally:
-                del self._turn_waiters[request_id]
-
-        assert self._turn_counter == request_id
-
-        try:
-            yield
-        finally:
-            self._turn_counter += 1
-            if self._turn_counter in self._turn_waiters:
-                self._turn_waiters[self._turn_counter].set()
-
-    def make_idempotency_key(self, request_id: int | None = None) -> str:
-        if request_id is None:
-            self._unordered_id_counter += 1
-            return f"{self._session_id}:unordered:{self._unordered_id_counter}"
-        return f"{self._session_id}:{request_id}"
+    def make_idempotency_key(self) -> str:
+        self._unordered_id_counter += 1
+        return f"{self._session_id}:unordered:{self._unordered_id_counter}"
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

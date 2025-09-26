@@ -6,12 +6,13 @@ import logging
 from concurrent.futures import Future as ConcurrentFuture
 from typing import TYPE_CHECKING
 
-from tinker import types
-from tinker.lib.async_tinker_provider import ClientConnectionPoolType
-from tinker.lib.telemetry import Telemetry, TelemetryProvider, capture_exceptions
+from tinker import types, NoneType
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.telemetry import Telemetry, capture_exceptions
+from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..sync_only import sync_only
-from .api_future import AwaitableConcurrentFuture
 
 if TYPE_CHECKING:
     from ..internal_client_holder import InternalClientHolder
@@ -31,6 +32,7 @@ class RestClient(TelemetryProvider):
     Key methods:
     - list_checkpoints() - list available model checkpoints (both training and sampler)
     - get_training_run() - get model information and metadata as ModelEntry
+    - delete_checkpoint() - delete an existing checkpoint for a training run
     - download_sampler_weights_archive() - download sampler weights checkpoint as tar.gz archive
 
     Args:
@@ -79,7 +81,7 @@ class RestClient(TelemetryProvider):
         Example:
             >>> future = rest_client.get_training_run("run-id")
             >>> response = future.result()
-            >>> print(f"Model: {response.training_run_id}, Base: {response.base_model}")
+            >>> print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         """
         return self._get_training_run_submit(training_run_id).future()
 
@@ -95,9 +97,49 @@ class RestClient(TelemetryProvider):
 
         Example:
             >>> response = await rest_client.get_training_run_async("run-id")
-            >>> print(f"Model: {response.training_run_id}, Base: {response.base_model}")
+            >>> print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         """
         return await self._get_training_run_submit(training_run_id)
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def get_training_run_by_tinker_path(self, tinker_path: str) -> ConcurrentFuture[types.TrainingRun]:
+        """Get training run info.
+
+        Args:
+            tinker_path: The tinker path to the checkpoint
+
+        Returns:
+            A Future containing the training run information
+
+        Example:
+            >>> future = rest_client.get_training_run_by_tinker_path("tinker://run-id/weights/checkpoint-001")
+            >>> response = future.result()
+            >>> print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
+        """
+        parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
+            tinker_path
+        )
+        return self.get_training_run(parsed_checkpoint_tinker_path.training_run_id)
+
+    @capture_exceptions(fatal=True)
+    async def get_training_run_by_tinker_path_async(self, tinker_path: str) -> types.TrainingRun:
+        """Async version of get_training_run.
+
+        Args:
+            tinker_path: The tinker path to the checkpoint
+
+        Returns:
+            Training run information
+
+        Example:
+            >>> response = await rest_client.get_training_run_by_tinker_path_async("tinker://run-id/weights/checkpoint-001")
+            >>> print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
+        """
+        parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
+            tinker_path
+        )
+        return await self.get_training_run_async(parsed_checkpoint_tinker_path.training_run_id)
 
     def _list_training_run_ids_submit(
         self, limit: int = 100, after_id: str | None = None
@@ -279,6 +321,51 @@ class RestClient(TelemetryProvider):
             ...     f.write(archive_data)
         """
         return await self._download_checkpoint_archive_submit(training_run_id, checkpoint_id)
+
+    def _delete_checkpoint_submit(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> AwaitableConcurrentFuture[None]:
+        """Internal method to submit delete checkpoint request."""
+
+        async def _delete_checkpoint_async() -> None:
+            async def _send_request() -> None:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    await client.delete(
+                        f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}",
+                        cast_to=NoneType,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_delete_checkpoint_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def delete_checkpoint(self, training_run_id: types.ModelID, checkpoint_id: str) -> ConcurrentFuture[None]:
+        """Delete a checkpoint for a training run."""
+
+        return self._delete_checkpoint_submit(training_run_id, checkpoint_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def delete_checkpoint_async(self, training_run_id: types.ModelID, checkpoint_id: str) -> None:
+        """Async version of delete_checkpoint."""
+
+        await self._delete_checkpoint_submit(training_run_id, checkpoint_id)
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def delete_checkpoint_from_tinker_path(self, tinker_path: str) -> ConcurrentFuture[None]:
+        """Delete a checkpoint referenced by a tinker path."""
+
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        return self._delete_checkpoint_submit(parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def delete_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
+        """Async version of delete_checkpoint_from_tinker_path."""
+
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        await self._delete_checkpoint_submit(parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id)
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

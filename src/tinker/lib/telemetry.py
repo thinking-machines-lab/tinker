@@ -13,17 +13,14 @@ from datetime import datetime, timezone
 from typing import (
     Callable,
     ParamSpec,
-    Protocol,
     TypeVar,
     cast,
     overload,
-    runtime_checkable,
 )
 from uuid import uuid4
 
 from tinker._exceptions import APIError
 from tinker._version import __version__
-from tinker.lib.async_tinker_provider import AsyncTinkerProvider, ClientConnectionPoolType
 from tinker.types.generic_event import GenericEvent
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent
@@ -34,7 +31,10 @@ from tinker.types.telemetry_response import TelemetryResponse
 from tinker.types.telemetry_send_params import TelemetrySendParams
 from tinker.types.unhandled_exception_event import UnhandledExceptionEvent
 
+from .async_tinker_provider import AsyncTinkerProvider
+from .client_connection_pool_type import ClientConnectionPoolType
 from .sync_only import sync_only
+from .telemetry_provider import TelemetryProvider
 
 logger = logging.getLogger(__name__)
 
@@ -304,11 +304,6 @@ def init_telemetry(tinker_provider: AsyncTinkerProvider, session_id: str) -> Tel
     except Exception as e:
         logger.warning(f"Error initializing telemetry: {e}")
         return None
-
-
-@runtime_checkable
-class TelemetryProvider(Protocol):
-    def get_telemetry(self) -> Telemetry | None: ...
 
 
 P = ParamSpec("P")

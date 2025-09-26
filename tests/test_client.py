@@ -81,6 +81,20 @@ class TestTinker:
         assert isinstance(response, httpx.Response)
         assert response.json() == {"foo": "bar"}
 
+    @pytest.mark.respx(base_url=base_url)
+    def test_weights_delete_checkpoint(self, respx_mock: MockRouter) -> None:
+        route = respx_mock.delete(
+            "/api/v1/training_runs/run-id/checkpoints/weights/0001"
+        ).mock(return_value=httpx.Response(204))
+
+        result = self.client.weights.delete_checkpoint(
+            model_id="run-id",
+            checkpoint_id="weights/0001",
+        )
+
+        assert result is None
+        assert route.called
+
     def test_copy(self) -> None:
         copied = self.client.copy()
         assert id(copied) != id(self.client)
@@ -1047,6 +1061,21 @@ class TestAsyncTinker:
         assert response.status_code == 200
         assert isinstance(response, httpx.Response)
         assert response.json() == {"foo": "bar"}
+
+    @pytest.mark.respx(base_url=base_url)
+    @pytest.mark.asyncio
+    async def test_weights_delete_checkpoint(self, respx_mock: MockRouter) -> None:
+        route = respx_mock.delete(
+            "/api/v1/training_runs/run-id/checkpoints/weights/0001"
+        ).mock(return_value=httpx.Response(204))
+
+        result = await self.client.weights.delete_checkpoint(
+            model_id="run-id",
+            checkpoint_id="weights/0001",
+        )
+
+        assert result is None
+        assert route.called
 
     def test_copy(self) -> None:
         copied = self.client.copy()

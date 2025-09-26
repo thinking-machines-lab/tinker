@@ -2,17 +2,12 @@
 
 from typing import List, Optional
 
-from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import BaseModel
 
 __all__ = ["GetServerCapabilitiesResponse", "SupportedModel"]
 
 
 class SupportedModel(BaseModel):
-    arch: Optional[str] = None
-
-    model_id: Optional[str] = None
-
     model_name: Optional[str] = None
 
 

@@ -10,17 +10,17 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from tinker.lib.async_tinker_provider import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.telemetry import (
     MAX_BATCH_SIZE,
     MAX_QUEUE_SIZE,
     Telemetry,
-    TelemetryProvider,
     _is_telemetry_enabled,
     capture_exceptions,
     init_telemetry,
 )
+from tinker.lib.telemetry_provider import TelemetryProvider
 from tinker.types.generic_event import GenericEvent
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent

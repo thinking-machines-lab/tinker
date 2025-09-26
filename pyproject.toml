@@ -15,7 +15,7 @@ dependencies = [
     "distro>=1.7.0, <2",
     "sniffio",
 ]
-requires-python = ">= 3.9"
+requires-python = ">= 3.11"
 classifiers = [
   "Typing :: Typed",
   "Intended Audience :: Developers",
