@@ -8,15 +8,15 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 
 from tinker import types
-from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
+from ..api_future_impl import _APIFuture
 from ..internal_client_holder import InternalClientHolder
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
-from ..api_future_impl import _APIFuture
 
 if TYPE_CHECKING:
     from .rest_client import RestClient
@@ -63,6 +63,7 @@ class ServiceClient(TelemetryProvider):
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.service.get_server_capabilities()
+
             return await self.holder.execute_with_retries(_send_request)
 
         return self.holder.run_coroutine_threadsafe(_get_server_capabilities_async())
@@ -99,20 +100,52 @@ class ServiceClient(TelemetryProvider):
     @sync_only
     @capture_exceptions(fatal=True)
     def create_lora_training_client(
-        self, base_model: str, rank: int = 32, seed: int | None = None
+        self,
+        base_model: str,
+        rank: int = 32,
+        seed: int | None = None,
+        train_mlp: bool = True,
+        train_attn: bool = True,
+        train_unembed: bool = True,
     ) -> TrainingClient:
+        assert any([train_mlp, train_attn, train_unembed]), (
+            "At least one of train_mlp, train_attn, or train_unembed must be True"
+        )
         model_id = self._create_model_submit(
-            base_model, types.LoraConfig(rank=rank, seed=seed)
+            base_model,
+            types.LoraConfig(
+                rank=rank,
+                seed=seed,
+                train_mlp=train_mlp,
+                train_attn=train_attn,
+                train_unembed=train_unembed,
+            ),
         ).result()
         logger.info(f"Creating TrainingClient for {model_id=}")
         return self.create_training_client(model_id)
 
     @capture_exceptions(fatal=True)
     async def create_lora_training_client_async(
-        self, base_model: str, rank: int = 32, seed: int | None = None
+        self,
+        base_model: str,
+        rank: int = 32,
+        seed: int | None = None,
+        train_mlp: bool = True,
+        train_attn: bool = True,
+        train_unembed: bool = True,
     ) -> TrainingClient:
+        assert any([train_mlp, train_attn, train_unembed]), (
+            "At least one of train_mlp, train_attn, or train_unembed must be True"
+        )
         model_id = await self._create_model_submit(
-            base_model, types.LoraConfig(rank=rank, seed=seed)
+            base_model,
+            types.LoraConfig(
+                rank=rank,
+                seed=seed,
+                train_mlp=train_mlp,
+                train_attn=train_attn,
+                train_unembed=train_unembed,
+            ),
         )
         logger.info(f"Creating TrainingClient for {model_id=}")
         return self.create_training_client(model_id)
