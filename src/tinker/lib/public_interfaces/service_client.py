@@ -123,6 +123,37 @@ class ServiceClient(TelemetryProvider):
 
         return TrainingClient(self.holder, model_id=model_id)
 
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def create_training_client_from_state(self, path: str) -> TrainingClient:
+        rest_client = self.create_rest_client()
+        training_run = rest_client.get_training_run_by_tinker_path(path).result()
+
+        training_client = self.create_lora_training_client(
+            base_model=training_run.base_model,
+            rank=training_run.lora_rank,
+        )
+
+        training_client.load_state(path).result()
+        return training_client
+
+    @capture_exceptions(fatal=True)
+    async def create_training_client_from_state_async(self, path: str) -> TrainingClient:
+        rest_client = self.create_rest_client()
+        training_run = await rest_client.get_training_run_by_tinker_path_async(path)
+
+        # Right now all training runs are LoRa runs.
+        assert training_run.is_lora and training_run.lora_rank is not None
+
+        training_client = await self.create_lora_training_client_async(
+            base_model=training_run.base_model,
+            rank=training_run.lora_rank,
+        )
+
+        load_future = await training_client.load_state_async(path)
+        await load_future.result_async()
+        return training_client
+
     @capture_exceptions(fatal=True)
     def create_sampling_client(
         self,

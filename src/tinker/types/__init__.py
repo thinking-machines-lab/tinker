@@ -39,7 +39,9 @@ from .checkpoint import Checkpoint as Checkpoint, CheckpointType as CheckpointTy
 from .weight_load_params import WeightLoadParams as _WeightLoadParams
 from .weight_save_params import WeightSaveParams as _WeightSaveParams
 from .checkpoints_list_response import CheckpointsListResponse as CheckpointsListResponse
+from .cursor import Cursor as Cursor
 from .training_run_ids_response import TrainingRunIdsResponse as TrainingRunIdsResponse
+from .training_runs_response import TrainingRunsResponse as TrainingRunsResponse
 from .forward_backward_input_param import ForwardBackwardInputParam as _ForwardBackwardInputParam
 from .forward_backward_input import ForwardBackwardInput as ForwardBackwardInput
 from .forward_backward_output import ForwardBackwardOutput as ForwardBackwardOutput

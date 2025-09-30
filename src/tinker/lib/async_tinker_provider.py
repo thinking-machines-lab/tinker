@@ -5,7 +5,7 @@ from collections.abc import Coroutine
 from contextlib import AbstractContextManager
 from typing import Any, Protocol, TypeVar
 
-import tinker
+from tinker._client import AsyncTinker
 
 from .public_interfaces.api_future import AwaitableConcurrentFuture
 from .client_connection_pool_type import ClientConnectionPoolType
@@ -25,4 +25,4 @@ class AsyncTinkerProvider(Protocol):
     # must be called and used within the provided event loop
     def aclient(
         self, client_pool_type: ClientConnectionPoolType
-    ) -> AbstractContextManager[tinker.AsyncTinker]: ...
+    ) -> AbstractContextManager[AsyncTinker]: ...

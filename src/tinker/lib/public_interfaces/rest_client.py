@@ -141,72 +141,70 @@ class RestClient(TelemetryProvider):
         )
         return await self.get_training_run_async(parsed_checkpoint_tinker_path.training_run_id)
 
-    def _list_training_run_ids_submit(
-        self, limit: int = 100, after_id: str | None = None
-    ) -> AwaitableConcurrentFuture[types.TrainingRunIdsResponse]:
-        """Internal method to submit list training run IDs request."""
-        async def _list_training_run_ids_async() -> types.TrainingRunIdsResponse:
-            async def _send_request() -> types.TrainingRunIdsResponse:
+    def _list_training_runs_submit(
+        self, limit: int = 20, offset: int = 0
+    ) -> AwaitableConcurrentFuture[types.TrainingRunsResponse]:
+        """Internal method to submit list training runs request."""
+        async def _list_training_runs_async() -> types.TrainingRunsResponse:
+            async def _send_request() -> types.TrainingRunsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    params: dict[str, object] = {"limit": limit}
-                    if after_id is not None:
-                        params["after_id"] = after_id
+                    params: dict[str, object] = {"limit": limit, "offset": offset}
 
                     return await client.get(
                         "/api/v1/training_runs",
                         options={"params": params},
-                        cast_to=types.TrainingRunIdsResponse,
+                        cast_to=types.TrainingRunsResponse,
                     )
 
             return await self.holder.execute_with_retries(_send_request)
 
-        return self.holder.run_coroutine_threadsafe(_list_training_run_ids_async())
+        return self.holder.run_coroutine_threadsafe(_list_training_runs_async())
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def list_training_run_ids(
-        self, limit: int = 100, after_id: str | None = None
-    ) -> ConcurrentFuture[types.TrainingRunIdsResponse]:
-        """List training run IDs with pagination support.
+    def list_training_runs(
+        self, limit: int = 20, offset: int = 0
+    ) -> ConcurrentFuture[types.TrainingRunsResponse]:
+        """List training runs with pagination support.
 
         Args:
-            limit: Maximum number of training run IDs to return (default 100)
-            after_id: Optional cursor for pagination - returns IDs after this ID
+            limit: Maximum number of training runs to return (default 20)
+            offset: Offset for pagination (default 0)
 
         Returns:
-            A Future containing the TrainingRunIdsResponse with training run IDs and pagination info
+            A Future containing the TrainingRunsResponse with training runs and cursor info
 
         Example:
-            >>> future = rest_client.list_training_run_ids(limit=50)
+            >>> future = rest_client.list_training_runs(limit=50)
             >>> response = future.result()
-            >>> print(f"Found {len(response.training_run_ids)} training runs")
-            >>> if response.has_more:
-            ...     last_id = response.training_run_ids[-1]
-            ...     next_page = rest_client.list_training_run_ids(limit=50, after_id=last_id)
+            >>> print(f"Found {len(response.training_runs)} training runs")
+            >>> print(f"Total: {response.cursor.total_count}")
+            >>> # Get next page
+            >>> next_page = rest_client.list_training_runs(limit=50, offset=50)
         """
-        return self._list_training_run_ids_submit(limit, after_id).future()
+        return self._list_training_runs_submit(limit, offset).future()
 
     @capture_exceptions(fatal=True)
-    async def list_training_run_ids_async(
-        self, limit: int = 100, after_id: str | None = None
-    ) -> types.TrainingRunIdsResponse:
-        """Async version of list_training_run_ids.
+    async def list_training_runs_async(
+        self, limit: int = 20, offset: int = 0
+    ) -> types.TrainingRunsResponse:
+        """Async version of list_training_runs.
 
         Args:
-            limit: Maximum number of training run IDs to return (default 100)
-            after_id: Optional cursor for pagination - returns IDs after this ID
+            limit: Maximum number of training runs to return (default 20)
+            offset: Offset for pagination (default 0)
 
         Returns:
-            TrainingRunIdsResponse with training run IDs and pagination info
+            TrainingRunsResponse with training runs and cursor info
 
         Example:
-            >>> response = await rest_client.list_training_run_ids_async(limit=50)
-            >>> print(f"Found {len(response.training_run_ids)} training runs")
-            >>> if response.has_more:
-            ...     last_id = response.training_run_ids[-1]
-            ...     next_page = await rest_client.list_training_run_ids_async(limit=50, after_id=last_id)
+            >>> response = await rest_client.list_training_runs_async(limit=50)
+            >>> print(f"Found {len(response.training_runs)} training runs")
+            >>> print(f"Total: {response.cursor.total_count}")
+            >>> # Get next page
+            >>> next_page = await rest_client.list_training_runs_async(limit=50, offset=50)
         """
-        return await self._list_training_run_ids_submit(limit, after_id)
+        return await self._list_training_runs_submit(limit, offset)
 
     def _list_checkpoints_submit(
         self, training_run_id: types.ModelID

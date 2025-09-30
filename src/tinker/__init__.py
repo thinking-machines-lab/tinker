@@ -5,7 +5,7 @@ import typing as _t
 from . import types
 from ._types import NOT_GIVEN, Omit, NoneType, NotGiven, Transport, ProxiesTypes
 from ._utils import file_from_path
-from ._client import Client, Stream, Tinker, Timeout, Transport, AsyncClient, AsyncStream, AsyncTinker, RequestOptions
+from ._client import Timeout, Transport, RequestOptions
 from ._models import BaseModel
 from ._version import __title__, __version__
 from ._response import APIResponse as APIResponse, AsyncAPIResponse as AsyncAPIResponse
@@ -28,18 +28,68 @@ from ._exceptions import (
 )
 from ._base_client import DefaultHttpxClient, DefaultAioHttpClient, DefaultAsyncHttpxClient
 from ._utils._logs import setup_logging as _setup_logging
-from .lib.public_interfaces import TrainingClient, ServiceClient, SamplingClient
+from .lib.public_interfaces import TrainingClient, ServiceClient, SamplingClient, APIFuture
+
+# Import commonly used types for easier access
+from .types import (
+    AdamParams,
+    Checkpoint,
+    CheckpointType,
+    Datum,
+    EncodedTextChunk,
+    ForwardBackwardOutput,
+    LoraConfig,
+    ModelID,
+    ModelInput,
+    ModelInputChunk,
+    OptimStepRequest,
+    OptimStepResponse,
+    ParsedCheckpointTinkerPath,
+    SampledSequence,
+    SampleRequest,
+    SampleResponse,
+    SamplingParams,
+    StopReason,
+    TensorData,
+    TensorDtype,
+    TrainingRun,
+)
 
 __all__ = [
-    "types",
-    "__version__",
-    "__title__",
-    "NoneType",
-    "Transport",
-    "ProxiesTypes",
-    "NotGiven",
-    "NOT_GIVEN",
-    "Omit",
+    # Core clients
+    "TrainingClient",
+    "ServiceClient",
+    "SamplingClient",
+    "APIFuture",
+
+    # Commonly used types
+    "AdamParams",
+    "Checkpoint",
+    "CheckpointType",
+    "Datum",
+    "EncodedTextChunk",
+    "ForwardBackwardOutput",
+    "LoraConfig",
+    "ModelID",
+    "ModelInput",
+    "ModelInputChunk",
+    "OptimStepRequest",
+    "OptimStepResponse",
+    "ParsedCheckpointTinkerPath",
+    "SampledSequence",
+    "SampleRequest",
+    "SampleResponse",
+    "SamplingParams",
+    "StopReason",
+    "TensorData",
+    "TensorDtype",
+    "TrainingRun",
+
+    # Client configuration
+    "Timeout",
+    "RequestOptions",
+
+    # Exception types
     "TinkerError",
     "APIError",
     "APIStatusError",
@@ -54,25 +104,13 @@ __all__ = [
     "UnprocessableEntityError",
     "RateLimitError",
     "InternalServerError",
-    "Timeout",
-    "RequestOptions",
-    "Client",
-    "AsyncClient",
-    "Stream",
-    "AsyncStream",
-    "Tinker",
-    "AsyncTinker",
-    "file_from_path",
-    "BaseModel",
-    "DEFAULT_TIMEOUT",
-    "DEFAULT_MAX_RETRIES",
-    "DEFAULT_CONNECTION_LIMITS",
-    "DefaultHttpxClient",
-    "DefaultAsyncHttpxClient",
-    "DefaultAioHttpClient",
-    "TrainingClient",
-    "ServiceClient",
-    "SamplingClient",
+
+    # Keep types module for advanced use
+    "types",
+
+    # Version info
+    "__version__",
+    "__title__",
 ]
 
 if not _t.TYPE_CHECKING:

@@ -8,7 +8,7 @@ import time
 import traceback
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Type, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Callable, List, Type, TypeVar, cast
 
 import tinker
 from tinker import types
@@ -186,7 +186,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 continue
 
             # Function hasn't been called yet, execute it now
-            result_dict: Dict[str, Any] = await response.json()  # type: ignore
+            result_dict: Any = await response.json()
 
             if "type" in result_dict and result_dict["type"] == "try_again":
                 logger.warning(f"Retrying request {self.request_id=} because of try_again")

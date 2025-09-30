@@ -14,7 +14,8 @@ from typing import Any, Awaitable, Callable, TypeVar
 
 import httpx
 
-import tinker
+from tinker._client import AsyncTinker
+from tinker._exceptions import APIConnectionError, APIStatusError
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
@@ -38,11 +39,11 @@ class ClientConnectionPool:
         self._loop = loop
         self._max_requests_per_client = max_requests_per_client
         self._constructor_kwargs = constructor_kwargs
-        self._clients: list[tinker.AsyncTinker] = []
+        self._clients: list[AsyncTinker] = []
         self._client_active_refcount: list[int] = []
 
     @contextmanager
-    def aclient(self) -> Generator[tinker.AsyncTinker, None, None]:
+    def aclient(self) -> Generator[AsyncTinker, None, None]:
         assert _current_loop() is self._loop, "AsyncTinker client called from incorrect event loop"
         client_idx = -1
         for i, ref_count in enumerate(self._client_active_refcount):
@@ -50,7 +51,7 @@ class ClientConnectionPool:
                 client_idx = i
                 break
         if client_idx == -1:
-            self._clients.append(tinker.AsyncTinker(**self._constructor_kwargs))
+            self._clients.append(AsyncTinker(**self._constructor_kwargs))
             client_idx = len(self._clients) - 1
             self._client_active_refcount.append(0)
 
@@ -132,7 +133,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
     def aclient(
         self, client_pool_type: ClientConnectionPoolType
-    ) -> AbstractContextManager[tinker.AsyncTinker]:
+    ) -> AbstractContextManager[AsyncTinker]:
         return self._get_client_connection_pool(client_pool_type).aclient()
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
@@ -169,12 +170,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def _is_retryable_exception(exception: Exception) -> bool:
         RETRYABLE_EXCEPTIONS = (
             asyncio.TimeoutError,
-            tinker.APIConnectionError,
+            APIConnectionError,
             httpx.TimeoutException,
         )
         if isinstance(exception, RETRYABLE_EXCEPTIONS):
             return True
-        if isinstance(exception, tinker.APIStatusError):
+        if isinstance(exception, APIStatusError):
             return InternalClientHolder._is_retryable_status_code(exception.status_code)
         return False
 
