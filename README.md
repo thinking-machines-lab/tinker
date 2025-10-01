@@ -1,3 +1,8 @@
-# Tinker Python SDK
+<h1 align="center">Tinker python SDK</h1>
+<div align="center">
+  <img src="docs/images/logo.svg" width="60%" />
 
-See [http://tinker-docs.thinkingmachines.ai/](http://tinker-docs.thinkingmachines.ai/).
+  Documentation:
+  <a href="http://tinker-docs.thinkingmachines.ai/">tinker-docs.thinkingmachines.ai</a>
+</div>
+
