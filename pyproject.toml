@@ -1,11 +1,11 @@
 [project]
 name = "tinker"
-version = "0.0.1-alpha.1"
-description = "The official Python library for the tinker API"
+version = "0.1.0"
+description = "The official Python SDK for the tinker API"
 dynamic = ["readme"]
 license = "Apache-2.0"
 authors = [
-{ name = "Tinker", email = "" },
+{ name = "Tinker authors", email = "tinker@thinkingmachines.ai" },
 ]
 dependencies = [
     "httpx[http2]>=0.23.0, <1",
@@ -34,8 +34,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/stainless-sdks/tinker-python"
-Repository = "https://github.com/stainless-sdks/tinker-python"
+Homepage = "https://thinkingmachines.ai/tinker"
+Repository = "https://github.com/thinking-machines-lab/tinker"
+Documentation = "https://tinker-docs.thinkingmachines.ai/"
 
 [project.optional-dependencies]
 aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
