@@ -1,3 +1,3 @@
-# Tinker Python API library
+# Tinker Python SDK
 
 See [http://tinker-docs.thinkingmachines.ai/](http://tinker-docs.thinkingmachines.ai/).

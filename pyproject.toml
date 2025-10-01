@@ -1,12 +1,13 @@
 [project]
 name = "tinker"
-version = "0.1.0"
+version = "0.1.1"
 description = "The official Python SDK for the tinker API"
-dynamic = ["readme"]
+readme = "README.md"
 license = "Apache-2.0"
 authors = [
 { name = "Tinker authors", email = "tinker@thinkingmachines.ai" },
 ]
+keywords = ["tinker", "machine learning"]
 dependencies = [
     "httpx[http2]>=0.23.0, <1",
     "pydantic>=1.9.0, <3",
@@ -14,6 +15,8 @@ dependencies = [
     "anyio>=3.5.0, <5",
     "distro>=1.7.0, <2",
     "sniffio",
+    "numpy",
+    "torch",
 ]
 requires-python = ">= 3.11"
 classifiers = [
