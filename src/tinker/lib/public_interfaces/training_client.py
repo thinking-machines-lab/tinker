@@ -281,7 +281,6 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             return types.Datum(model_input=datum.model_input, loss_fn_inputs=loss_fn_inputs)
 
         _data = list(map(convert_to_cross_entropy_datum, data))
-
         forward_future = await self.forward_async(_data, "cross_entropy")
         forward_result = await forward_future.result_async()
         logprobs_list: List[torch.Tensor] = []
