@@ -167,31 +167,40 @@ class ServiceClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def create_training_client_from_state(self, path: str) -> TrainingClient:
+    def create_training_client_from_state(
+        self, path: str, user_metadata: dict[str, str] | None = None
+    ) -> TrainingClient:
         rest_client = self.create_rest_client()
         training_run = rest_client.get_training_run_by_tinker_path(path).result()
+
+        # Merge user metadata dicts
+        user_metdata = {**(training_run.user_metadata or {}), **(user_metadata or {})}
 
         training_client = self.create_lora_training_client(
             base_model=training_run.base_model,
             rank=training_run.lora_rank,
-            user_metadata=training_run.user_metadata,
+            user_metadata=user_metdata,
         )
 
         training_client.load_state(path).result()
         return training_client
 
     @capture_exceptions(fatal=True)
-    async def create_training_client_from_state_async(self, path: str) -> TrainingClient:
+    async def create_training_client_from_state_async(
+        self, path: str, user_metadata: dict[str, str] | None = None
+    ) -> TrainingClient:
         rest_client = self.create_rest_client()
         training_run = await rest_client.get_training_run_by_tinker_path_async(path)
 
         # Right now all training runs are LoRa runs.
         assert training_run.is_lora and training_run.lora_rank is not None
+        # Merge user metadata dicts
+        user_metdata = {**(training_run.user_metadata or {}), **(user_metadata or {})}
 
         training_client = await self.create_lora_training_client_async(
             base_model=training_run.base_model,
             rank=training_run.lora_rank,
-            user_metadata=training_run.user_metadata,
+            user_metadata=user_metdata,
         )
 
         load_future = await training_client.load_state_async(path)
