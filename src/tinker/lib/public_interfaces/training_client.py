@@ -438,39 +438,6 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         return self.save_weights_for_sampler(name)
 
-    @capture_exceptions(fatal=True)
-    def unload_model(
-        self,
-    ) -> APIFuture[types.UnloadModelResponse]:
-        request_id = self._get_request_id()
-
-        @capture_exceptions(fatal=True)
-        async def _unload_model_async():
-            start_time = time.time()
-
-            async def _send_request():
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.models.unload(
-                        model_id=self._guaranteed_model_id(),
-                        idempotency_key=self._make_idempotency_key(request_id),
-                    )
-
-            async with self._take_turn(request_id):
-                future = await self.holder.execute_with_retries(_send_request)
-            return await _APIFuture(
-                types.UnloadModelResponse,
-                self.holder,
-                future,
-                request_start_time=start_time,
-                request_type="UnloadModel",
-                queue_state_observer=self,
-            )
-
-        return self.holder.run_coroutine_threadsafe(_unload_model_async())
-
-    async def unload_model_async(self) -> APIFuture[types.UnloadModelResponse]:
-        return self.unload_model()
-
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
         request_id = self._get_request_id()
 

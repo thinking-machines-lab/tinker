@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import os
@@ -56,7 +54,6 @@ class TestTelemetry:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         telemetry = response.parse()
         assert_matches_type(TelemetryResponse, telemetry, path=["response"])
 
@@ -78,7 +75,6 @@ class TestTelemetry:
             session_id="182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             telemetry = response.parse()
             assert_matches_type(TelemetryResponse, telemetry, path=["response"])
@@ -129,7 +125,6 @@ class TestAsyncTelemetry:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         telemetry = await response.parse()
         assert_matches_type(TelemetryResponse, telemetry, path=["response"])
 
@@ -151,7 +146,6 @@ class TestAsyncTelemetry:
             session_id="182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             telemetry = await response.parse()
             assert_matches_type(TelemetryResponse, telemetry, path=["response"])

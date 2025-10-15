@@ -78,13 +78,18 @@ class ServiceClient(TelemetryProvider):
         return await self._get_server_capabilities_submit()
 
     def _create_model_submit(
-        self, base_model: str, lora_config: types.LoraConfig
+        self,
+        base_model: str,
+        lora_config: types.LoraConfig,
+        user_metadata: dict[str, str] | None = None,
     ) -> AwaitableConcurrentFuture[types.ModelID]:
         async def _create_model_async():
             start_time = time.time()
             with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                 future = await client.models.create(
-                    base_model=base_model, lora_config=_to_lora_config_params(lora_config)
+                    base_model=base_model,
+                    lora_config=_to_lora_config_params(lora_config),
+                    user_metadata=user_metadata,
                 )
             create_model_response = await _APIFuture(
                 types.CreateModelResponse,
@@ -107,6 +112,7 @@ class ServiceClient(TelemetryProvider):
         train_mlp: bool = True,
         train_attn: bool = True,
         train_unembed: bool = True,
+        user_metadata: dict[str, str] | None = None,
     ) -> TrainingClient:
         assert any([train_mlp, train_attn, train_unembed]), (
             "At least one of train_mlp, train_attn, or train_unembed must be True"
@@ -120,6 +126,7 @@ class ServiceClient(TelemetryProvider):
                 train_attn=train_attn,
                 train_unembed=train_unembed,
             ),
+            user_metadata=user_metadata,
         ).result()
         logger.info(f"Creating TrainingClient for {model_id=}")
         return self.create_training_client(model_id)
@@ -133,6 +140,7 @@ class ServiceClient(TelemetryProvider):
         train_mlp: bool = True,
         train_attn: bool = True,
         train_unembed: bool = True,
+        user_metadata: dict[str, str] | None = None,
     ) -> TrainingClient:
         assert any([train_mlp, train_attn, train_unembed]), (
             "At least one of train_mlp, train_attn, or train_unembed must be True"
@@ -146,6 +154,7 @@ class ServiceClient(TelemetryProvider):
                 train_attn=train_attn,
                 train_unembed=train_unembed,
             ),
+            user_metadata=user_metadata,
         )
         logger.info(f"Creating TrainingClient for {model_id=}")
         return self.create_training_client(model_id)
@@ -165,6 +174,7 @@ class ServiceClient(TelemetryProvider):
         training_client = self.create_lora_training_client(
             base_model=training_run.base_model,
             rank=training_run.lora_rank,
+            user_metadata=training_run.user_metadata,
         )
 
         training_client.load_state(path).result()
@@ -181,6 +191,7 @@ class ServiceClient(TelemetryProvider):
         training_client = await self.create_lora_training_client_async(
             base_model=training_run.base_model,
             rank=training_run.lora_rank,
+            user_metadata=training_run.user_metadata,
         )
 
         load_future = await training_client.load_state_async(path)
@@ -229,8 +240,6 @@ def _get_default_headers() -> dict[str, str]:
 
     if (api_key := os.environ.get("TINKER_API_KEY", "")) and "X-API-Key" not in headers:
         headers["X-API-Key"] = api_key
-
-    headers["X-Username"] = os.environ.get("USER", "")
 
     if (
         client_id := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_ID")

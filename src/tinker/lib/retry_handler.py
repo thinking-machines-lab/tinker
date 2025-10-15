@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable, Generic, Type, TypeVar
 import httpx
 
 import tinker
-from tinker.lib.telemetry import Telemetry
+from tinker.lib.telemetry import Telemetry, is_user_error
 
 from .._constants import (
     DEFAULT_CONNECTION_LIMITS,
@@ -191,7 +191,7 @@ class RetryHandler(Generic[T]):  # noqa: UP046
                 exception_str = f"{type(e).__name__}: {str(e) or 'No error message'}"
                 self._errors_since_last_retry[exception_str] += 1
                 should_retry = self._should_retry(e)
-
+                user_error = is_user_error(e)
                 if telemetry := self.get_telemetry():
                     current_time = time.time()
                     telemetry.log(
@@ -209,12 +209,13 @@ class RetryHandler(Generic[T]):  # noqa: UP046
                             else None,
                             "status_code": getattr(e, "status_code", None),
                             "should_retry": should_retry,
+                            "is_user_error": user_error,
                             "attempt_count": attempt_count,
                             "start_time": start_time,
                             "current_time": current_time,
                             "elapsed_time": current_time - start_time,
                         },
-                        severity="WARNING" if should_retry else "ERROR",
+                        severity="WARNING" if should_retry or user_error else "ERROR",
                     )
 
                 if not should_retry:

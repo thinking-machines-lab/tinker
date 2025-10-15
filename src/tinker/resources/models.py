@@ -1,26 +1,23 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
+import httpx
 from typing_extensions import Literal
 
-import httpx
-
-from ..types import ModelID, model_create_params, model_unload_params, model_get_info_params
-from .._types import NOT_GIVEN, Body, Query, Headers, NotGiven
-from .._utils import maybe_transform, async_maybe_transform
+from .._base_client import make_request_options
 from .._compat import cached_property
-from .._resource import SyncAPIResource, AsyncAPIResource
+from .._resource import AsyncAPIResource, SyncAPIResource
 from .._response import (
-    to_raw_response_wrapper,
-    to_streamed_response_wrapper,
     async_to_raw_response_wrapper,
     async_to_streamed_response_wrapper,
+    to_raw_response_wrapper,
+    to_streamed_response_wrapper,
 )
-from .._base_client import make_request_options
-from ..types.model_id import ModelID
+from .._types import NOT_GIVEN, Body, Headers, NotGiven, Query
+from .._utils import async_maybe_transform, maybe_transform
+from ..types import ModelID, model_create_params, model_get_info_params, model_unload_params
 from ..types.get_info_response import GetInfoResponse
 from ..types.lora_config_param import LoraConfigParam
+from ..types.model_id import ModelID
 from ..types.shared.untyped_api_future import UntypedAPIFuture
 
 __all__ = ["ModelsResource", "AsyncModelsResource"]
@@ -50,6 +47,7 @@ class ModelsResource(SyncAPIResource):
         self,
         *,
         base_model: str,
+        user_metadata: dict[str, str] | None = None,
         lora_config: LoraConfigParam | NotGiven = NOT_GIVEN,
         type: Literal["create_model"] = "create_model",
         # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
@@ -81,6 +79,7 @@ class ModelsResource(SyncAPIResource):
             body=maybe_transform(
                 {
                     "base_model": base_model,
+                    "user_metadata": user_metadata,
                     "lora_config": lora_config,
                     "type": type,
                 },
@@ -213,6 +212,7 @@ class AsyncModelsResource(AsyncAPIResource):
         self,
         *,
         base_model: str,
+        user_metadata: dict[str, str] | None = None,
         lora_config: LoraConfigParam | NotGiven = NOT_GIVEN,
         type: Literal["create_model"] = "create_model",
         # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
@@ -244,6 +244,7 @@ class AsyncModelsResource(AsyncAPIResource):
             body=await async_maybe_transform(
                 {
                     "base_model": base_model,
+                    "user_metadata": user_metadata,
                     "lora_config": lora_config,
                     "type": type,
                 },

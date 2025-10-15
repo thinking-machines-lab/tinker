@@ -19,7 +19,7 @@ from tinker._exceptions import APIConnectionError, APIStatusError
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
-from tinker.lib.telemetry import Telemetry, init_telemetry
+from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
 
 logger = logging.getLogger(__name__)
@@ -190,6 +190,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 return await func(*args, **kwargs)
             except Exception as e:
                 is_retryable = self._is_retryable_exception(e)
+                user_error = is_user_error(e)
                 current_time = time.time()
                 elapsed_time = current_time - start_time
                 if telemetry := self.get_telemetry():
@@ -208,12 +209,13 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                             else None,
                             "status_code": getattr(e, "status_code", None),
                             "is_retryable": is_retryable,
+                            "is_user_error": user_error,
                             "attempt_count": attempt_count,
                             "start_time": start_time,
                             "current_time": current_time,
                             "elapsed_time": elapsed_time,
                         },
-                        severity="WARNING" if is_retryable else "ERROR",
+                        severity="WARNING" if is_retryable or user_error else "ERROR",
                     )
                 if is_retryable and elapsed_time < MAX_WAIT_TIME:
                     # Apply exponential backoff

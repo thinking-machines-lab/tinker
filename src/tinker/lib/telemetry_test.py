@@ -8,10 +8,17 @@ from concurrent.futures import Future as ConcurrentFuture
 from typing import Any, TypeVar, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 
-from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker._exceptions import (
+    APIStatusError,
+    BadRequestError,
+    ConflictError,
+    UnprocessableEntityError,
+)
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import (
     MAX_BATCH_SIZE,
     MAX_QUEUE_SIZE,
@@ -189,6 +196,30 @@ class TestTelemetryClass:
         assert exception_event.error_type == "RuntimeError"
         assert exception_event.error_message == "Test exception"
 
+    def test_log_exception_sync_user_error(self):
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(400, request=request)
+        error = BadRequestError(
+            "Invalid request payload",
+            response=response,
+            body={"detail": "bad request"},
+        )
+
+        with patch.object(self.telemetry, "_trigger_flush") as mock_trigger:
+            result = self.telemetry.log_exception_sync(error, "ERROR")
+
+        assert result is True
+        assert len(self.telemetry._queue) == 2
+        mock_trigger.assert_called_once()
+        generic_event = self.telemetry._queue[-1]
+        assert isinstance(generic_event, GenericEvent)
+        assert generic_event.event_name == "user_error"
+        assert generic_event.severity == "WARNING"
+        assert generic_event.event_data["error_type"] == "BadRequestError"
+        assert generic_event.event_data["status_code"] == 400
+        assert generic_event.event_data["message"] == "Invalid request payload"
+        assert generic_event.event_data["body"] == {"detail": "bad request"}
+
     @pytest.mark.asyncio
     async def test_log_exception_async(self):
         try:
@@ -224,6 +255,84 @@ class TestTelemetryClass:
         assert exception_event.severity == "CRITICAL"
         end_event = self.telemetry._queue[-1]
         assert isinstance(end_event, SessionEndEvent)
+
+    def test_log_fatal_exception_sync_user_error(self):
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(422, request=request)
+        error = UnprocessableEntityError(
+            "Payload is invalid",
+            response=response,
+            body={"errors": ["invalid field"]},
+        )
+
+        with patch.object(self.telemetry, "_trigger_flush") as mock_trigger:
+            with patch.object(
+                self.telemetry, "_wait_until_drained_sync", return_value=True
+            ) as mock_wait:
+                result = self.telemetry.log_fatal_exception_sync(error, "ERROR")
+
+        assert result is True
+        assert len(self.telemetry._queue) == 3
+        mock_trigger.assert_called_once()
+        mock_wait.assert_called_once()
+        generic_event = self.telemetry._queue[-2]
+        assert isinstance(generic_event, GenericEvent)
+        assert generic_event.event_name == "user_error"
+        assert generic_event.severity == "WARNING"
+        assert generic_event.event_data["error_type"] == "UnprocessableEntityError"
+        assert generic_event.event_data["status_code"] == 422
+        assert generic_event.event_data["message"] == "Payload is invalid"
+        assert generic_event.event_data["body"] == {"errors": ["invalid field"]}
+        end_event = self.telemetry._queue[-1]
+        assert isinstance(end_event, SessionEndEvent)
+
+    def test_log_exception_sync_timeout_not_user_error(self):
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(408, request=request)
+        error = APIStatusError(
+            "Request timed out",
+            response=response,
+            body={"error": "Request timed out"},
+        )
+
+        with patch.object(self.telemetry, "_trigger_flush") as mock_trigger:
+            result = self.telemetry.log_exception_sync(error, "ERROR")
+
+        assert result is True
+        assert len(self.telemetry._queue) == 2
+        mock_trigger.assert_called_once()
+        exception_event = self.telemetry._queue[-1]
+        assert isinstance(exception_event, UnhandledExceptionEvent)
+        assert exception_event.error_type == "APIStatusError"
+
+    def test_log_exception_sync_value_error_with_api_status_cause(self):
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(409, request=request)
+        conflict_error = ConflictError(
+            "Resource already exists",
+            response=response,
+            body={"detail": "Resource already exists"},
+        )
+
+        try:
+            raise conflict_error
+        except ConflictError as exc:
+            try:
+                raise ValueError("Wrapped user error") from exc
+            except ValueError as outer:
+                wrapped_error = outer
+
+        with patch.object(self.telemetry, "_trigger_flush") as mock_trigger:
+            result = self.telemetry.log_exception_sync(wrapped_error, "ERROR")
+
+        assert result is True
+        assert len(self.telemetry._queue) == 2
+        mock_trigger.assert_called_once()
+        generic_event = self.telemetry._queue[-1]
+        assert isinstance(generic_event, GenericEvent)
+        assert generic_event.event_name == "user_error"
+        assert generic_event.event_data["status_code"] == 409
+        assert generic_event.event_data["body"] == {"detail": "Resource already exists"}
 
     @pytest.mark.asyncio
     async def test_log_fatal_exception_async(self):

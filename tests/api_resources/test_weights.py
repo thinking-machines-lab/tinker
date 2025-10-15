@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import os
@@ -45,7 +43,6 @@ class TestWeights:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         weight = response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
@@ -57,7 +54,6 @@ class TestWeights:
             path="tinker://model-id/weights/step-0123",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             weight = response.parse()
             assert_matches_type(UntypedAPIFuture, weight, path=["response"])
@@ -90,7 +86,6 @@ class TestWeights:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         weight = response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
@@ -101,7 +96,6 @@ class TestWeights:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             weight = response.parse()
             assert_matches_type(UntypedAPIFuture, weight, path=["response"])
@@ -134,7 +128,6 @@ class TestWeights:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         weight = response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
@@ -145,7 +138,6 @@ class TestWeights:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             weight = response.parse()
             assert_matches_type(UntypedAPIFuture, weight, path=["response"])
@@ -186,7 +178,6 @@ class TestAsyncWeights:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         weight = await response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
@@ -198,7 +189,6 @@ class TestAsyncWeights:
             path="tinker://model-id/weights/step-0123",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             weight = await response.parse()
             assert_matches_type(UntypedAPIFuture, weight, path=["response"])
@@ -231,7 +221,6 @@ class TestAsyncWeights:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         weight = await response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
@@ -242,7 +231,6 @@ class TestAsyncWeights:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             weight = await response.parse()
             assert_matches_type(UntypedAPIFuture, weight, path=["response"])
@@ -275,7 +263,6 @@ class TestAsyncWeights:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         weight = await response.parse()
         assert_matches_type(UntypedAPIFuture, weight, path=["response"])
 
@@ -286,7 +273,6 @@ class TestAsyncWeights:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             weight = await response.parse()
             assert_matches_type(UntypedAPIFuture, weight, path=["response"])

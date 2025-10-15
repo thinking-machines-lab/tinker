@@ -1,14 +1,14 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 from typing_extensions import Literal
 
+import datetime
 import httpx
 
 from ..types import (
     ModelID,
     CheckpointsListResponse,
+    CheckpointArchiveUrlResponse,
     weight_load_params,
     weight_save_params,
     weight_save_for_sampler_params,
@@ -23,6 +23,7 @@ from .._response import (
     async_to_raw_response_wrapper,
     async_to_streamed_response_wrapper,
 )
+from .._exceptions import APIStatusError
 from .._base_client import make_request_options
 from ..types.shared.untyped_api_future import UntypedAPIFuture
 
@@ -270,6 +271,84 @@ class WeightsResource(SyncAPIResource):
 
         return None
 
+    def get_checkpoint_archive_url(
+        self,
+        *,
+        model_id: ModelID,
+        checkpoint_id: str,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> CheckpointArchiveUrlResponse:
+        """
+        Get signed URL to download checkpoint archive.
+
+        Args:
+          model_id: The training run ID to download weights for
+          checkpoint_id: The checkpoint ID to download
+
+          extra_headers: Send extra headers
+
+          extra_query: Add additional query parameters to the request
+
+          extra_body: Add additional JSON properties to the request
+
+          timeout: Override the client-level default timeout for this request, in seconds
+        """
+        if not model_id:
+            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
+        if not checkpoint_id:
+            raise ValueError(
+                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
+            )
+
+        from .._response import APIResponse
+
+        # Merge the accept header
+        merged_headers: Headers = {"accept": "application/gzip"}
+        if extra_headers is not None:
+            merged_headers = {**merged_headers, **extra_headers}
+
+        options = make_request_options(
+            extra_headers=merged_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+        )
+        options["follow_redirects"] = False
+
+        try:
+            response = self._get(
+                f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
+                cast_to=APIResponse,
+                options=options,
+            )
+        except APIStatusError as e:
+            # On success, this API responds with a 302
+            if e.status_code != 302:
+                raise e
+
+            location = e.response.headers.get("Location")
+            if location is None:
+                raise e
+
+            expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
+            try:
+                if expires_header := e.response.headers.get("Expires"):
+                    expires = datetime.datetime.strptime(expires_header, "%a, %d %b %Y %H:%M:%S GMT")
+            except ValueError:
+                pass
+
+            return CheckpointArchiveUrlResponse(
+                url=location,
+                expires=expires,
+            )
+        raise Exception("Unexpected error while getting checkpoint archive URL")
+
+
 class AsyncWeightsResource(AsyncAPIResource):
     @cached_property
     def with_raw_response(self) -> AsyncWeightsResourceWithRawResponse:
@@ -511,6 +590,83 @@ class AsyncWeightsResource(AsyncAPIResource):
 
         return None
 
+    async def get_checkpoint_archive_url(
+        self,
+        *,
+        model_id: ModelID,
+        checkpoint_id: str,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> CheckpointArchiveUrlResponse:
+        """
+        Get signed URL to download checkpoint archive.
+
+        Args:
+          model_id: The training run ID to download weights for
+          checkpoint_id: The checkpoint ID to download
+
+          extra_headers: Send extra headers
+
+          extra_query: Add additional query parameters to the request
+
+          extra_body: Add additional JSON properties to the request
+
+          timeout: Override the client-level default timeout for this request, in seconds
+        """
+        if not model_id:
+            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
+        if not checkpoint_id:
+            raise ValueError(
+                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
+            )
+
+        from urllib.parse import urlparse, parse_qs
+        from .._response import AsyncAPIResponse
+
+        # Merge the accept header
+        merged_headers: Headers = {"accept": "application/gzip"}
+        if extra_headers is not None:
+            merged_headers = {**merged_headers, **extra_headers}
+
+        options = make_request_options(
+            extra_headers=merged_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+        )
+        options["follow_redirects"] = False
+
+        try:
+            response = await self._get(
+                f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
+                cast_to=AsyncAPIResponse,
+                options=options,
+            )
+        except APIStatusError as e:
+            # On success, this API responds with a 302
+            if e.status_code != 302:
+                raise e
+
+            location = e.response.headers.get("Location")
+            if location is None:
+                raise e
+
+            expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
+            try:
+                if expires_header := e.response.headers.get("Expires"):
+                    expires = datetime.datetime.strptime(expires_header, "%a, %d %b %Y %H:%M:%S GMT")
+            except ValueError:
+                pass
+
+            return CheckpointArchiveUrlResponse(
+                url=location,
+                expires=expires,
+            )
+        raise Exception("Unexpected error while getting checkpoint archive URL")
 
 class WeightsResourceWithRawResponse:
     def __init__(self, weights: WeightsResource) -> None:
@@ -530,6 +686,9 @@ class WeightsResourceWithRawResponse:
         )
         self.delete_checkpoint = to_raw_response_wrapper(
             weights.delete_checkpoint,
+        )
+        self.get_checkpoint_archive_url = to_raw_response_wrapper(
+            weights.get_checkpoint_archive_url,
         )
 
 
@@ -552,6 +711,9 @@ class AsyncWeightsResourceWithRawResponse:
         self.delete_checkpoint = async_to_raw_response_wrapper(
             weights.delete_checkpoint,
         )
+        self.get_checkpoint_archive_url = async_to_raw_response_wrapper(
+            weights.get_checkpoint_archive_url,
+        )
 
 
 class WeightsResourceWithStreamingResponse:
@@ -573,6 +735,9 @@ class WeightsResourceWithStreamingResponse:
         self.delete_checkpoint = to_streamed_response_wrapper(
             weights.delete_checkpoint,
         )
+        self.get_checkpoint_archive_url = to_streamed_response_wrapper(
+            weights.get_checkpoint_archive_url,
+        )
 
 
 class AsyncWeightsResourceWithStreamingResponse:
@@ -593,4 +758,7 @@ class AsyncWeightsResourceWithStreamingResponse:
         )
         self.delete_checkpoint = async_to_streamed_response_wrapper(
             weights.delete_checkpoint,
+        )
+        self.get_checkpoint_archive_url = async_to_streamed_response_wrapper(
+            weights.get_checkpoint_archive_url,
         )

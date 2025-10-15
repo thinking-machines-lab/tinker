@@ -159,7 +159,7 @@ class Telemetry:
         return self._log(self._generic_event(event_name, event_data, severity))
 
     async def log_exception(self, exception: BaseException, severity: Severity = "ERROR") -> bool:
-        logged = self._log(self._exception_event(exception, severity))
+        logged = self._log(self._exception_or_user_error_event(exception, severity))
         # trigger flush but don't block on it
         self._trigger_flush()
         return logged
@@ -167,7 +167,9 @@ class Telemetry:
     async def log_fatal_exception(
         self, exception: BaseException, severity: Severity = "ERROR"
     ) -> bool:
-        logged = self._log(self._exception_event(exception, severity), self._session_end_event())
+        logged = self._log(
+            self._exception_or_user_error_event(exception, severity), self._session_end_event()
+        )
         self._trigger_flush()
         # wait for the flush to complete
         _ = await self._wait_until_drained()
@@ -177,7 +179,7 @@ class Telemetry:
 
     @sync_only
     def log_exception_sync(self, exception: BaseException, severity: Severity = "ERROR") -> bool:
-        logged = self._log(self._exception_event(exception, severity))
+        logged = self._log(self._exception_or_user_error_event(exception, severity))
         # trigger flush but don't block on it
         self._trigger_flush()
         return logged
@@ -186,7 +188,9 @@ class Telemetry:
     def log_fatal_exception_sync(
         self, exception: BaseException, severity: Severity = "ERROR"
     ) -> bool:
-        logged = self._log(self._exception_event(exception, severity), self._session_end_event())
+        logged = self._log(
+            self._exception_or_user_error_event(exception, severity), self._session_end_event()
+        )
         self._trigger_flush()
         # wait for the flush to complete
         if _current_loop() is None:
@@ -242,6 +246,15 @@ class Telemetry:
             duration=str(end_time - self._session_start),
         )
 
+    def _exception_or_user_error_event(
+        self, exception: BaseException, severity: Severity
+    ) -> TelemetryEvent:
+        return (
+            self._user_error_event(exception)
+            if is_user_error(exception)
+            else self._exception_event(exception, severity)
+        )
+
     def _exception_event(
         self, exception: BaseException, severity: Severity
     ) -> UnhandledExceptionEvent:
@@ -259,6 +272,18 @@ class Telemetry:
             if exception.__traceback__
             else None,
         )
+
+    def _user_error_event(self, exception: BaseException) -> GenericEvent:
+        data: dict[str, object] = {"error_type": exception.__class__.__name__}
+        if message := str(exception):
+            data["message"] = message
+        if user_error := _get_user_error(exception):
+            status_code = getattr(user_error, "status_code", None)
+            if isinstance(status_code, int):
+                data["status_code"] = status_code
+            if body := getattr(user_error, "body", None):
+                data["body"] = body
+        return self._generic_event("user_error", data, "WARNING")
 
     def _next_session_index(self) -> int:
         with self._session_index_lock:
@@ -370,6 +395,37 @@ def capture_exceptions(
         return cast(Callable[P, R], _wrapper)
 
     return _decorate if func is None else _decorate(func)
+
+
+def is_user_error(exception: BaseException) -> bool:
+    return _get_user_error(exception) is not None
+
+
+def _get_user_error(
+    exception: BaseException, visited: set[int] | None = None
+) -> BaseException | None:
+    visited = set() if visited is None else visited
+    if id(exception) in visited:
+        return None
+    visited.add(id(exception))
+
+    if (
+        (status_code := getattr(exception, "status_code", None))
+        and isinstance(status_code, int)
+        and 400 <= status_code < 500
+        and status_code != 408
+    ):
+        return exception
+
+    if (cause := getattr(exception, "__cause__", None)) is not None and (
+        user_error := _get_user_error(cause, visited)
+    ) is not None:
+        return user_error
+
+    if (context := getattr(exception, "__context__", None)) is not None:
+        return _get_user_error(context, visited)
+
+    return None
 
 
 def _to_send_params(batch: TelemetryBatch) -> TelemetrySendParams:

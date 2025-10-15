@@ -33,7 +33,7 @@ class RestClient(TelemetryProvider):
     - list_checkpoints() - list available model checkpoints (both training and sampler)
     - get_training_run() - get model information and metadata as ModelEntry
     - delete_checkpoint() - delete an existing checkpoint for a training run
-    - download_sampler_weights_archive() - download sampler weights checkpoint as tar.gz archive
+    - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
 
     Args:
         holder: Internal client managing HTTP connections and async operations
@@ -55,6 +55,7 @@ class RestClient(TelemetryProvider):
         self, training_run_id: types.ModelID
     ) -> AwaitableConcurrentFuture[types.TrainingRun]:
         """Internal method to submit get model request."""
+
         async def _get_training_run_async() -> types.TrainingRun:
             async def _send_request() -> types.TrainingRun:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -69,7 +70,9 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def get_training_run(self, training_run_id: types.ModelID) -> ConcurrentFuture[types.TrainingRun]:
+    def get_training_run(
+        self, training_run_id: types.ModelID
+    ) -> ConcurrentFuture[types.TrainingRun]:
         """Get training run info.
 
         Args:
@@ -103,7 +106,9 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def get_training_run_by_tinker_path(self, tinker_path: str) -> ConcurrentFuture[types.TrainingRun]:
+    def get_training_run_by_tinker_path(
+        self, tinker_path: str
+    ) -> ConcurrentFuture[types.TrainingRun]:
         """Get training run info.
 
         Args:
@@ -145,6 +150,7 @@ class RestClient(TelemetryProvider):
         self, limit: int = 20, offset: int = 0
     ) -> AwaitableConcurrentFuture[types.TrainingRunsResponse]:
         """Internal method to submit list training runs request."""
+
         async def _list_training_runs_async() -> types.TrainingRunsResponse:
             async def _send_request() -> types.TrainingRunsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -210,6 +216,7 @@ class RestClient(TelemetryProvider):
         self, training_run_id: types.ModelID
     ) -> AwaitableConcurrentFuture[types.CheckpointsListResponse]:
         """Internal method to submit list model checkpoints request."""
+
         async def _list_checkpoints_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -221,7 +228,9 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def list_checkpoints(self, training_run_id: types.ModelID) -> ConcurrentFuture[types.CheckpointsListResponse]:
+    def list_checkpoints(
+        self, training_run_id: types.ModelID
+    ) -> ConcurrentFuture[types.CheckpointsListResponse]:
         """List available checkpoints (both training and sampler).
 
         Args:
@@ -242,7 +251,9 @@ class RestClient(TelemetryProvider):
         return self._list_checkpoints_submit(training_run_id).future()
 
     @capture_exceptions(fatal=True)
-    async def list_checkpoints_async(self, training_run_id: types.ModelID) -> types.CheckpointsListResponse:
+    async def list_checkpoints_async(
+        self, training_run_id: types.ModelID
+    ) -> types.CheckpointsListResponse:
         """Async version of list_checkpoints.
 
         Args:
@@ -261,64 +272,66 @@ class RestClient(TelemetryProvider):
         """
         return await self._list_checkpoints_submit(training_run_id)
 
-    def _download_checkpoint_archive_submit(
+    def _get_checkpoint_archive_url_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> AwaitableConcurrentFuture[bytes]:
-        """Internal method to submit download checkpoint archive request."""
-        async def _download_checkpoint_archive_async():
-            async def _send_request():
+    ) -> AwaitableConcurrentFuture[types.CheckpointArchiveUrlResponse]:
+        """Internal method to submit get checkpoint archive URL request."""
+
+        async def _get_checkpoint_archive_url_async() -> types.CheckpointArchiveUrlResponse:
+            async def _send_request() -> types.CheckpointArchiveUrlResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.get(
-                        f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/archive",
-                        cast_to=bytes,
-                        options={"headers": {"accept": "application/gzip"}},
+                    return await client.weights.get_checkpoint_archive_url(
+                        model_id=training_run_id,
+                        checkpoint_id=checkpoint_id,
                     )
 
             return await self.holder.execute_with_retries(_send_request)
 
-        return self.holder.run_coroutine_threadsafe(_download_checkpoint_archive_async())
+        return self.holder.run_coroutine_threadsafe(_get_checkpoint_archive_url_async())
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def download_checkpoint_archive(
+    def get_checkpoint_archive_url(
         self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> ConcurrentFuture[bytes]:
-        """Download checkpoint as a tar.gz archive.
+    ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]:
+        """Get signed URL to download checkpoint archive.
 
         Args:
             training_run_id: The training run ID to download weights for
             checkpoint_id: The checkpoint ID to download
 
         Returns:
-            A Future containing the archive data as bytes
+            A Future containing the CheckpointArchiveUrlResponse with signed URL and expiration
 
         Example:
-            >>> future = rest_client.download_checkpoint_archive("run-id", "checkpoint-123")
-            >>> archive_data = future.result()
-            >>> with open(f"model-checkpoint.tar.gz", "wb") as f:
-            ...     f.write(archive_data)
+            >>> future = rest_client.get_checkpoint_archive_url("run-id", "checkpoint-123")
+            >>> response = future.result()
+            >>> print(f"Download URL: {response.url}")
+            >>> print(f"Expires at: {response.expires_at}")
+            >>> # Use the URL to download the archive with your preferred HTTP client
         """
-        return self._download_checkpoint_archive_submit(training_run_id, checkpoint_id).future()
+        return self._get_checkpoint_archive_url_submit(training_run_id, checkpoint_id).future()
 
     @capture_exceptions(fatal=True)
-    async def download_checkpoint_archive_async(
+    async def get_checkpoint_archive_url_async(
         self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> bytes:
-        """Async version of download_checkpoint_archive.
+    ) -> types.CheckpointArchiveUrlResponse:
+        """Async version of get_checkpoint_archive_url.
 
         Args:
             training_run_id: The model ID to download weights for
             checkpoint_id: The checkpoint ID to download
 
         Returns:
-            Archive data as bytes
+            CheckpointArchiveUrlResponse with signed URL and expiration
 
         Example:
-            >>> archive_data = await rest_client.download_checkpoint_archive_async("run-id", "checkpoint-123")
-            >>> with open(f"model-checkpoint.tar.gz", "wb") as f:
-            ...     f.write(archive_data)
+            >>> response = await rest_client.get_checkpoint_archive_url_async("run-id", "checkpoint-123")
+            >>> print(f"Download URL: {response.url}")
+            >>> print(f"Expires at: {response.expires_at}")
+            >>> # Use the URL to download the archive with your preferred HTTP client
         """
-        return await self._download_checkpoint_archive_submit(training_run_id, checkpoint_id)
+        return await self._get_checkpoint_archive_url_submit(training_run_id, checkpoint_id)
 
     def _delete_checkpoint_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str
@@ -339,13 +352,17 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def delete_checkpoint(self, training_run_id: types.ModelID, checkpoint_id: str) -> ConcurrentFuture[None]:
+    def delete_checkpoint(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> ConcurrentFuture[None]:
         """Delete a checkpoint for a training run."""
 
         return self._delete_checkpoint_submit(training_run_id, checkpoint_id).future()
 
     @capture_exceptions(fatal=True)
-    async def delete_checkpoint_async(self, training_run_id: types.ModelID, checkpoint_id: str) -> None:
+    async def delete_checkpoint_async(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> None:
         """Async version of delete_checkpoint."""
 
         await self._delete_checkpoint_submit(training_run_id, checkpoint_id)
@@ -356,42 +373,53 @@ class RestClient(TelemetryProvider):
         """Delete a checkpoint referenced by a tinker path."""
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        return self._delete_checkpoint_submit(parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id).future()
+        return self._delete_checkpoint_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        ).future()
 
     @capture_exceptions(fatal=True)
     async def delete_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
         """Async version of delete_checkpoint_from_tinker_path."""
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        await self._delete_checkpoint_submit(parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id)
+        await self._delete_checkpoint_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        )
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def download_checkpoint_archive_from_tinker_path(
+    def get_checkpoint_archive_url_from_tinker_path(
         self, tinker_path: str
-    ) -> ConcurrentFuture[bytes]:
-        """Download checkpoint as a tar.gz archive.
+    ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]:
+        """Get signed URL to download checkpoint archive.
 
         Args:
             tinker_path: The tinker path to the checkpoint
 
         Returns:
-            A Future containing the archive data as bytes
+            A Future containing the CheckpointArchiveUrlResponse with signed URL and expiration
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        return self._download_checkpoint_archive_submit(parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id).future()
+        return self._get_checkpoint_archive_url_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        ).future()
 
     @capture_exceptions(fatal=True)
-    async def download_checkpoint_archive_from_tinker_path_async(
+    async def get_checkpoint_archive_url_from_tinker_path_async(
         self, tinker_path: str
-    ) -> bytes:
-        """Async version of download_checkpoint_archive_from_tinker_path.
+    ) -> types.CheckpointArchiveUrlResponse:
+        """Async version of get_checkpoint_archive_url_from_tinker_path.
 
         Args:
             tinker_path: The tinker path to the checkpoint
+
+        Returns:
+            CheckpointArchiveUrlResponse with signed URL and expiration
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        return await self._download_checkpoint_archive_submit(parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id)
+        return await self._get_checkpoint_archive_url_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        )

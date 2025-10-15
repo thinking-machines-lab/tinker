@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import os
@@ -49,7 +47,6 @@ class TestModels:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         model = response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
@@ -60,7 +57,7 @@ class TestModels:
             base_model="meta-llama/Llama-3.2-1B",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
+
 
             model = response.parse()
             assert_matches_type(UntypedAPIFuture, model, path=["response"])
@@ -92,7 +89,6 @@ class TestModels:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         model = response.parse()
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
@@ -103,7 +99,7 @@ class TestModels:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
+
 
             model = response.parse()
             assert_matches_type(GetInfoResponse, model, path=["response"])
@@ -135,7 +131,6 @@ class TestModels:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         model = response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
@@ -146,7 +141,7 @@ class TestModels:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
+
 
             model = response.parse()
             assert_matches_type(UntypedAPIFuture, model, path=["response"])
@@ -188,7 +183,6 @@ class TestAsyncModels:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         model = await response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
@@ -199,7 +193,7 @@ class TestAsyncModels:
             base_model="meta-llama/Llama-3.2-1B",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
+
 
             model = await response.parse()
             assert_matches_type(UntypedAPIFuture, model, path=["response"])
@@ -231,7 +225,6 @@ class TestAsyncModels:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         model = await response.parse()
         assert_matches_type(GetInfoResponse, model, path=["response"])
 
@@ -242,7 +235,7 @@ class TestAsyncModels:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
+
 
             model = await response.parse()
             assert_matches_type(GetInfoResponse, model, path=["response"])
@@ -274,7 +267,6 @@ class TestAsyncModels:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         model = await response.parse()
         assert_matches_type(UntypedAPIFuture, model, path=["response"])
 
@@ -285,7 +277,7 @@ class TestAsyncModels:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
+
 
             model = await response.parse()
             assert_matches_type(UntypedAPIFuture, model, path=["response"])

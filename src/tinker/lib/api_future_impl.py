@@ -14,7 +14,7 @@ import tinker
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture
-from tinker.lib.telemetry import Telemetry
+from tinker.lib.telemetry import Telemetry, is_user_error
 
 from .._models import BaseModel
 from .retryable_exception import RetryableException
@@ -121,6 +121,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             except tinker.APIStatusError as e:
                 connection_error_retries = 0
                 should_retry = e.status_code == 408 or e.status_code in range(500, 600)
+                user_error = is_user_error(e)
                 if telemetry := self.get_telemetry():
                     current_time = time.time()
                     telemetry.log(
@@ -131,10 +132,11 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                             "status_code": e.status_code,
                             "exception": str(e),
                             "should_retry": should_retry,
+                            "is_user_error": user_error,
                             "iteration": iteration,
                             "elapsed_time": current_time - start_time,
                         },
-                        severity="WARNING" if should_retry else "ERROR",
+                        severity="WARNING" if should_retry or user_error else "ERROR",
                     )
 
                 # Retry 408s until we time out

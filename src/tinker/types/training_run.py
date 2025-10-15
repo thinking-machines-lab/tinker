@@ -33,3 +33,6 @@ class TrainingRun(BaseModel):
 
     last_sampler_checkpoint: Checkpoint | None = None
     """The most recent sampler checkpoint, if available"""
+
+    user_metadata: dict[str, str] | None = None
+    """Optional metadata about this training run, set by the end-user"""

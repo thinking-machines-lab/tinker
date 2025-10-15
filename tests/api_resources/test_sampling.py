@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import os
@@ -78,7 +76,6 @@ class TestSampling:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         sampling = response.parse()
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
@@ -97,7 +94,6 @@ class TestSampling:
             sampling_params={},
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             sampling = response.parse()
             assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
@@ -164,7 +160,6 @@ class TestSampling:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         sampling = response.parse()
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
@@ -183,7 +178,6 @@ class TestSampling:
             sampling_params={},
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             sampling = response.parse()
             assert_matches_type(SampleResponse, sampling, path=["response"])
@@ -256,7 +250,6 @@ class TestAsyncSampling:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         sampling = await response.parse()
         assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
 
@@ -275,7 +268,6 @@ class TestAsyncSampling:
             sampling_params={},
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             sampling = await response.parse()
             assert_matches_type(UntypedAPIFuture, sampling, path=["response"])
@@ -342,7 +334,6 @@ class TestAsyncSampling:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         sampling = await response.parse()
         assert_matches_type(SampleResponse, sampling, path=["response"])
 
@@ -361,7 +352,6 @@ class TestAsyncSampling:
             sampling_params={},
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             sampling = await response.parse()
             assert_matches_type(SampleResponse, sampling, path=["response"])

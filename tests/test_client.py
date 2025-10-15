@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import gc
@@ -333,7 +331,6 @@ class TestTinker:
         )
         request = client._build_request(FinalRequestOptions(method="get", url="/foo"))
         assert request.headers.get("x-foo") == "bar"
-        assert request.headers.get("x-stainless-lang") == "python"
 
         client2 = Tinker(
             base_url=base_url,
@@ -341,12 +338,10 @@ class TestTinker:
             _strict_response_validation=True,
             default_headers={
                 "X-Foo": "stainless",
-                "X-Stainless-Lang": "my-overriding-header",
             },
         )
         request = client2._build_request(FinalRequestOptions(method="get", url="/foo"))
         assert request.headers.get("x-foo") == "stainless"
-        assert request.headers.get("x-stainless-lang") == "my-overriding-header"
 
     def test_validate_headers(self) -> None:
         client = Tinker(base_url=base_url, api_key=api_key, _strict_response_validation=True)
@@ -1317,7 +1312,6 @@ class TestAsyncTinker:
         )
         request = client._build_request(FinalRequestOptions(method="get", url="/foo"))
         assert request.headers.get("x-foo") == "bar"
-        assert request.headers.get("x-stainless-lang") == "python"
 
         client2 = AsyncTinker(
             base_url=base_url,
@@ -1325,12 +1319,10 @@ class TestAsyncTinker:
             _strict_response_validation=True,
             default_headers={
                 "X-Foo": "stainless",
-                "X-Stainless-Lang": "my-overriding-header",
             },
         )
         request = client2._build_request(FinalRequestOptions(method="get", url="/foo"))
         assert request.headers.get("x-foo") == "stainless"
-        assert request.headers.get("x-stainless-lang") == "my-overriding-header"
 
     def test_validate_headers(self) -> None:
         client = AsyncTinker(base_url=base_url, api_key=api_key, _strict_response_validation=True)

@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import os
@@ -74,7 +72,6 @@ class TestTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -85,7 +82,6 @@ class TestTraining:
             base_model="meta-llama/Llama-3.2-1B",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -131,7 +127,6 @@ class TestTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -167,7 +162,6 @@ class TestTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -240,7 +234,6 @@ class TestTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -276,7 +269,6 @@ class TestTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -316,7 +308,6 @@ class TestTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -328,7 +319,6 @@ class TestTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -360,7 +350,6 @@ class TestTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -371,7 +360,6 @@ class TestTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -441,7 +429,6 @@ class TestAsyncTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -452,7 +439,6 @@ class TestAsyncTraining:
             base_model="meta-llama/Llama-3.2-1B",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = await response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -498,7 +484,6 @@ class TestAsyncTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -534,7 +519,6 @@ class TestAsyncTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = await response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -607,7 +591,6 @@ class TestAsyncTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -643,7 +626,6 @@ class TestAsyncTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = await response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -683,7 +665,6 @@ class TestAsyncTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -695,7 +676,6 @@ class TestAsyncTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = await response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])
@@ -727,7 +707,6 @@ class TestAsyncTraining:
         )
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         training = await response.parse()
         assert_matches_type(UntypedAPIFuture, training, path=["response"])
 
@@ -738,7 +717,6 @@ class TestAsyncTraining:
             model_id="123e4567-e89b-12d3-a456-426614174000",
         ) as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             training = await response.parse()
             assert_matches_type(UntypedAPIFuture, training, path=["response"])

@@ -1,5 +1,3 @@
-# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
-
 from __future__ import annotations
 
 import os
@@ -29,7 +27,6 @@ class TestService:
         response = client.service.with_raw_response.get_server_capabilities()
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         service = response.parse()
         assert_matches_type(GetServerCapabilitiesResponse, service, path=["response"])
 
@@ -38,7 +35,6 @@ class TestService:
     def test_streaming_response_get_server_capabilities(self, client: Tinker) -> None:
         with client.service.with_streaming_response.get_server_capabilities() as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             service = response.parse()
             assert_matches_type(GetServerCapabilitiesResponse, service, path=["response"])
@@ -57,7 +53,6 @@ class TestService:
         response = client.service.with_raw_response.health_check()
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         service = response.parse()
         assert_matches_type(HealthResponse, service, path=["response"])
 
@@ -66,7 +61,6 @@ class TestService:
     def test_streaming_response_health_check(self, client: Tinker) -> None:
         with client.service.with_streaming_response.health_check() as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             service = response.parse()
             assert_matches_type(HealthResponse, service, path=["response"])
@@ -91,7 +85,6 @@ class TestAsyncService:
         response = await async_client.service.with_raw_response.get_server_capabilities()
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         service = await response.parse()
         assert_matches_type(GetServerCapabilitiesResponse, service, path=["response"])
 
@@ -100,7 +93,6 @@ class TestAsyncService:
     async def test_streaming_response_get_server_capabilities(self, async_client: AsyncTinker) -> None:
         async with async_client.service.with_streaming_response.get_server_capabilities() as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             service = await response.parse()
             assert_matches_type(GetServerCapabilitiesResponse, service, path=["response"])
@@ -119,7 +111,6 @@ class TestAsyncService:
         response = await async_client.service.with_raw_response.health_check()
 
         assert response.is_closed is True
-        assert response.http_request.headers.get("X-Stainless-Lang") == "python"
         service = await response.parse()
         assert_matches_type(HealthResponse, service, path=["response"])
 
@@ -128,7 +119,6 @@ class TestAsyncService:
     async def test_streaming_response_health_check(self, async_client: AsyncTinker) -> None:
         async with async_client.service.with_streaming_response.health_check() as response:
             assert not response.is_closed
-            assert response.http_request.headers.get("X-Stainless-Lang") == "python"
 
             service = await response.parse()
             assert_matches_type(HealthResponse, service, path=["response"])
