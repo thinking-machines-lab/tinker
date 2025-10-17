@@ -600,7 +600,6 @@ class AsyncWeightsResource(AsyncAPIResource):
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> CheckpointArchiveUrlResponse:
         """
         Get signed URL to download checkpoint archive.
@@ -636,9 +635,10 @@ class AsyncWeightsResource(AsyncAPIResource):
             extra_headers=merged_headers,
             extra_query=extra_query,
             extra_body=extra_body,
-            timeout=timeout,
+            timeout=60 * 10,  # max of 10 minutes
         )
         options["follow_redirects"] = False
+        options["max_retries"] = 0  # no retries
 
         try:
             response = await self._get(

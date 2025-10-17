@@ -14,6 +14,15 @@ def _basic_config() -> None:
 
 
 def setup_logging() -> None:
+    # httpx prints out the HTTP requests its making out to INFO
+    # log stream. The tinker API server communicates backpressure
+    # to the SDK using certain 4xx error codes, which looks scary
+    # to the user, but are actually harmless.
+    #
+    # Thus, we set the default httpx logging level to WARNING so
+    # that they don't see a bunch of red herrings and get worried.
+    httpx_logger.setLevel(logging.WARNING)
+
     env = os.environ.get("TINKER_LOG")
     if env == "debug":
         _basic_config()
