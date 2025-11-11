@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Any
 
 import httpx
+from typing_extensions import Literal
 
 __all__ = [
     "BadRequestError",
@@ -13,7 +14,11 @@ __all__ = [
     "UnprocessableEntityError",
     "RateLimitError",
     "InternalServerError",
+    "RequestFailedError",
 ]
+
+if TYPE_CHECKING:
+    from tinker.types import RequestErrorCategory
 
 
 class TinkerError(Exception):
@@ -104,3 +109,18 @@ class RateLimitError(APIStatusError):
 
 class InternalServerError(APIStatusError):
     pass
+
+
+class RequestFailedError(TinkerError):
+    """Raised when an asynchronous request completes in a failed state."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_id: str,
+        category: "RequestErrorCategory",
+    ) -> None:
+        super().__init__(message)
+        self.request_id: str = request_id
+        self.category: RequestErrorCategory = category

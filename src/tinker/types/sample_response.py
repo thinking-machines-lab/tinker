@@ -1,4 +1,5 @@
 from typing import List, Optional, Sequence
+
 from typing_extensions import Literal
 
 from .._models import BaseModel
@@ -17,4 +18,12 @@ class SampleResponse(BaseModel):
     If prompt_logprobs was set to true in the request, logprobs are computed for
     every token in the prompt. The `prompt_logprobs` response contains a float32
     value for every token in the prompt.
+    """
+
+    topk_prompt_logprobs: Optional[list[Optional[list[tuple[int, float]]]]] = None
+    """
+    If topk_prompt_logprobs was set to a positive integer k in the request,
+    the top-k logprobs are computed for every token in the prompt. The
+    `topk_prompt_logprobs` response contains, for every token in the prompt,
+    a list of up to k (token_id, logprob) tuples.
     """

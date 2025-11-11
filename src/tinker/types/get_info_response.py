@@ -1,4 +1,4 @@
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import BaseModel
@@ -11,6 +11,9 @@ class ModelData(BaseModel):
     arch: Optional[str] = None
 
     model_name: Optional[str] = None
+
+    tokenizer_id: Optional[str] = None
+
 
 class GetInfoResponse(BaseModel):
     type: Optional[Literal["get_info"]] = None

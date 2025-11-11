@@ -19,8 +19,9 @@ from typing import (
 )
 from uuid import uuid4
 
-from tinker._exceptions import APIError
+from tinker._exceptions import APIError, RequestFailedError
 from tinker._version import __version__
+from tinker.types import RequestErrorCategory
 from tinker.types.generic_event import GenericEvent
 from tinker.types.session_end_event import SessionEndEvent
 from tinker.types.session_start_event import SessionStartEvent
@@ -28,7 +29,7 @@ from tinker.types.severity import Severity
 from tinker.types.telemetry_batch import TelemetryBatch
 from tinker.types.telemetry_event import TelemetryEvent
 from tinker.types.telemetry_response import TelemetryResponse
-from tinker.types.telemetry_send_params import TelemetrySendParams
+from tinker.types.telemetry_send_request import TelemetrySendRequest
 from tinker.types.unhandled_exception_event import UnhandledExceptionEvent
 
 from .async_tinker_provider import AsyncTinkerProvider
@@ -137,8 +138,8 @@ class Telemetry:
 
     async def _send_batch(self, batch: TelemetryBatch) -> TelemetryResponse:
         with self._tinker_provider.aclient(ClientConnectionPoolType.TELEMETRY) as client:
-            params = _to_send_params(batch)
-            return await client.telemetry.send(**params, timeout=HTTP_TIMEOUT_SECONDS)
+            request = _to_send_request(batch)
+            return await client.telemetry.send(request=request, timeout=HTTP_TIMEOUT_SECONDS)
 
     def _log(self, *events: TelemetryEvent) -> bool:
         with self._queue_lock:
@@ -410,11 +411,13 @@ def _get_user_error(
     visited.add(id(exception))
 
     if (
-        (status_code := getattr(exception, "status_code", None))
-        and isinstance(status_code, int)
-        and 400 <= status_code < 500
-        and status_code != 408
+        isinstance(exception, RequestFailedError)
+        and exception.category is RequestErrorCategory.User
     ):
+        return exception
+
+    status_code = getattr(exception, "status_code", None)
+    if isinstance(status_code, int) and 400 <= status_code < 500 and status_code != 408:
         return exception
 
     if (cause := getattr(exception, "__cause__", None)) is not None and (
@@ -428,8 +431,8 @@ def _get_user_error(
     return None
 
 
-def _to_send_params(batch: TelemetryBatch) -> TelemetrySendParams:
-    return cast(TelemetrySendParams, cast(object, batch.model_dump()))
+def _to_send_request(batch: TelemetryBatch) -> TelemetrySendRequest:
+    return TelemetrySendRequest(**batch.model_dump())
 
 
 def _current_loop() -> asyncio.AbstractEventLoop | None:

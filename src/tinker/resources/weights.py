@@ -1,380 +1,28 @@
 from __future__ import annotations
 
-from typing_extensions import Literal
-
 import datetime
+
 import httpx
 
-from ..types import (
-    ModelID,
-    CheckpointsListResponse,
-    CheckpointArchiveUrlResponse,
-    weight_load_params,
-    weight_save_params,
-    weight_save_for_sampler_params,
-)
-from .._types import NOT_GIVEN, Body, Query, Headers, NotGiven, NoneType
-from .._utils import maybe_transform, async_maybe_transform
-from .._compat import cached_property
-from .._resource import SyncAPIResource, AsyncAPIResource
-from .._response import (
-    to_raw_response_wrapper,
-    to_streamed_response_wrapper,
-    async_to_raw_response_wrapper,
-    async_to_streamed_response_wrapper,
-)
-from .._exceptions import APIStatusError
 from .._base_client import make_request_options
+from .._compat import model_dump
+from .._exceptions import APIStatusError
+from .._resource import AsyncAPIResource
+from .._types import NOT_GIVEN, Body, Headers, NoneType, NotGiven, Query
+from ..types import CheckpointArchiveUrlResponse, CheckpointsListResponse, ModelID
+from ..types.load_weights_request import LoadWeightsRequest
+from ..types.save_weights_for_sampler_request import SaveWeightsForSamplerRequest
+from ..types.save_weights_request import SaveWeightsRequest
 from ..types.shared.untyped_api_future import UntypedAPIFuture
 
-__all__ = ["WeightsResource", "AsyncWeightsResource"]
-
-
-class WeightsResource(SyncAPIResource):
-    @cached_property
-    def with_raw_response(self) -> WeightsResourceWithRawResponse:
-        """
-        This property can be used as a prefix for any HTTP method call to return
-        the raw response object instead of the parsed content.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#accessing-raw-response-data-eg-headers
-        """
-        return WeightsResourceWithRawResponse(self)
-
-    @cached_property
-    def with_streaming_response(self) -> WeightsResourceWithStreamingResponse:
-        """
-        An alternative to `.with_raw_response` that doesn't eagerly read the response body.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#with_streaming_response
-        """
-        return WeightsResourceWithStreamingResponse(self)
-
-    def load(
-        self,
-        *,
-        model_id: ModelID,
-        path: str,
-        type: Literal["load_weights"] | NotGiven = NOT_GIVEN,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-        idempotency_key: str | None = None,
-    ) -> UntypedAPIFuture:
-        """
-        Loads model weights from disk
-
-        Args:
-          path: A tinker URI for model weights at a specific step
-
-          extra_headers: Send extra headers
-
-          extra_query: Add additional query parameters to the request
-
-          extra_body: Add additional JSON properties to the request
-
-          timeout: Override the client-level default timeout for this request, in seconds
-
-          idempotency_key: Specify a custom idempotency key for this request
-        """
-        return self._post(
-            "/api/v1/load_weights",
-            body=maybe_transform(
-                {
-                    "model_id": model_id,
-                    "path": path,
-                    "type": type,
-                },
-                weight_load_params.WeightLoadParams,
-            ),
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-                idempotency_key=idempotency_key,
-            ),
-            cast_to=UntypedAPIFuture,
-        )
-
-    def save(
-        self,
-        *,
-        model_id: ModelID,
-        path: str | NotGiven = NOT_GIVEN,
-        type: Literal["save_weights"] | NotGiven = NOT_GIVEN,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-        idempotency_key: str | None = None,
-    ) -> UntypedAPIFuture:
-        """
-        Saves the current model weights to disk
-
-        Args:
-          path: A file/directory name for the weights
-
-          extra_headers: Send extra headers
-
-          extra_query: Add additional query parameters to the request
-
-          extra_body: Add additional JSON properties to the request
-
-          timeout: Override the client-level default timeout for this request, in seconds
-
-          idempotency_key: Specify a custom idempotency key for this request
-        """
-        return self._post(
-            "/api/v1/save_weights",
-            body=maybe_transform(
-                {
-                    "model_id": model_id,
-                    "path": path,
-                    "type": type,
-                },
-                weight_save_params.WeightSaveParams,
-            ),
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-                idempotency_key=idempotency_key,
-            ),
-            cast_to=UntypedAPIFuture,
-        )
-
-    def save_for_sampler(
-        self,
-        *,
-        model_id: ModelID,
-        path: str | NotGiven = NOT_GIVEN,
-        type: Literal["save_weights_for_sampler"] | NotGiven = NOT_GIVEN,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-        idempotency_key: str | None = None,
-    ) -> UntypedAPIFuture:
-        """
-        Saves weights in a format compatible with sampling/inference servers
-
-        Args:
-          path: A file/directory name for the weights
-
-          extra_headers: Send extra headers
-
-          extra_query: Add additional query parameters to the request
-
-          extra_body: Add additional JSON properties to the request
-
-          timeout: Override the client-level default timeout for this request, in seconds
-
-          idempotency_key: Specify a custom idempotency key for this request
-        """
-        return self._post(
-            "/api/v1/save_weights_for_sampler",
-            body=maybe_transform(
-                {
-                    "model_id": model_id,
-                    "path": path,
-                    "type": type,
-                },
-                weight_save_for_sampler_params.WeightSaveForSamplerParams,
-            ),
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-                idempotency_key=idempotency_key,
-            ),
-            cast_to=UntypedAPIFuture,
-        )
-
-    def list(
-        self,
-        model_id: ModelID,
-        *,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-    ) -> CheckpointsListResponse:
-        """
-        Lists available model checkpoints (both training and sampler)
-
-        Args:
-          model_id: The model ID to list checkpoints for
-
-          extra_headers: Send extra headers
-
-          extra_query: Add additional query parameters to the request
-
-          extra_body: Add additional JSON properties to the request
-
-          timeout: Override the client-level default timeout for this request, in seconds
-        """
-        if not model_id:
-            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
-        return self._get(
-            f"/api/v1/models/{model_id}/checkpoints",
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-            ),
-            cast_to=CheckpointsListResponse,
-        )
-
-    def delete_checkpoint(
-        self,
-        *,
-        model_id: ModelID,
-        checkpoint_id: str,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-    ) -> None:
-        """Delete a checkpoint for the given training run."""
-        if not model_id:
-            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
-        if not checkpoint_id:
-            raise ValueError(
-                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
-            )
-
-        self._delete(
-            f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}",
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-            ),
-            cast_to=NoneType,
-        )
-
-        return None
-
-    def get_checkpoint_archive_url(
-        self,
-        *,
-        model_id: ModelID,
-        checkpoint_id: str,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-    ) -> CheckpointArchiveUrlResponse:
-        """
-        Get signed URL to download checkpoint archive.
-
-        Args:
-          model_id: The training run ID to download weights for
-          checkpoint_id: The checkpoint ID to download
-
-          extra_headers: Send extra headers
-
-          extra_query: Add additional query parameters to the request
-
-          extra_body: Add additional JSON properties to the request
-
-          timeout: Override the client-level default timeout for this request, in seconds
-        """
-        if not model_id:
-            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
-        if not checkpoint_id:
-            raise ValueError(
-                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
-            )
-
-        from .._response import APIResponse
-
-        # Merge the accept header
-        merged_headers: Headers = {"accept": "application/gzip"}
-        if extra_headers is not None:
-            merged_headers = {**merged_headers, **extra_headers}
-
-        options = make_request_options(
-            extra_headers=merged_headers,
-            extra_query=extra_query,
-            extra_body=extra_body,
-            timeout=timeout,
-        )
-        options["follow_redirects"] = False
-
-        try:
-            response = self._get(
-                f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
-                cast_to=APIResponse,
-                options=options,
-            )
-        except APIStatusError as e:
-            # On success, this API responds with a 302
-            if e.status_code != 302:
-                raise e
-
-            location = e.response.headers.get("Location")
-            if location is None:
-                raise e
-
-            expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
-            try:
-                if expires_header := e.response.headers.get("Expires"):
-                    expires = datetime.datetime.strptime(expires_header, "%a, %d %b %Y %H:%M:%S GMT")
-            except ValueError:
-                pass
-
-            return CheckpointArchiveUrlResponse(
-                url=location,
-                expires=expires,
-            )
-        raise Exception("Unexpected error while getting checkpoint archive URL")
+__all__ = ["AsyncWeightsResource"]
 
 
 class AsyncWeightsResource(AsyncAPIResource):
-    @cached_property
-    def with_raw_response(self) -> AsyncWeightsResourceWithRawResponse:
-        """
-        This property can be used as a prefix for any HTTP method call to return
-        the raw response object instead of the parsed content.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#accessing-raw-response-data-eg-headers
-        """
-        return AsyncWeightsResourceWithRawResponse(self)
-
-    @cached_property
-    def with_streaming_response(self) -> AsyncWeightsResourceWithStreamingResponse:
-        """
-        An alternative to `.with_raw_response` that doesn't eagerly read the response body.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#with_streaming_response
-        """
-        return AsyncWeightsResourceWithStreamingResponse(self)
-
     async def load(
         self,
         *,
-        model_id: ModelID,
-        path: str,
-        type: Literal["load_weights"] | NotGiven = NOT_GIVEN,
+        request: LoadWeightsRequest,
         # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
         # The extra values given here take precedence over values defined on the client or passed to this method.
         extra_headers: Headers | None = None,
@@ -382,12 +30,13 @@ class AsyncWeightsResource(AsyncAPIResource):
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         idempotency_key: str | None = None,
+        max_retries: int | NotGiven = NOT_GIVEN,
     ) -> UntypedAPIFuture:
         """
         Loads model weights from disk
 
         Args:
-          path: A tinker URI for model weights at a specific step
+          request: The load weights request containing model_id, path, and seq_id
 
           extra_headers: Send extra headers
 
@@ -399,32 +48,27 @@ class AsyncWeightsResource(AsyncAPIResource):
 
           idempotency_key: Specify a custom idempotency key for this request
         """
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+            idempotency_key=idempotency_key,
+        )
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
         return await self._post(
             "/api/v1/load_weights",
-            body=await async_maybe_transform(
-                {
-                    "model_id": model_id,
-                    "path": path,
-                    "type": type,
-                },
-                weight_load_params.WeightLoadParams,
-            ),
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-                idempotency_key=idempotency_key,
-            ),
+            body=model_dump(request, exclude_unset=True, mode="json"),
+            options=options,
             cast_to=UntypedAPIFuture,
         )
 
     async def save(
         self,
         *,
-        model_id: ModelID,
-        path: str | NotGiven = NOT_GIVEN,
-        type: Literal["save_weights"] | NotGiven = NOT_GIVEN,
+        request: SaveWeightsRequest,
         # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
         # The extra values given here take precedence over values defined on the client or passed to this method.
         extra_headers: Headers | None = None,
@@ -432,12 +76,13 @@ class AsyncWeightsResource(AsyncAPIResource):
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         idempotency_key: str | None = None,
+        max_retries: int | NotGiven = NOT_GIVEN,
     ) -> UntypedAPIFuture:
         """
-        Saves the current model weights to disk
+        Saves model weights to disk
 
         Args:
-          path: A file/directory name for the weights
+          request: The save weights request containing model_id, path, and seq_id
 
           extra_headers: Send extra headers
 
@@ -449,32 +94,27 @@ class AsyncWeightsResource(AsyncAPIResource):
 
           idempotency_key: Specify a custom idempotency key for this request
         """
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+            idempotency_key=idempotency_key,
+        )
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
         return await self._post(
             "/api/v1/save_weights",
-            body=await async_maybe_transform(
-                {
-                    "model_id": model_id,
-                    "path": path,
-                    "type": type,
-                },
-                weight_save_params.WeightSaveParams,
-            ),
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-                idempotency_key=idempotency_key,
-            ),
+            body=model_dump(request, exclude_unset=True, mode="json"),
+            options=options,
             cast_to=UntypedAPIFuture,
         )
 
     async def save_for_sampler(
         self,
         *,
-        model_id: ModelID,
-        path: str | NotGiven = NOT_GIVEN,
-        type: Literal["save_weights_for_sampler"] | NotGiven = NOT_GIVEN,
+        request: SaveWeightsForSamplerRequest,
         # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
         # The extra values given here take precedence over values defined on the client or passed to this method.
         extra_headers: Headers | None = None,
@@ -482,12 +122,13 @@ class AsyncWeightsResource(AsyncAPIResource):
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         idempotency_key: str | None = None,
+        max_retries: int | NotGiven = NOT_GIVEN,
     ) -> UntypedAPIFuture:
         """
-        Saves weights in a format compatible with sampling/inference servers
+        Saves model weights for sampler
 
         Args:
-          path: A file/directory name for the weights
+          request: The save weights for sampler request containing model_id, path, and seq_id
 
           extra_headers: Send extra headers
 
@@ -499,23 +140,20 @@ class AsyncWeightsResource(AsyncAPIResource):
 
           idempotency_key: Specify a custom idempotency key for this request
         """
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+            idempotency_key=idempotency_key,
+        )
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
         return await self._post(
             "/api/v1/save_weights_for_sampler",
-            body=await async_maybe_transform(
-                {
-                    "model_id": model_id,
-                    "path": path,
-                    "type": type,
-                },
-                weight_save_for_sampler_params.WeightSaveForSamplerParams,
-            ),
-            options=make_request_options(
-                extra_headers=extra_headers,
-                extra_query=extra_query,
-                extra_body=extra_body,
-                timeout=timeout,
-                idempotency_key=idempotency_key,
-            ),
+            body=model_dump(request, exclude_unset=True, mode="json"),
+            options=options,
             cast_to=UntypedAPIFuture,
         )
 
@@ -547,7 +185,7 @@ class AsyncWeightsResource(AsyncAPIResource):
         if not model_id:
             raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
         return await self._get(
-            f"/api/v1/training_runs/{model_id}/checkpoints",
+            f"/api/v1/models/{model_id}/checkpoints",
             options=make_request_options(
                 extra_headers=extra_headers,
                 extra_query=extra_query,
@@ -600,6 +238,7 @@ class AsyncWeightsResource(AsyncAPIResource):
         extra_headers: Headers | None = None,
         extra_query: Query | None = None,
         extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
     ) -> CheckpointArchiveUrlResponse:
         """
         Get signed URL to download checkpoint archive.
@@ -623,8 +262,7 @@ class AsyncWeightsResource(AsyncAPIResource):
                 f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
             )
 
-        from urllib.parse import urlparse, parse_qs
-        from .._response import AsyncAPIResponse
+        from .._response import APIResponse
 
         # Merge the accept header
         merged_headers: Headers = {"accept": "application/gzip"}
@@ -635,15 +273,14 @@ class AsyncWeightsResource(AsyncAPIResource):
             extra_headers=merged_headers,
             extra_query=extra_query,
             extra_body=extra_body,
-            timeout=60 * 10,  # max of 10 minutes
+            timeout=timeout,
         )
         options["follow_redirects"] = False
-        options["max_retries"] = 0  # no retries
 
         try:
             response = await self._get(
                 f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
-                cast_to=AsyncAPIResponse,
+                cast_to=APIResponse,
                 options=options,
             )
         except APIStatusError as e:
@@ -658,7 +295,9 @@ class AsyncWeightsResource(AsyncAPIResource):
             expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
             try:
                 if expires_header := e.response.headers.get("Expires"):
-                    expires = datetime.datetime.strptime(expires_header, "%a, %d %b %Y %H:%M:%S GMT")
+                    expires = datetime.datetime.strptime(
+                        expires_header, "%a, %d %b %Y %H:%M:%S GMT"
+                    )
             except ValueError:
                 pass
 
@@ -666,99 +305,6 @@ class AsyncWeightsResource(AsyncAPIResource):
                 url=location,
                 expires=expires,
             )
-        raise Exception("Unexpected error while getting checkpoint archive URL")
 
-class WeightsResourceWithRawResponse:
-    def __init__(self, weights: WeightsResource) -> None:
-        self._weights = weights
-
-        self.load = to_raw_response_wrapper(
-            weights.load,
-        )
-        self.save = to_raw_response_wrapper(
-            weights.save,
-        )
-        self.save_for_sampler = to_raw_response_wrapper(
-            weights.save_for_sampler,
-        )
-        self.list = to_raw_response_wrapper(
-            weights.list,
-        )
-        self.delete_checkpoint = to_raw_response_wrapper(
-            weights.delete_checkpoint,
-        )
-        self.get_checkpoint_archive_url = to_raw_response_wrapper(
-            weights.get_checkpoint_archive_url,
-        )
-
-
-class AsyncWeightsResourceWithRawResponse:
-    def __init__(self, weights: AsyncWeightsResource) -> None:
-        self._weights = weights
-
-        self.load = async_to_raw_response_wrapper(
-            weights.load,
-        )
-        self.save = async_to_raw_response_wrapper(
-            weights.save,
-        )
-        self.save_for_sampler = async_to_raw_response_wrapper(
-            weights.save_for_sampler,
-        )
-        self.list = async_to_raw_response_wrapper(
-            weights.list,
-        )
-        self.delete_checkpoint = async_to_raw_response_wrapper(
-            weights.delete_checkpoint,
-        )
-        self.get_checkpoint_archive_url = async_to_raw_response_wrapper(
-            weights.get_checkpoint_archive_url,
-        )
-
-
-class WeightsResourceWithStreamingResponse:
-    def __init__(self, weights: WeightsResource) -> None:
-        self._weights = weights
-
-        self.load = to_streamed_response_wrapper(
-            weights.load,
-        )
-        self.save = to_streamed_response_wrapper(
-            weights.save,
-        )
-        self.save_for_sampler = to_streamed_response_wrapper(
-            weights.save_for_sampler,
-        )
-        self.list = to_streamed_response_wrapper(
-            weights.list,
-        )
-        self.delete_checkpoint = to_streamed_response_wrapper(
-            weights.delete_checkpoint,
-        )
-        self.get_checkpoint_archive_url = to_streamed_response_wrapper(
-            weights.get_checkpoint_archive_url,
-        )
-
-
-class AsyncWeightsResourceWithStreamingResponse:
-    def __init__(self, weights: AsyncWeightsResource) -> None:
-        self._weights = weights
-
-        self.load = async_to_streamed_response_wrapper(
-            weights.load,
-        )
-        self.save = async_to_streamed_response_wrapper(
-            weights.save,
-        )
-        self.save_for_sampler = async_to_streamed_response_wrapper(
-            weights.save_for_sampler,
-        )
-        self.list = async_to_streamed_response_wrapper(
-            weights.list,
-        )
-        self.delete_checkpoint = async_to_streamed_response_wrapper(
-            weights.delete_checkpoint,
-        )
-        self.get_checkpoint_archive_url = async_to_streamed_response_wrapper(
-            weights.get_checkpoint_archive_url,
-        )
+        # If we did not get an exception we should have gotten a redirect...
+        raise RuntimeError("Expected a redirect response, got: " + str(response))

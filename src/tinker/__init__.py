@@ -23,8 +23,8 @@ from ._exceptions import (
     PermissionDeniedError,
     UnprocessableEntityError,
     APIResponseValidationError,
+    RequestFailedError,
 )
-from ._base_client import DefaultHttpxClient, DefaultAioHttpClient, DefaultAsyncHttpxClient
 from ._utils._logs import setup_logging as _setup_logging
 from .lib.public_interfaces import TrainingClient, ServiceClient, SamplingClient, APIFuture
 
@@ -94,6 +94,7 @@ __all__ = [
     "APITimeoutError",
     "APIConnectionError",
     "APIResponseValidationError",
+    "RequestFailedError",
     "BadRequestError",
     "AuthenticationError",
     "PermissionDeniedError",

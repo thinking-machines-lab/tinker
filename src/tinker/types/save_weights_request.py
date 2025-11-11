@@ -14,4 +14,10 @@ class SaveWeightsRequest(StrictBase):
     path: Optional[str] = None
     """A file/directory name for the weights"""
 
-    type: Optional[Literal["save_weights"]] = None
+    seq_id: Optional[int] = None
+
+    type: Literal["save_weights"] = "save_weights"
+
+    if PYDANTIC_V2:
+        # allow fields with a `model_` prefix
+        model_config = ConfigDict(protected_namespaces=tuple())

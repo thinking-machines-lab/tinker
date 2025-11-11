@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
 import threading
 import time
 import traceback
-import uuid
 from collections.abc import Coroutine, Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
 
 import httpx
 
+from tinker import types
 from tinker._client import AsyncTinker
 from tinker._exceptions import APIConnectionError, APIStatusError
+from tinker._version import __version__ as tinker_sdk_version
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
@@ -95,7 +98,7 @@ _internal_client_holder_thread_singleton = InternalClientHolderThreadSingleton()
 
 
 class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, user_metadata: dict[str, str] | None = None, **kwargs: Any) -> None:
         self._constructor_kwargs = kwargs
         # So we can use async eventloop for parallel sampling requests
         # in sync code.
@@ -103,13 +106,81 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
-        self._session_id: str = str(uuid.uuid4())
-        self._telemetry: Telemetry | None = init_telemetry(self, session_id=self._session_id)
+        self._telemetry: Telemetry | None = None
+        session_id, session_heartbeat_task = self.run_coroutine_threadsafe(
+            self._create_session(user_metadata)
+        ).result()
+        self._session_id: str = session_id
+        self._session_heartbeat_task: asyncio.Task[None] = session_heartbeat_task
+        self._telemetry = init_telemetry(self, session_id=self._session_id)
 
         self._training_client_counter: int = 0
         self._training_client_lock: threading.Lock = threading.Lock()
 
-        self._unordered_id_counter: int = 0
+        self._sampling_client_counter: int = 0
+
+    async def _session_heartbeat(self, session_id: str):
+        SESSION_HEARTBEAT_PERIOD_SEC = 10
+        SESSION_MISSED_HEARTBEAT_WARNING_THRESHOLD_SEC = 60 * 2
+        last_heartbeat_time = time.monotonic()
+        while True:
+            await asyncio.sleep(SESSION_HEARTBEAT_PERIOD_SEC)
+
+            last_exception: str | None = None
+            try:
+                with self.aclient(ClientConnectionPoolType.SESSION) as client:
+                    await client.service.session_heartbeat(
+                        session_id=session_id, max_retries=0, timeout=10
+                    )
+                last_heartbeat_time = time.monotonic()
+            except Exception as e:
+                last_exception = f"{type(e).__name__}: {str(e)}"
+                pass
+            if (
+                time.monotonic() - last_heartbeat_time
+                > SESSION_MISSED_HEARTBEAT_WARNING_THRESHOLD_SEC
+            ):
+                logger.warning(
+                    f"Session heartbeat failed for {time.monotonic() - last_heartbeat_time} seconds for session {session_id}. Last exception: {last_exception}.\n"
+                    + "Your connection may be unreliable or Tinker is down. If this persists, the session will be terminated."
+                )
+
+    async def _create_sampling_session(
+        self, model_path: str | None = None, base_model: str | None = None
+    ) -> str:
+        sampling_session_seq_id = self._sampling_client_counter
+        self._sampling_client_counter += 1
+        with self.aclient(ClientConnectionPoolType.SESSION) as client:
+            request = types.CreateSamplingSessionRequest(
+                session_id=self._session_id,
+                sampling_session_seq_id=sampling_session_seq_id,
+                model_path=model_path,
+                base_model=base_model,
+            )
+            result = await client.service.create_sampling_session(request=request)
+            return result.sampling_session_id
+
+    async def _create_session(
+        self, user_metadata: dict[str, str] | None = None
+    ) -> tuple[str, asyncio.Task[None]]:
+        if (tags_str := os.environ.get("TINKER_TAGS")) is not None:
+            tags: set[str] = set(tags_str.split(","))
+        else:
+            tags = set()
+        with self.aclient(ClientConnectionPoolType.SESSION) as client:
+            request = types.CreateSessionRequest(
+                tags=list(tags), user_metadata=user_metadata or {}, sdk_version=tinker_sdk_version
+            )
+            result = await client.service.create_session(request=request)
+        if result.info_message:
+            logger.info(result.info_message)
+        if result.warning_message:
+            logger.warning(result.warning_message)
+        if result.error_message:
+            logger.error(result.error_message)
+        session_id = result.session_id
+        session_heartbeat_task = asyncio.create_task(self._session_heartbeat(session_id))
+        return session_id, session_heartbeat_task
 
     def _get_client_connection_pool(
         self, client_pool_type: ClientConnectionPoolType
@@ -124,6 +195,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 self.get_loop(), max_requests_per_client, self._constructor_kwargs
             )
         return self._client_pools[client_pool_type]
+
+    def get_session_id(self) -> str:
+        return self._session_id
 
     def get_training_client_id(self) -> int:
         with self._training_client_lock:
@@ -149,18 +223,18 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         return AwaitableConcurrentFuture(asyncio.run_coroutine_threadsafe(coro, self.get_loop()))
 
     def close(self):
+        self.run_coroutine_threadsafe(self._async_cleanup()).result()
         if telemetry := self._telemetry:
             telemetry.stop()
 
     def __del__(self):
         self.close()
 
-    def make_training_client_idempotency_key(self, training_client_id: int, request_id: int) -> str:
-        return f"{self._session_id}:{training_client_id}:{request_id}"
-
-    def make_idempotency_key(self) -> str:
-        self._unordered_id_counter += 1
-        return f"{self._session_id}:unordered:{self._unordered_id_counter}"
+    async def _async_cleanup(self):
+        if self._session_heartbeat_task:
+            self._session_heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._session_heartbeat_task
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

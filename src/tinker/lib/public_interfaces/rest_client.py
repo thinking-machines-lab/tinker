@@ -6,9 +6,9 @@ import logging
 from concurrent.futures import Future as ConcurrentFuture
 from typing import TYPE_CHECKING
 
-from tinker import types, NoneType
-from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker import NoneType, types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 

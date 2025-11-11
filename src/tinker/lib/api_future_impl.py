@@ -12,9 +12,12 @@ from typing import TYPE_CHECKING, Any, Callable, List, Type, TypeVar, cast
 
 import tinker
 from tinker import types
+from tinker._exceptions import RequestFailedError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture
 from tinker.lib.telemetry import Telemetry, is_user_error
+from tinker.types import RequestErrorCategory
+from tinker.types.future_retrieve_request import FutureRetrieveRequest
 
 from .._models import BaseModel
 from .retryable_exception import RetryableException
@@ -116,7 +119,10 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             try:
                 with self.holder.aclient(ClientConnectionPoolType.RETRIEVE_PROMISE) as client:
                     response = await client.futures.with_raw_response.retrieve(
-                        request_id=self.request_id, timeout=45, extra_headers=headers, max_retries=0
+                        request=FutureRetrieveRequest(request_id=self.request_id),
+                        timeout=45,
+                        extra_headers=headers,
+                        max_retries=0,
                     )
             except tinker.APIStatusError as e:
                 connection_error_retries = 0
@@ -153,9 +159,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                                     queue_state = QueueState.PAUSED_CAPACITY
                                 else:
                                     queue_state = QueueState.UNKNOWN
-                                self._queue_state_observer.on_queue_state_change(
-                                    queue_state
-                                )
+                                self._queue_state_observer.on_queue_state_change(queue_state)
                     continue
                 if e.status_code == 410:
                     raise RetryableException(
@@ -195,8 +199,32 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 continue
 
             if "error" in result_dict:
-                raise ValueError(
-                    f"Error retrieving result: {result_dict} for {self.request_id=} and expected type {self.model_cls=}"
+                error_category = RequestErrorCategory.Unknown
+                with contextlib.suppress(Exception):
+                    error_category = RequestErrorCategory(result_dict.get("category"))
+
+                user_error = error_category is RequestErrorCategory.User
+                if telemetry := self.get_telemetry():
+                    current_time = time.time()
+                    telemetry.log(
+                        "APIFuture.result_async.application_error",
+                        event_data={
+                            "request_id": self.request_id,
+                            "request_type": self.request_type,
+                            "error": result_dict["error"],
+                            "error_category": error_category.name,
+                            "is_user_error": user_error,
+                            "iteration": iteration,
+                            "elapsed_time": current_time - start_time,
+                        },
+                        severity="WARNING" if user_error else "ERROR",
+                    )
+
+                error_message = result_dict["error"]
+                raise RequestFailedError(
+                    f"Request failed: {error_message} for {self.request_id=} and expected type {self.model_cls=}",
+                    request_id=self.request_id,
+                    category=error_category,
                 )
 
             try:

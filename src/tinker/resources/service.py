@@ -2,101 +2,23 @@ from __future__ import annotations
 
 import httpx
 
-from .._types import NOT_GIVEN, Body, Query, Headers, NotGiven
-from .._compat import cached_property
-from .._resource import SyncAPIResource, AsyncAPIResource
-from .._response import (
-    to_raw_response_wrapper,
-    to_streamed_response_wrapper,
-    async_to_raw_response_wrapper,
-    async_to_streamed_response_wrapper,
-)
 from .._base_client import make_request_options
-from ..types.health_response import HealthResponse
+from .._compat import model_dump
+from .._resource import AsyncAPIResource
+from .._types import NOT_GIVEN, Body, Headers, NotGiven, Query
+from ..types.create_sampling_session_request import CreateSamplingSessionRequest
+from ..types.create_sampling_session_response import CreateSamplingSessionResponse
+from ..types.create_session_request import CreateSessionRequest
+from ..types.create_session_response import CreateSessionResponse
 from ..types.get_server_capabilities_response import GetServerCapabilitiesResponse
+from ..types.health_response import HealthResponse
+from ..types.session_heartbeat_request import SessionHeartbeatRequest
+from ..types.session_heartbeat_response import SessionHeartbeatResponse
 
-__all__ = ["ServiceResource", "AsyncServiceResource"]
-
-
-class ServiceResource(SyncAPIResource):
-    @cached_property
-    def with_raw_response(self) -> ServiceResourceWithRawResponse:
-        """
-        This property can be used as a prefix for any HTTP method call to return
-        the raw response object instead of the parsed content.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#accessing-raw-response-data-eg-headers
-        """
-        return ServiceResourceWithRawResponse(self)
-
-    @cached_property
-    def with_streaming_response(self) -> ServiceResourceWithStreamingResponse:
-        """
-        An alternative to `.with_raw_response` that doesn't eagerly read the response body.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#with_streaming_response
-        """
-        return ServiceResourceWithStreamingResponse(self)
-
-    def get_server_capabilities(
-        self,
-        *,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-    ) -> GetServerCapabilitiesResponse:
-        """Retrieves information about supported models and server capabilities"""
-        return self._get(
-            "/api/v1/get_server_capabilities",
-            options=make_request_options(
-                extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body, timeout=timeout
-            ),
-            cast_to=GetServerCapabilitiesResponse,
-        )
-
-    def health_check(
-        self,
-        *,
-        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
-        # The extra values given here take precedence over values defined on the client or passed to this method.
-        extra_headers: Headers | None = None,
-        extra_query: Query | None = None,
-        extra_body: Body | None = None,
-        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
-    ) -> HealthResponse:
-        """Checks if the API server is ready"""
-        return self._get(
-            "/api/v1/healthz",
-            options=make_request_options(
-                extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body, timeout=timeout
-            ),
-            cast_to=HealthResponse,
-        )
+__all__ = ["AsyncServiceResource"]
 
 
 class AsyncServiceResource(AsyncAPIResource):
-    @cached_property
-    def with_raw_response(self) -> AsyncServiceResourceWithRawResponse:
-        """
-        This property can be used as a prefix for any HTTP method call to return
-        the raw response object instead of the parsed content.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#accessing-raw-response-data-eg-headers
-        """
-        return AsyncServiceResourceWithRawResponse(self)
-
-    @cached_property
-    def with_streaming_response(self) -> AsyncServiceResourceWithStreamingResponse:
-        """
-        An alternative to `.with_raw_response` that doesn't eagerly read the response body.
-
-        For more information, see https://www.github.com/stainless-sdks/tinker-python#with_streaming_response
-        """
-        return AsyncServiceResourceWithStreamingResponse(self)
-
     async def get_server_capabilities(
         self,
         *,
@@ -111,7 +33,10 @@ class AsyncServiceResource(AsyncAPIResource):
         return await self._get(
             "/api/v1/get_server_capabilities",
             options=make_request_options(
-                extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body, timeout=timeout
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
             ),
             cast_to=GetServerCapabilitiesResponse,
         )
@@ -130,55 +55,142 @@ class AsyncServiceResource(AsyncAPIResource):
         return await self._get(
             "/api/v1/healthz",
             options=make_request_options(
-                extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body, timeout=timeout
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
             ),
             cast_to=HealthResponse,
         )
 
+    async def create_session(
+        self,
+        *,
+        request: CreateSessionRequest,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        idempotency_key: str | None = None,
+        max_retries: int | NotGiven = NOT_GIVEN,
+    ) -> CreateSessionResponse:
+        """
+        Creates a new session
 
-class ServiceResourceWithRawResponse:
-    def __init__(self, service: ServiceResource) -> None:
-        self._service = service
+        Args:
+          request: The create session request containing tags
 
-        self.get_server_capabilities = to_raw_response_wrapper(
-            service.get_server_capabilities,
+          extra_headers: Send extra headers
+
+          extra_query: Add additional query parameters to the request
+
+          extra_body: Add additional JSON properties to the request
+
+          timeout: Override the client-level default timeout for this request, in seconds
+
+          idempotency_key: Specify a custom idempotency key for this request
+        """
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+            idempotency_key=idempotency_key,
         )
-        self.health_check = to_raw_response_wrapper(
-            service.health_check,
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
+        return await self._post(
+            "/api/v1/create_session",
+            body=model_dump(request, exclude_unset=True, mode="json"),
+            options=options,
+            cast_to=CreateSessionResponse,
         )
 
+    async def session_heartbeat(
+        self,
+        *,
+        session_id: str,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_retries: int | NotGiven = NOT_GIVEN,
+    ) -> SessionHeartbeatResponse:
+        """
+        Send a heartbeat for an active session to keep it alive
 
-class AsyncServiceResourceWithRawResponse:
-    def __init__(self, service: AsyncServiceResource) -> None:
-        self._service = service
+        Args:
+          session_id: The ID of the session to heartbeat
 
-        self.get_server_capabilities = async_to_raw_response_wrapper(
-            service.get_server_capabilities,
+          extra_headers: Send extra headers
+
+          extra_query: Add additional query parameters to the request
+
+          extra_body: Add additional JSON properties to the request
+
+          timeout: Override the client-level default timeout for this request, in seconds
+        """
+
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
         )
-        self.health_check = async_to_raw_response_wrapper(
-            service.health_check,
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
+        request = SessionHeartbeatRequest(session_id=session_id)
+        return await self._post(
+            "/api/v1/session_heartbeat",
+            body=model_dump(request, exclude_unset=True, mode="json"),
+            options=options,
+            cast_to=SessionHeartbeatResponse,
         )
 
+    async def create_sampling_session(
+        self,
+        *,
+        request: CreateSamplingSessionRequest,
+        # Use the following arguments if you need to pass additional parameters to the API that aren't available via kwargs.
+        # The extra values given here take precedence over values defined on the client or passed to this method.
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_retries: int | NotGiven = NOT_GIVEN,
+    ) -> CreateSamplingSessionResponse:
+        """
+        Creates a new sampling session
 
-class ServiceResourceWithStreamingResponse:
-    def __init__(self, service: ServiceResource) -> None:
-        self._service = service
+        Args:
+          request: The create sampling session request containing session_id, sampling_session_seq_id, model_path/base_model
 
-        self.get_server_capabilities = to_streamed_response_wrapper(
-            service.get_server_capabilities,
+          extra_headers: Send extra headers
+
+          extra_query: Add additional query parameters to the request
+
+          extra_body: Add additional JSON properties to the request
+
+          timeout: Override the client-level default timeout for this request, in seconds
+        """
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
         )
-        self.health_check = to_streamed_response_wrapper(
-            service.health_check,
-        )
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
 
-
-class AsyncServiceResourceWithStreamingResponse:
-    def __init__(self, service: AsyncServiceResource) -> None:
-        self._service = service
-
-        self.get_server_capabilities = async_to_streamed_response_wrapper(
-            service.get_server_capabilities,
-        )
-        self.health_check = async_to_streamed_response_wrapper(
-            service.health_check,
+        return await self._post(
+            "/api/v1/create_sampling_session",
+            body=model_dump(request, exclude_unset=True, mode="json"),
+            options=options,
+            cast_to=CreateSamplingSessionResponse,
         )

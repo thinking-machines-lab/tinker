@@ -1,4 +1,5 @@
 from typing import Optional
+
 from typing_extensions import Literal
 
 from .._compat import PYDANTIC_V2, ConfigDict
@@ -30,13 +31,30 @@ class SampleRequest(StrictBase):
     If not provided, samples against the base model.
     """
 
+    sampling_session_id: Optional[str] = None
+    """Optional sampling session ID to use instead of model_path/base_model.
+
+    If provided along with seq_id, the model configuration will be loaded from the
+    sampling session. This is useful for multi-turn conversations.
+    """
+
+    seq_id: Optional[int] = None
+    """Sequence ID within the sampling session.
+
+    Required when sampling_session_id is provided. Used to generate deterministic
+    request IDs for the sampling request.
+    """
+
     prompt_logprobs: Optional[bool] = None
     """If set to `true`, computes and returns logprobs on the prompt tokens.
 
     Defaults to false.
     """
 
-    type: Optional[Literal["sample"]] = None
+    topk_prompt_logprobs: int = 0
+    """If set to a positive integer, returns the top-k logprobs for each prompt token."""
+
+    type: Literal["sample"] = "sample"
 
     if PYDANTIC_V2:
         # allow fields with a `model_` prefix

@@ -1,39 +1,45 @@
 from __future__ import annotations
 
-import os
-import inspect
-import logging
 import datetime
 import functools
+import inspect
+import logging
+import os
 from types import TracebackType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Union,
-    Generic,
-    TypeVar,
-    Callable,
-    Iterator,
     AsyncIterator,
+    Callable,
+    Generic,
+    Iterator,
+    TypeVar,
+    Union,
     cast,
     overload,
 )
-from typing_extensions import Awaitable, ParamSpec, override, get_origin
 
 import anyio
 import httpx
 import pydantic
+from typing_extensions import Awaitable, ParamSpec, get_origin, override
 
-from ._types import NoneType
-from ._utils import is_given, extract_type_arg, is_annotated_type, is_type_alias_type, extract_type_var_from_base
+from ._constants import OVERRIDE_CAST_TO_HEADER, RAW_RESPONSE_HEADER
+from ._exceptions import APIResponseValidationError, TinkerError
 from ._models import BaseModel, is_basemodel
-from ._constants import RAW_RESPONSE_HEADER, OVERRIDE_CAST_TO_HEADER
-from ._streaming import Stream, AsyncStream, is_stream_class_type, extract_stream_chunk_type
-from ._exceptions import TinkerError, APIResponseValidationError
+from ._streaming import AsyncStream, Stream, extract_stream_chunk_type, is_stream_class_type
+from ._types import NoneType
+from ._utils import (
+    extract_type_arg,
+    extract_type_var_from_base,
+    is_annotated_type,
+    is_given,
+    is_type_alias_type,
+)
 
 if TYPE_CHECKING:
-    from ._models import FinalRequestOptions
     from ._base_client import BaseClient
+    from ._models import FinalRequestOptions
 
 
 P = ParamSpec("P")
@@ -121,9 +127,7 @@ class BaseAPIResponse(Generic[R]):
 
     @override
     def __repr__(self) -> str:
-        return (
-            f"<{self.__class__.__name__} [{self.status_code} {self.http_response.reason_phrase}] type={self._cast_to}>"
-        )
+        return f"<{self.__class__.__name__} [{self.status_code} {self.http_response.reason_phrase}] type={self._cast_to}>"
 
     def _parse(self, *, to: type[_T] | None = None) -> R | _T:
         cast_to = to if to is not None else self._cast_to
@@ -141,7 +145,9 @@ class BaseAPIResponse(Generic[R]):
         if self._is_sse_stream:
             if to:
                 if not is_stream_class_type(to):
-                    raise TypeError(f"Expected custom parse type to be a subclass of {Stream} or {AsyncStream}")
+                    raise TypeError(
+                        f"Expected custom parse type to be a subclass of {Stream} or {AsyncStream}"
+                    )
 
                 return cast(
                     _T,
@@ -165,7 +171,10 @@ class BaseAPIResponse(Generic[R]):
                     ),
                 )
 
-            stream_cls = cast("type[Stream[Any]] | type[AsyncStream[Any]] | None", self._client._default_stream_cls)
+            stream_cls = cast(
+                "type[Stream[Any]] | type[AsyncStream[Any]] | None",
+                self._client._default_stream_cls,
+            )
             if stream_cls is None:
                 raise MissingStreamClassError()
 
@@ -207,7 +216,7 @@ class BaseAPIResponse(Generic[R]):
             # the response class ourselves but that is something that should be supported directly in httpx
             # as it would be easy to incorrectly construct the Response object due to the multitude of arguments.
             if cast_to != httpx.Response:
-                raise ValueError(f"Subclasses of httpx.Response cannot be passed to `cast_to`")
+                raise ValueError("Subclasses of httpx.Response cannot be passed to `cast_to`")
             return cast(R, response)
 
         if (
@@ -217,13 +226,18 @@ class BaseAPIResponse(Generic[R]):
             and not issubclass(origin, BaseModel)
             and issubclass(origin, pydantic.BaseModel)
         ):
-            raise TypeError("Pydantic models must subclass our base model type, e.g. `from tinker import BaseModel`")
+            log.error(
+                f"{origin=} {issubclass(origin, BaseModel)=} {issubclass(origin, pydantic.BaseModel)=}"
+            )
+            raise TypeError(
+                "Pydantic models must subclass our base model type, e.g. `from tinker import BaseModel`"
+            )
 
         if (
             cast_to is not object
-            and not origin is list
-            and not origin is dict
-            and not origin is Union
+            and origin is not list
+            and origin is not dict
+            and origin is not Union
             and not issubclass(origin, BaseModel)
         ):
             raise RuntimeError(
@@ -238,7 +252,9 @@ class BaseAPIResponse(Generic[R]):
                 try:
                     data = response.json()
                 except Exception as exc:
-                    log.debug("Could not read JSON from response data due to %s - %s", type(exc), exc)
+                    log.debug(
+                        "Could not read JSON from response data due to %s - %s", type(exc), exc
+                    )
                 else:
                     return self._client._process_response_data(
                         data=data,
@@ -642,7 +658,9 @@ class AsyncResponseContextManager(Generic[_AsyncAPIResponseT]):
             await self.__response.close()
 
 
-def to_streamed_response_wrapper(func: Callable[P, R]) -> Callable[P, ResponseContextManager[APIResponse[R]]]:
+def to_streamed_response_wrapper(
+    func: Callable[P, R],
+) -> Callable[P, ResponseContextManager[APIResponse[R]]]:
     """Higher order function that takes one of our bound API methods and wraps it
     to support streaming and returning the raw `APIResponse` object directly.
     """
@@ -669,7 +687,9 @@ def async_to_streamed_response_wrapper(
     """
 
     @functools.wraps(func)
-    def wrapped(*args: P.args, **kwargs: P.kwargs) -> AsyncResponseContextManager[AsyncAPIResponse[R]]:
+    def wrapped(
+        *args: P.args, **kwargs: P.kwargs
+    ) -> AsyncResponseContextManager[AsyncAPIResponse[R]]:
         extra_headers: dict[str, str] = {**(cast(Any, kwargs.get("extra_headers")) or {})}
         extra_headers[RAW_RESPONSE_HEADER] = "stream"
 
@@ -718,7 +738,9 @@ def async_to_custom_streamed_response_wrapper(
     """
 
     @functools.wraps(func)
-    def wrapped(*args: P.args, **kwargs: P.kwargs) -> AsyncResponseContextManager[_AsyncAPIResponseT]:
+    def wrapped(
+        *args: P.args, **kwargs: P.kwargs
+    ) -> AsyncResponseContextManager[_AsyncAPIResponseT]:
         extra_headers: dict[str, Any] = {**(cast(Any, kwargs.get("extra_headers")) or {})}
         extra_headers[RAW_RESPONSE_HEADER] = "stream"
         extra_headers[OVERRIDE_CAST_TO_HEADER] = response_cls
@@ -749,7 +771,9 @@ def to_raw_response_wrapper(func: Callable[P, R]) -> Callable[P, APIResponse[R]]
     return wrapped
 
 
-def async_to_raw_response_wrapper(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[AsyncAPIResponse[R]]]:
+def async_to_raw_response_wrapper(
+    func: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[AsyncAPIResponse[R]]]:
     """Higher order function that takes one of our bound API methods and wraps it
     to support returning the raw `APIResponse` object directly.
     """

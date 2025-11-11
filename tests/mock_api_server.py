@@ -280,12 +280,12 @@ async def remove_lora(params: types.LoraRemoveParams):
 
 
 @app.post("/load_weights", response_model=types.UntypedAPIFuture)
-async def load_weights(params: types.WeightLoadParams):
+async def load_weights(params: types.LoadWeightsRequest):
     """Load model weights from a path."""
     future_id = generate_future_id()
 
     # Mock implementation - in reality this would load weights from storage
-    result = LoadWeightsResponse(message=f"Weights loaded from {params['path']}", success=True)
+    result = LoadWeightsResponse(message=f"Weights loaded from {params.path}", success=True)
 
     # Store the result for future retrieval
     futures_store[future_id] = {
@@ -294,17 +294,17 @@ async def load_weights(params: types.WeightLoadParams):
         "created_at": datetime.now().isoformat(),
     }
 
-    return UntypedAPIFuture(request_id=future_id, model_id=params.get("model_id"))
+    return UntypedAPIFuture(request_id=future_id, model_id=params.model_id)
 
 
 @app.post("/save_weights", response_model=types.UntypedAPIFuture)
-async def save_weights(params: types.WeightSaveParams):
+async def save_weights(params: types.SaveWeightsRequest):
     """Save model weights to a path."""
     future_id = generate_future_id()
 
     # Mock implementation - in reality this would save weights to storage
     save_path = (
-        f"{params.get('path', '/tmp')}/checkpoint_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        f"{params.path or '/tmp'}/checkpoint_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
 
     result = SaveWeightsResponse(message=f"Weights saved to {save_path}", success=True)
@@ -316,17 +316,17 @@ async def save_weights(params: types.WeightSaveParams):
         "created_at": datetime.now().isoformat(),
     }
 
-    return UntypedAPIFuture(request_id=future_id, model_id=params.get("model_id"))
+    return UntypedAPIFuture(request_id=future_id, model_id=params.model_id)
 
 
 @app.post("/save_weights_for_sampler", response_model=types.UntypedAPIFuture)
-async def save_weights_for_sampler(params: types.WeightSaveForSamplerParams):
+async def save_weights_for_sampler(params: types.SaveWeightsForSamplerRequest):
     """Save weights in a format suitable for the sampler."""
     future_id = generate_future_id()
 
     # Mock implementation
     save_path = (
-        f"{params.get('path', '/tmp')}/sampler_weights_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        f"{params.path or '/tmp'}/sampler_weights_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
 
     result = types.SaveWeightsForSamplerResponse(
@@ -340,7 +340,7 @@ async def save_weights_for_sampler(params: types.WeightSaveForSamplerParams):
         "created_at": datetime.now().isoformat(),
     }
 
-    return types.UntypedAPIFuture(request_id=future_id, model_id=params.get("model_id"))
+    return types.UntypedAPIFuture(request_id=future_id, model_id=params.model_id)
 
 
 @app.post("/get_info", response_model=types.GetInfoResponse)

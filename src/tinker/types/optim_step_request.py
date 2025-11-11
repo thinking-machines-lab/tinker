@@ -27,4 +27,10 @@ class OptimStepRequest(StrictBase):
 
     model_id: ModelID
 
-    type: Optional[Literal["optim_step"]] = None
+    seq_id: Optional[int] = None
+
+    type: Literal["optim_step"] = "optim_step"
+
+    if PYDANTIC_V2:
+        # allow fields with a `model_` prefix
+        model_config = ConfigDict(protected_namespaces=tuple())

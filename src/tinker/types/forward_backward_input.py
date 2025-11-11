@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Optional
 
 from .datum import Datum
 from .._models import StrictBase
@@ -13,3 +13,6 @@ class ForwardBackwardInput(StrictBase):
 
     loss_fn: LossFnType
     """Fully qualified function path for the loss function"""
+
+    loss_fn_config: Optional[Dict[str, float]] = None
+    """Optional configuration parameters for the loss function (e.g., PPO clip thresholds, DPO beta)"""

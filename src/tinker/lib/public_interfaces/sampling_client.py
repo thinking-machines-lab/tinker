@@ -6,14 +6,12 @@ import asyncio
 import logging
 import os
 import time
-from collections.abc import Sequence
 from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
 from typing import TYPE_CHECKING, TypeVar, cast
 
 import tinker
 from tinker import types
-from tinker._types import NOT_GIVEN
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
@@ -62,6 +60,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         *,
         model_path: str | None = None,
         base_model: str | None = None,
+        sampling_session_id: str | None = None,
         retry_config: RetryConfig | None = None,
     ):
         if model_path and not model_path.startswith("tinker://"):
@@ -82,26 +81,40 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         self._last_queue_state_logged: float = 0
 
+        self._sampling_session_id: str = (
+            sampling_session_id
+            or holder.run_coroutine_threadsafe(
+                holder._create_sampling_session(model_path=model_path, base_model=base_model)
+            ).result()
+        )
+
+        self._request_id_counter: int = 0
+
     async def _send_asample_request(
         self,
         num_samples: int,
         prompt: types.ModelInput,
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool,
-        idempotency_key: str,
+        topk_prompt_logprobs: int,
     ):
         try:
+            request_id = self._request_id_counter
+            self._request_id_counter += 1
+            request = types.SampleRequest(
+                sampling_session_id=self._sampling_session_id,
+                seq_id=request_id,
+                num_samples=num_samples,
+                prompt=prompt,
+                sampling_params=sampling_params,
+                prompt_logprobs=include_prompt_logprobs,
+                topk_prompt_logprobs=topk_prompt_logprobs,
+            )
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
                 return await client.sampling.asample(
-                    num_samples=num_samples,
-                    prompt=cast(types._ModelInputParam, prompt.model_dump()),
-                    sampling_params=cast(types._SamplingParamsParam, sampling_params.model_dump()),
-                    model_path=self.model_path if self.model_path is not None else NOT_GIVEN,
-                    prompt_logprobs=include_prompt_logprobs,
-                    base_model=self.base_model if self.base_model is not None else NOT_GIVEN,
+                    request=request,
                     max_retries=0,
                     extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
-                    idempotency_key=idempotency_key,
                 )
         except tinker.APIStatusError as e:
             if e.status_code == 429:
@@ -114,8 +127,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         num_samples: int,
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool,
+        topk_prompt_logprobs: int = 0,
     ) -> types.SampleResponse:
-        idempotency_key = self.holder.make_idempotency_key()
         async with self.holder._sample_dispatch_semaphore:
             while True:
                 if (
@@ -131,7 +144,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     prompt,
                     sampling_params,
                     include_prompt_logprobs,
-                    idempotency_key,
+                    topk_prompt_logprobs,
                 )
                 if untyped_future is not None:
                     break
@@ -155,12 +168,17 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         num_samples: int,
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
+        topk_prompt_logprobs: int = 0,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Internal method that does the actual API call without retry logic."""
 
         async def _sample_async():
             return await self._sample_async_impl(
-                prompt, num_samples, sampling_params, include_prompt_logprobs
+                prompt,
+                num_samples,
+                sampling_params,
+                include_prompt_logprobs,
+                topk_prompt_logprobs,
             )
 
         @capture_exceptions(fatal=True)
@@ -176,16 +194,21 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         num_samples: int,
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
+        topk_prompt_logprobs: int = 0,
     ) -> types.SampleResponse:
         return await AwaitableConcurrentFuture(
-            self.sample(prompt, num_samples, sampling_params, include_prompt_logprobs)
+            self.sample(
+                prompt,
+                num_samples,
+                sampling_params,
+                include_prompt_logprobs,
+                topk_prompt_logprobs,
+            )
         )
 
     @capture_exceptions(fatal=True)
-    def compute_logprobs(
-        self, prompt: types.ModelInput
-    ) -> ConcurrentFuture[Sequence[float | None]]:
-        async def _compute_logprobs_async() -> Sequence[float | None]:
+    def compute_logprobs(self, prompt: types.ModelInput) -> ConcurrentFuture[list[float | None]]:
+        async def _compute_logprobs_async() -> list[float | None]:
             sample_res = await self._sample_async_impl(
                 prompt,
                 num_samples=1,
@@ -195,12 +218,12 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             return cast(list[float | None], sample_res.prompt_logprobs)
 
         @capture_exceptions(fatal=True)
-        async def _compute_logprobs_async_with_retries() -> Sequence[float | None]:
+        async def _compute_logprobs_async_with_retries() -> list[float | None]:
             return await self.retry_handler.execute(_compute_logprobs_async)
 
         return self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()
 
-    async def compute_logprobs_async(self, prompt: types.ModelInput) -> Sequence[float | None]:
+    async def compute_logprobs_async(self, prompt: types.ModelInput) -> list[float | None]:
         return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
 
     def get_telemetry(self) -> Telemetry | None:

@@ -14,4 +14,10 @@ class LoadWeightsRequest(StrictBase):
     path: str
     """A tinker URI for model weights at a specific step"""
 
-    type: Optional[Literal["load_weights"]] = None
+    seq_id: Optional[int] = None
+
+    type: Literal["load_weights"] = "load_weights"
+
+    if PYDANTIC_V2:
+        # allow fields with a `model_` prefix
+        model_config = ConfigDict(protected_namespaces=tuple())

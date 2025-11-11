@@ -11,4 +11,8 @@ __all__ = ["UnloadModelRequest"]
 class UnloadModelRequest(StrictBase):
     model_id: ModelID
 
-    type: Optional[Literal["unload_model"]] = None
+    type: Literal["unload_model"] = "unload_model"
+
+    if PYDANTIC_V2:
+        # allow fields with a `model_` prefix
+        model_config = ConfigDict(protected_namespaces=tuple())

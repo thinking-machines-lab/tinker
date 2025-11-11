@@ -1,17 +1,19 @@
 from typing import Optional
-from typing_extensions import Literal
 
 from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import StrictBase
+from .forward_backward_input import ForwardBackwardInput
 from .model_id import ModelID
 
-__all__ = ["GetInfoRequest"]
+__all__ = ["ForwardRequest"]
 
 
-class GetInfoRequest(StrictBase):
+class ForwardRequest(StrictBase):
+    forward_input: ForwardBackwardInput
+
     model_id: ModelID
 
-    type: Literal["get_info"] = "get_info"
+    seq_id: Optional[int] = None
 
     if PYDANTIC_V2:
         # allow fields with a `model_` prefix
