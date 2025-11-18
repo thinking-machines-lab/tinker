@@ -31,9 +31,12 @@ class RestClient(TelemetryProvider):
 
     Key methods:
     - list_checkpoints() - list available model checkpoints (both training and sampler)
+    - list_user_checkpoints() - list all checkpoints across all user's training runs
     - get_training_run() - get model information and metadata as ModelEntry
     - delete_checkpoint() - delete an existing checkpoint for a training run
     - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
+    - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
+    - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
 
     Args:
         holder: Internal client managing HTTP connections and async operations
@@ -420,3 +423,227 @@ class RestClient(TelemetryProvider):
         return await self._get_checkpoint_archive_url_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
         )
+
+    def _publish_checkpoint_submit(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> AwaitableConcurrentFuture[None]:
+        """Internal method to submit publish checkpoint request."""
+
+        async def _publish_checkpoint_async() -> None:
+            async def _send_request() -> None:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    await client.post(
+                        f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/publish",
+                        cast_to=NoneType,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_publish_checkpoint_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def publish_checkpoint_from_tinker_path(self, tinker_path: str) -> ConcurrentFuture[None]:
+        """Publish a checkpoint referenced by a tinker path to make it publicly accessible.
+
+        Only the exact owner of the training run can publish checkpoints.
+        Published checkpoints can be unpublished using the unpublish_checkpoint_from_tinker_path method.
+
+        Args:
+            tinker_path: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+
+        Returns:
+            A Future that completes when the checkpoint is published
+
+        Raises:
+            HTTPException: 400 if checkpoint identifier is invalid
+            HTTPException: 404 if checkpoint not found or user doesn't own the training run
+            HTTPException: 409 if checkpoint is already public
+            HTTPException: 500 if there's an error publishing the checkpoint
+
+        Example:
+            >>> future = rest_client.publish_checkpoint_from_tinker_path("tinker://run-id/weights/0001")
+            >>> future.result()  # Wait for completion
+            >>> print("Checkpoint published successfully")
+        """
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        return self._publish_checkpoint_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        ).future()
+
+    @capture_exceptions(fatal=True)
+    async def publish_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
+        """Async version of publish_checkpoint_from_tinker_path.
+
+        Only the exact owner of the training run can publish checkpoints.
+        Published checkpoints can be unpublished using the unpublish_checkpoint_from_tinker_path_async method.
+
+        Args:
+            tinker_path: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+
+        Raises:
+            HTTPException: 400 if checkpoint identifier is invalid
+            HTTPException: 404 if checkpoint not found or user doesn't own the training run
+            HTTPException: 409 if checkpoint is already public
+            HTTPException: 500 if there's an error publishing the checkpoint
+
+        Example:
+            >>> await rest_client.publish_checkpoint_from_tinker_path_async("tinker://run-id/weights/0001")
+            >>> print("Checkpoint published successfully")
+        """
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        await self._publish_checkpoint_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        )
+
+    def _unpublish_checkpoint_submit(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> AwaitableConcurrentFuture[None]:
+        """Internal method to submit unpublish checkpoint request."""
+
+        async def _unpublish_checkpoint_async() -> None:
+            async def _send_request() -> None:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    await client.delete(
+                        f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/publish",
+                        cast_to=NoneType,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_unpublish_checkpoint_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def unpublish_checkpoint_from_tinker_path(self, tinker_path: str) -> ConcurrentFuture[None]:
+        """Unpublish a checkpoint referenced by a tinker path to make it private again.
+
+        Only the exact owner of the training run can unpublish checkpoints.
+        This reverses the effect of publishing a checkpoint.
+
+        Args:
+            tinker_path: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+
+        Returns:
+            A Future that completes when the checkpoint is unpublished
+
+        Raises:
+            HTTPException: 400 if checkpoint identifier is invalid
+            HTTPException: 404 if checkpoint not found or user doesn't own the training run
+            HTTPException: 409 if checkpoint is already private
+            HTTPException: 500 if there's an error unpublishing the checkpoint
+
+        Example:
+            >>> future = rest_client.unpublish_checkpoint_from_tinker_path("tinker://run-id/weights/0001")
+            >>> future.result()  # Wait for completion
+            >>> print("Checkpoint unpublished successfully")
+        """
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        return self._unpublish_checkpoint_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        ).future()
+
+    @capture_exceptions(fatal=True)
+    async def unpublish_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
+        """Async version of unpublish_checkpoint_from_tinker_path.
+
+        Only the exact owner of the training run can unpublish checkpoints.
+        This reverses the effect of publishing a checkpoint.
+
+        Args:
+            tinker_path: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+
+        Raises:
+            HTTPException: 400 if checkpoint identifier is invalid
+            HTTPException: 404 if checkpoint not found or user doesn't own the training run
+            HTTPException: 409 if checkpoint is already private
+            HTTPException: 500 if there's an error unpublishing the checkpoint
+
+        Example:
+            >>> await rest_client.unpublish_checkpoint_from_tinker_path_async("tinker://run-id/weights/0001")
+            >>> print("Checkpoint unpublished successfully")
+        """
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        await self._unpublish_checkpoint_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        )
+
+    def _list_user_checkpoints_submit(
+        self, limit: int = 100, offset: int = 0
+    ) -> AwaitableConcurrentFuture[types.CheckpointsListResponse]:
+        """Internal method to submit list user checkpoints request."""
+
+        async def _list_user_checkpoints_async() -> types.CheckpointsListResponse:
+            async def _send_request() -> types.CheckpointsListResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    params: dict[str, object] = {"limit": limit, "offset": offset}
+
+                    return await client.get(
+                        "/api/v1/checkpoints",
+                        options={"params": params},
+                        cast_to=types.CheckpointsListResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_list_user_checkpoints_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def list_user_checkpoints(
+        self, limit: int = 100, offset: int = 0
+    ) -> ConcurrentFuture[types.CheckpointsListResponse]:
+        """List all checkpoints for the current user across all their training runs.
+
+        This method retrieves checkpoints from all training runs owned by the authenticated user,
+        sorted by time (newest first). It supports pagination for efficiently handling large
+        numbers of checkpoints.
+
+        Args:
+            limit: Maximum number of checkpoints to return (default 100)
+            offset: Offset for pagination (default 0)
+
+        Returns:
+            A Future containing the CheckpointsListResponse with checkpoints and cursor info
+
+        Example:
+            >>> future = rest_client.list_user_checkpoints(limit=50)
+            >>> response = future.result()
+            >>> print(f"Found {len(response.checkpoints)} checkpoints")
+            >>> print(f"Total: {response.cursor.total_count if response.cursor else 'Unknown'}")
+            >>> for checkpoint in response.checkpoints:
+            ...     print(f"  {checkpoint.training_run_id}/{checkpoint.checkpoint_id}")
+            >>> # Get next page if there are more checkpoints
+            >>> if response.cursor and response.cursor.offset + response.cursor.limit < response.cursor.total_count:
+            ...     next_page = rest_client.list_user_checkpoints(limit=50, offset=50)
+        """
+        return self._list_user_checkpoints_submit(limit, offset).future()
+
+    @capture_exceptions(fatal=True)
+    async def list_user_checkpoints_async(
+        self, limit: int = 100, offset: int = 0
+    ) -> types.CheckpointsListResponse:
+        """Async version of list_user_checkpoints.
+
+        This method retrieves checkpoints from all training runs owned by the authenticated user,
+        sorted by time (newest first). It supports pagination for efficiently handling large
+        numbers of checkpoints.
+
+        Args:
+            limit: Maximum number of checkpoints to return (default 100)
+            offset: Offset for pagination (default 0)
+
+        Returns:
+            CheckpointsListResponse with checkpoints and cursor info
+
+        Example:
+            >>> response = await rest_client.list_user_checkpoints_async(limit=50)
+            >>> print(f"Found {len(response.checkpoints)} checkpoints")
+            >>> print(f"Total: {response.cursor.total_count if response.cursor else 'Unknown'}")
+            >>> for checkpoint in response.checkpoints:
+            ...     print(f"  {checkpoint.training_run_id}/{checkpoint.checkpoint_id}")
+            >>> # Get next page if there are more checkpoints
+            >>> if response.cursor and response.cursor.offset + response.cursor.limit < response.cursor.total_count:
+            ...     next_page = await rest_client.list_user_checkpoints_async(limit=50, offset=50)
+        """
+        return await self._list_user_checkpoints_submit(limit, offset)

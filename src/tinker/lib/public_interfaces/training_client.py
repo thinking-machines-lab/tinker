@@ -593,6 +593,7 @@ def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> Pre
     assert model_name is not None, "This shouldn't happen: model_name is None"
 
     # Use tokenizer_id from get_info if available, otherwise fall back to heuristic logic
+    kwargs = {}
     tokenizer_id = info.model_data.tokenizer_id
     if tokenizer_id is None:
         # We generally adhere to the huggingface convention of "<org>/<model>" but
@@ -608,4 +609,10 @@ def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> Pre
         else:
             tokenizer_id = model_name
 
-    return AutoTokenizer.from_pretrained(tokenizer_id, fast=True)
+    if tokenizer_id == "moonshotai/Kimi-K2-Thinking":
+        kwargs = {
+            "trust_remote_code": True,
+            "revision": "612681931a8c906ddb349f8ad0f582cb552189cd",
+        }
+
+    return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)

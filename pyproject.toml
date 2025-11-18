@@ -17,6 +17,8 @@ dependencies = [
     "sniffio",
     "numpy",
     "torch",
+    "rich>=13.0.0",
+    "click>=8.0.0",
 ]
 requires-python = ">= 3.11"
 classifiers = [
@@ -35,6 +37,9 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
   "License :: OSI Approved :: Apache Software License"
 ]
+
+[project.scripts]
+tinker = "tinker.cli.__main__:cli"
 
 [project.urls]
 Homepage = "https://thinkingmachines.ai/tinker"

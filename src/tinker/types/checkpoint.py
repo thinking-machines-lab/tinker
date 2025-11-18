@@ -21,6 +21,12 @@ class Checkpoint(BaseModel):
     tinker_path: str
     """The tinker path to the checkpoint"""
 
+    size_bytes: int | None = None
+    """The size of the checkpoint in bytes"""
+
+    public: bool = False
+    """Whether the checkpoint is publicly accessible"""
+
 
 class ParsedCheckpointTinkerPath(BaseModel):
     tinker_path: str

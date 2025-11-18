@@ -185,7 +185,7 @@ class AsyncWeightsResource(AsyncAPIResource):
         if not model_id:
             raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
         return await self._get(
-            f"/api/v1/models/{model_id}/checkpoints",
+            f"/api/v1/training_runs/{model_id}/checkpoints",
             options=make_request_options(
                 extra_headers=extra_headers,
                 extra_query=extra_query,
