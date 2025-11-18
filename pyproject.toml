@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.3.0"
+version = "0.4.0"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
