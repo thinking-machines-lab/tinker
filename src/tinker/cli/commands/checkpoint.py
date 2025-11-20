@@ -3,6 +3,7 @@
 This module implements the 'tinker checkpoint' commands, including:
 - list: List all checkpoints or checkpoints for a specific run
 - info: Show details of a specific checkpoint
+- download: Download and extract checkpoint archives
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List
@@ -96,7 +97,9 @@ class CheckpointListOutput(OutputBase):
                 [
                     ckpt.checkpoint_id,
                     ckpt.checkpoint_type,
-                    format_size(ckpt.size_bytes) if hasattr(ckpt, "size_bytes") else "N/A",
+                    format_size(ckpt.size_bytes)
+                    if hasattr(ckpt, "size_bytes") and ckpt.size_bytes is not None
+                    else "N/A",
                     format_bool(ckpt.public),
                     format_timestamp(ckpt.time),
                     ckpt.tinker_path,
@@ -139,7 +142,7 @@ class CheckpointInfoOutput(OutputBase):
         ]
 
         # Size if available
-        if hasattr(self.checkpoint, "size_bytes"):
+        if hasattr(self.checkpoint, "size_bytes") and self.checkpoint.size_bytes is not None:
             rows.append(["Size", format_size(self.checkpoint.size_bytes)])
 
         # Public status
@@ -153,6 +156,59 @@ class CheckpointInfoOutput(OutputBase):
             parts = self.checkpoint.tinker_path.replace("tinker://", "").split("/")
             if parts:
                 rows.append(["Training Run ID", parts[0]])
+
+        return rows
+
+
+class CheckpointDownloadOutput(OutputBase):
+    """Output for 'tinker checkpoint download' command."""
+
+    def __init__(
+        self,
+        checkpoint_path: str,
+        file_size_bytes: int | None = None,
+        destination: str | None = None,
+    ):
+        """Initialize with download information.
+
+        Args:
+            checkpoint_path: The tinker path to the checkpoint
+            file_size_bytes: Size of the archive in bytes
+            destination: Where the checkpoint was extracted
+        """
+        self.checkpoint_path = checkpoint_path
+        self.file_size_bytes = file_size_bytes
+        self.destination = destination
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON output."""
+        result = {
+            "checkpoint_path": self.checkpoint_path,
+            "destination": self.destination,
+        }
+        if self.file_size_bytes is not None:
+            result["file_size_bytes"] = self.file_size_bytes
+        return result
+
+    def get_title(self) -> str | None:
+        """Return title for table output."""
+        return f"Checkpoint Download: {self.checkpoint_path}"
+
+    def get_table_columns(self) -> List[str]:
+        """Return column headers for table output."""
+        return ["Property", "Value"]
+
+    def get_table_rows(self) -> List[List[str]]:
+        """Return rows for table output."""
+        rows = [
+            ["Checkpoint Path", self.checkpoint_path],
+        ]
+
+        if self.file_size_bytes is not None:
+            rows.append(["Archive Size", format_size(self.file_size_bytes)])
+
+        if self.destination:
+            rows.append(["Extracted to", self.destination])
 
         return rows
 
@@ -412,3 +468,182 @@ def delete(cli_context: CLIContext, checkpoint_path: str, yes: bool) -> None:
     # Create client and delete
     client = create_rest_client()
     client.delete_checkpoint_from_tinker_path(checkpoint_path).result()
+
+
+@cli.command()
+@click.argument("checkpoint_path")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Parent directory for extracted checkpoint (default: current directory)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite existing directory if it exists",
+)
+@click.pass_obj
+@handle_api_errors
+def download(
+    cli_context: CLIContext,
+    checkpoint_path: str,
+    output: str | None,
+    force: bool,
+) -> None:
+    """Download and extract a checkpoint archive.
+
+    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/weights/0001).
+
+    Downloads and extracts the checkpoint into a dedicated directory named after
+    the checkpoint ID. The tar archive is automatically deleted after successful
+    extraction. If the target directory already exists, the command will fail
+    unless --force is specified.
+
+    Examples:
+        tinker checkpoint download tinker://run-123/weights/final
+            # Creates ./run-123_weights_final/ with checkpoint files
+
+        tinker checkpoint download tinker://run-123/weights/final --output ./models/
+            # Creates ./models/run-123_weights_final/ with checkpoint files
+
+        tinker checkpoint download tinker://run-123/weights/final --force
+            # Overwrites existing ./run-123_weights_final/ directory
+    """
+    # Lazy imports to maintain fast CLI startup
+    import urllib.error
+    import urllib.request
+    import tarfile
+    import tempfile
+    import shutil
+    from pathlib import Path
+
+    # Validate it's a tinker path
+    if not checkpoint_path.startswith("tinker://"):
+        raise TinkerCliError(
+            f"Invalid checkpoint path: {checkpoint_path}",
+            "Checkpoint path must be in the format: tinker://run-id/weights/0001",
+        )
+
+    # Get format from context object
+    format = cli_context.format
+
+    # Determine output directory
+    if output:
+        output_dir = Path(output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        output_dir = Path.cwd()
+
+    # Generate checkpoint ID from checkpoint path
+    checkpoint_id = checkpoint_path.replace("tinker://", "").replace("/", "_")
+
+    # Target directory for extracted checkpoint
+    target_path = output_dir / checkpoint_id
+
+    # Check if target directory already exists
+    if target_path.exists():
+        if force:
+            shutil.rmtree(target_path)
+        else:
+            raise TinkerCliError(
+                f"Target directory already exists: {target_path}",
+                "Use --force to overwrite or choose a different output directory.",
+            )
+
+    # Create client and get download URL
+    client = create_rest_client()
+    url_response = client.get_checkpoint_archive_url_from_tinker_path(checkpoint_path).result()
+
+    # Use a temporary directory for the archive
+    with tempfile.TemporaryDirectory() as temp_dir:
+        archive_path = Path(temp_dir) / f"{checkpoint_id}.tar"
+        extract_dir = target_path
+
+        # Download the archive with progress bar
+        try:
+            # Open the URL connection
+            with urllib.request.urlopen(url_response.url, timeout=30) as response:
+                # Get total file size from headers
+                total_size = int(response.headers.get("Content-Length", 0))
+
+                # Download with progress bar
+                if format != "json":
+                    with click.progressbar(
+                        length=total_size,
+                        label="Downloading archive",
+                        show_percent=True,
+                        show_pos=True,
+                        show_eta=True,
+                    ) as bar:
+                        with open(archive_path, "wb") as f:
+                            while True:
+                                chunk = response.read(8192)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                                bar.update(len(chunk))
+                else:
+                    # Silent download for JSON output
+                    with open(archive_path, "wb") as f:
+                        while True:
+                            chunk = response.read(8192)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+
+            # Extract the checkpoint
+            try:
+                # Create extraction directory
+                extract_dir.mkdir(parents=True, exist_ok=True)
+
+                # Extract the tar archive
+                with tarfile.open(archive_path, "r") as tar:
+                    # Get list of members for progress tracking
+                    members = tar.getmembers()
+
+                    if format != "json":
+                        with click.progressbar(
+                            members,
+                            label="Extracting archive ",
+                            show_percent=True,
+                            show_pos=True,
+                        ) as bar:
+                            for member in bar:
+                                tar.extract(member, path=extract_dir)
+                    else:
+                        # Extract all at once for few files
+                        tar.extractall(path=extract_dir)
+
+                destination = str(extract_dir)
+
+                # Delete archive after successful extraction
+                if archive_path.exists():
+                    archive_path.unlink()
+
+            except tarfile.TarError as e:
+                raise TinkerCliError(
+                    f"Failed to extract archive: {e}",
+                    "The downloaded file may be corrupted. Try downloading again.",
+                )
+
+            # Create output object
+            output_obj = CheckpointDownloadOutput(
+                checkpoint_path=checkpoint_path,
+                file_size_bytes=total_size if total_size > 0 else None,
+                destination=destination,
+            )
+
+            # Print in requested format
+            output_obj.print(format=format)
+
+        except urllib.error.URLError as e:
+            raise TinkerCliError(
+                f"Failed to download checkpoint: {e}",
+                "Please check your network connection and try again.",
+            )
+        except IOError as e:
+            raise TinkerCliError(
+                f"Failed to save checkpoint: {e}",
+                f"Please check that you have write permissions to {output_dir}",
+            )

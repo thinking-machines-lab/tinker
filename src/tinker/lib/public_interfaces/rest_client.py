@@ -647,3 +647,120 @@ class RestClient(TelemetryProvider):
             ...     next_page = await rest_client.list_user_checkpoints_async(limit=50, offset=50)
         """
         return await self._list_user_checkpoints_submit(limit, offset)
+
+    def _get_session_submit(
+        self, session_id: str
+    ) -> AwaitableConcurrentFuture[types.GetSessionResponse]:
+        """Internal method to submit get session request."""
+
+        async def _get_session_async() -> types.GetSessionResponse:
+            async def _send_request() -> types.GetSessionResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.get(
+                        f"/api/v1/sessions/{session_id}",
+                        cast_to=types.GetSessionResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_get_session_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def get_session(self, session_id: str) -> ConcurrentFuture[types.GetSessionResponse]:
+        """Get session information including all training runs and samplers.
+
+        Args:
+            session_id: The session ID to get information for
+
+        Returns:
+            A Future containing the GetSessionResponse with training_run_ids and sampler_ids
+
+        Example:
+            >>> future = rest_client.get_session("session-id")
+            >>> response = future.result()
+            >>> print(f"Training runs: {len(response.training_run_ids)}")
+            >>> print(f"Samplers: {len(response.sampler_ids)}")
+        """
+        return self._get_session_submit(session_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def get_session_async(self, session_id: str) -> types.GetSessionResponse:
+        """Async version of get_session.
+
+        Args:
+            session_id: The session ID to get information for
+
+        Returns:
+            GetSessionResponse with training_run_ids and sampler_ids
+
+        Example:
+            >>> response = await rest_client.get_session_async("session-id")
+            >>> print(f"Training runs: {len(response.training_run_ids)}")
+            >>> print(f"Sampling sessions: {len(response.sampler_ids)}")
+        """
+        return await self._get_session_submit(session_id)
+
+    def _list_sessions_submit(
+        self, limit: int = 20, offset: int = 0
+    ) -> AwaitableConcurrentFuture[types.ListSessionsResponse]:
+        """Internal method to submit list sessions request."""
+
+        async def _list_sessions_async() -> types.ListSessionsResponse:
+            async def _send_request() -> types.ListSessionsResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    params: dict[str, object] = {"limit": limit, "offset": offset}
+
+                    return await client.get(
+                        "/api/v1/sessions",
+                        options={"params": params},
+                        cast_to=types.ListSessionsResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_list_sessions_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def list_sessions(
+        self, limit: int = 20, offset: int = 0
+    ) -> ConcurrentFuture[types.ListSessionsResponse]:
+        """List sessions with pagination support.
+
+        Args:
+            limit: Maximum number of sessions to return (default 20)
+            offset: Offset for pagination (default 0)
+
+        Returns:
+            A Future containing the ListSessionsResponse with list of session IDs
+
+        Example:
+            >>> future = rest_client.list_sessions(limit=50)
+            >>> response = future.result()
+            >>> print(f"Found {len(response.sessions)} sessions")
+            >>> # Get next page
+            >>> next_page = rest_client.list_sessions(limit=50, offset=50)
+        """
+        return self._list_sessions_submit(limit, offset).future()
+
+    @capture_exceptions(fatal=True)
+    async def list_sessions_async(
+        self, limit: int = 20, offset: int = 0
+    ) -> types.ListSessionsResponse:
+        """Async version of list_sessions.
+
+        Args:
+            limit: Maximum number of sessions to return (default 20)
+            offset: Offset for pagination (default 0)
+
+        Returns:
+            ListSessionsResponse with list of session IDs
+
+        Example:
+            >>> response = await rest_client.list_sessions_async(limit=50)
+            >>> print(f"Found {len(response.sessions)} sessions")
+            >>> # Get next page
+            >>> next_page = await rest_client.list_sessions_async(limit=50, offset=50)
+        """
+        return await self._list_sessions_submit(limit, offset)

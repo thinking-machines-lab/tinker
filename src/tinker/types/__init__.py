@@ -36,6 +36,8 @@ from .future_retrieve_response import FutureRetrieveResponse as FutureRetrieveRe
 from .get_info_request import GetInfoRequest as GetInfoRequest
 from .get_info_response import GetInfoResponse as GetInfoResponse
 from .get_info_response import ModelData as ModelData
+from .get_session_response import GetSessionResponse as GetSessionResponse
+from .list_sessions_response import ListSessionsResponse as ListSessionsResponse
 from .get_server_capabilities_response import (
     GetServerCapabilitiesResponse as GetServerCapabilitiesResponse,
 )
