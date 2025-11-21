@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import threading
 import time
 import traceback
+import contextlib
 from collections.abc import Coroutine, Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
@@ -107,11 +107,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._telemetry: Telemetry | None = None
+        self._session_heartbeat_task: asyncio.Task[None] | None = None
         session_id, session_heartbeat_task = self.run_coroutine_threadsafe(
             self._create_session(user_metadata)
         ).result()
+        self._session_heartbeat_task = session_heartbeat_task
         self._session_id: str = session_id
-        self._session_heartbeat_task: asyncio.Task[None] = session_heartbeat_task
         self._telemetry = init_telemetry(self, session_id=self._session_id)
 
         self._training_client_counter: int = 0
@@ -148,6 +149,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     async def _create_sampling_session(
         self, model_path: str | None = None, base_model: str | None = None
     ) -> str:
+        if model_path and not model_path.startswith("tinker://"):
+            raise ValueError("model_path must start with 'tinker://'")
         sampling_session_seq_id = self._sampling_client_counter
         self._sampling_client_counter += 1
         with self.aclient(ClientConnectionPoolType.SESSION) as client:
@@ -223,7 +226,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         return AwaitableConcurrentFuture(asyncio.run_coroutine_threadsafe(coro, self.get_loop()))
 
     def close(self):
-        self.run_coroutine_threadsafe(self._async_cleanup()).result()
+        self.run_coroutine_threadsafe(self._async_cleanup())
         if telemetry := self._telemetry:
             telemetry.stop()
 
@@ -233,8 +236,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     async def _async_cleanup(self):
         if self._session_heartbeat_task:
             self._session_heartbeat_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._session_heartbeat_task
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._session_heartbeat_task
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

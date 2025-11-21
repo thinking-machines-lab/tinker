@@ -68,7 +68,7 @@ class RunListOutput(OutputBase):
 
     def get_table_columns(self) -> List[str]:
         """Return column headers for table output."""
-        return ["Run ID", "Base Model", "Owner", "LoRA", "Last Update", "Corrupted"]
+        return ["Run ID", "Base Model", "Owner", "LoRA", "Last Update", "Status"]
 
     def get_table_rows(self) -> List[List[str]]:
         """Return rows for table output."""
@@ -89,7 +89,7 @@ class RunListOutput(OutputBase):
                     run.model_owner,
                     lora_info,
                     format_timestamp(run.last_request_time),
-                    str(run.corrupted),
+                    "Failed" if run.corrupted else "Active",
                 ]
             )
 
@@ -142,7 +142,7 @@ class RunInfoOutput(OutputBase):
         rows.append(["Last Update", format_timestamp(self.run.last_request_time)])
 
         # Corruption status
-        rows.append(["Status", "Corrupted" if self.run.corrupted else "Active"])
+        rows.append(["Status", "Failed" if self.run.corrupted else "Active"])
 
         # Last checkpoints
         if self.run.last_checkpoint:

@@ -29,6 +29,7 @@ from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
 from .sampling_client import SamplingClient
 
+
 if TYPE_CHECKING:
     from transformers.tokenization_utils import PreTrainedTokenizer
 
@@ -522,9 +523,13 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def create_sampling_client(
         self, model_path: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
-        from .sampling_client import SamplingClient
+        return SamplingClient.create(self.holder, model_path=model_path, retry_config=retry_config).result()
 
-        return SamplingClient(self.holder, model_path=model_path, retry_config=retry_config)
+    @capture_exceptions(fatal=True)
+    async def create_sampling_client_async(
+        self, model_path: str, retry_config: RetryConfig | None = None
+    ) -> SamplingClient:
+        return await SamplingClient.create(self.holder, model_path=model_path, retry_config=retry_config)
 
     def save_weights_and_get_sampling_client_submit(
         self, retry_config: RetryConfig | None = None
@@ -535,7 +540,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             result = await self._save_weights_for_sampler_impl(request_id, None)
             assert result.path is None
             assert result.sampling_session_id is not None
-            return SamplingClient(
+            return await SamplingClient.create(
                 self.holder,
                 sampling_session_id=result.sampling_session_id,
                 retry_config=retry_config,
@@ -582,6 +587,11 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:
     # call get_info on model_id
     from transformers.models.auto.tokenization_auto import AutoTokenizer
+    try:
+        from tml_tokenizers import get_tinker_tokenizer
+    except ImportError:
+        def get_tinker_tokenizer(model_id: str) -> PreTrainedTokenizer | None:
+            return None
 
     async def _get_info_async():
         with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -614,5 +624,7 @@ def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> Pre
             "trust_remote_code": True,
             "revision": "612681931a8c906ddb349f8ad0f582cb552189cd",
         }
+    if (tokenizer := get_tinker_tokenizer(tokenizer_id)) is not None:
+        return tokenizer
 
     return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)

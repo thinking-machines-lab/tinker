@@ -226,7 +226,25 @@ class ServiceClient(TelemetryProvider):
 
         if model_path is None and base_model is None:
             raise ValueError("Either model_path or base_model must be provided")
-        return SamplingClient(
+        return SamplingClient.create(
+            self.holder,
+            model_path=model_path,
+            base_model=base_model,
+            retry_config=retry_config,
+        ).result()
+
+    @capture_exceptions(fatal=True)
+    async def create_sampling_client_async(
+        self,
+        model_path: str | None = None,
+        base_model: str | None = None,
+        retry_config: RetryConfig | None = None,
+    ) -> SamplingClient:
+        from .sampling_client import SamplingClient
+
+        if model_path is None and base_model is None:
+            raise ValueError("Either model_path or base_model must be provided")
+        return await SamplingClient.create(
             self.holder,
             model_path=model_path,
             base_model=base_model,

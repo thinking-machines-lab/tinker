@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, TypeVar, cast
 import tinker
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
-from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
@@ -58,21 +58,14 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         self,
         holder: InternalClientHolder,
         *,
-        model_path: str | None = None,
-        base_model: str | None = None,
-        sampling_session_id: str | None = None,
+        sampling_session_id: str,
         retry_config: RetryConfig | None = None,
     ):
-        if model_path and not model_path.startswith("tinker://"):
-            raise ValueError("model_path must start with 'tinker://'")
-
         self.holder = holder
-        self.model_path = model_path
-        self.base_model = base_model
 
         # Create retry handler with the provided configuration
         self.retry_handler = _get_retry_handler(
-            model_path or base_model, retry_config=retry_config, telemetry=holder.get_telemetry()
+            sampling_session_id, retry_config=retry_config, telemetry=holder.get_telemetry()
         )
 
         self.feature_gates = set(
@@ -81,14 +74,33 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         self._last_queue_state_logged: float = 0
 
-        self._sampling_session_id: str = (
-            sampling_session_id
-            or holder.run_coroutine_threadsafe(
-                holder._create_sampling_session(model_path=model_path, base_model=base_model)
-            ).result()
-        )
+        self._sampling_session_id: str = sampling_session_id
 
         self._request_id_counter: int = 0
+
+    @staticmethod
+    async def _create_impl(
+        holder: InternalClientHolder,
+        *,
+        model_path: str | None,
+        base_model: str | None,
+        sampling_session_id: str | None,
+        retry_config: RetryConfig | None,
+    ) -> SamplingClient:
+        if sampling_session_id is None:
+            sampling_session_id = await holder._create_sampling_session(model_path=model_path, base_model=base_model)
+        return SamplingClient(holder, sampling_session_id=sampling_session_id, retry_config=retry_config)
+
+    @staticmethod
+    def create(
+        holder: InternalClientHolder,
+        *,
+        model_path: str | None = None,
+        base_model: str | None = None,
+        sampling_session_id: str | None = None,
+        retry_config: RetryConfig | None = None,
+    ) -> APIFuture[SamplingClient]:
+        return holder.run_coroutine_threadsafe(SamplingClient._create_impl(holder, model_path=model_path, base_model=base_model, sampling_session_id=sampling_session_id, retry_config=retry_config))
 
     async def _send_asample_request(
         self,
@@ -243,7 +255,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             reason = "unknown"
         self._last_queue_state_logged = time.time()
 
-        logger.warning(f"Sampling is paused for {self.model_path}. Reason: {reason}")
+        logger.warning(f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {reason}")
 
 
 @lru_cache(maxsize=100)

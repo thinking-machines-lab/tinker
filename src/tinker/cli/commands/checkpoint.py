@@ -501,14 +501,15 @@ def download(
     unless --force is specified.
 
     Examples:
+
+        # Creates ./run-123_weights_final/ with checkpoint files
         tinker checkpoint download tinker://run-123/weights/final
-            # Creates ./run-123_weights_final/ with checkpoint files
 
+        # Creates ./models/run-123_weights_final/ with checkpoint files
         tinker checkpoint download tinker://run-123/weights/final --output ./models/
-            # Creates ./models/run-123_weights_final/ with checkpoint files
 
+        # Overwrites existing ./run-123_weights_final/ directory
         tinker checkpoint download tinker://run-123/weights/final --force
-            # Overwrites existing ./run-123_weights_final/ directory
     """
     # Lazy imports to maintain fast CLI startup
     import urllib.error
