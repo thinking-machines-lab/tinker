@@ -1,5 +1,3 @@
-# `tinker.lib.public_interfaces.service_client`
-
 ServiceClient for Tinker API.
 
 ## `ServiceClient` Objects
@@ -36,8 +34,6 @@ rest_client = client.create_rest_client()
 #### `get_server_capabilities`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def get_server_capabilities() -> types.GetServerCapabilitiesResponse
 ```
 
@@ -56,7 +52,6 @@ print(f"Max batch size: {capabilities.max_batch_size}")
 #### `get_server_capabilities_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_server_capabilities_async(
 ) -> types.GetServerCapabilitiesResponse
 ```
@@ -66,8 +61,6 @@ Async version of get_server_capabilities.
 #### `create_lora_training_client`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def create_lora_training_client(
         base_model: str,
         rank: int = 32,
@@ -106,7 +99,6 @@ training_client = service_client.create_lora_training_client(
 #### `create_lora_training_client_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def create_lora_training_client_async(
         base_model: str,
         rank: int = 32,
@@ -122,8 +114,6 @@ Async version of create_lora_training_client.
 #### `create_training_client_from_state`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def create_training_client_from_state(
         path: str,
         user_metadata: dict[str, str] | None = None) -> TrainingClient
@@ -150,7 +140,6 @@ training_client = service_client.create_training_client_from_state(
 #### `create_training_client_from_state_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def create_training_client_from_state_async(
         path: str,
         user_metadata: dict[str, str] | None = None) -> TrainingClient
@@ -161,7 +150,6 @@ Async version of create_training_client_from_state.
 #### `create_sampling_client`
 
 ```python
-@capture_exceptions(fatal=True)
 def create_sampling_client(
         model_path: str | None = None,
         base_model: str | None = None,
@@ -197,7 +185,6 @@ sampling_client = service_client.create_sampling_client(
 #### `create_sampling_client_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def create_sampling_client_async(
         model_path: str | None = None,
         base_model: str | None = None,
@@ -209,7 +196,6 @@ Async version of create_sampling_client.
 #### `create_rest_client`
 
 ```python
-@capture_exceptions(fatal=True)
 def create_rest_client() -> RestClient
 ```
 

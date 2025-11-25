@@ -1,5 +1,3 @@
-# `tinker._exceptions`
-
 ## `TinkerError` Objects
 
 ```python

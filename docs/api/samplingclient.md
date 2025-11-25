@@ -1,5 +1,3 @@
-# `tinker.lib.public_interfaces.sampling_client`
-
 SamplingClient for Tinker API.
 
 ## `SamplingClient` Objects
@@ -35,7 +33,6 @@ result = future.result()
 #### `sample`
 
 ```python
-@capture_exceptions(fatal=True)
 def sample(
         prompt: types.ModelInput,
         num_samples: int,
@@ -82,7 +79,6 @@ Async version of sample.
 #### `compute_logprobs`
 
 ```python
-@capture_exceptions(fatal=True)
 def compute_logprobs(
         prompt: types.ModelInput) -> ConcurrentFuture[list[float | None]]
 ```

@@ -21,5 +21,7 @@ renderer:
   code_lang: true
   escape_html_in_docstring: false
   insert_header_anchors: false
-  signature_code_block: true
+  render_module_header: false
   render_toc: false
+  signature_code_block: true
+  signature_with_decorators: false

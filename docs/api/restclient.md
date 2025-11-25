@@ -1,5 +1,3 @@
-# `tinker.lib.public_interfaces.rest_client`
-
 RestClient for Tinker API REST operations.
 
 ## `RestClient` Objects
@@ -40,8 +38,6 @@ for checkpoint in checkpoints.checkpoints:
 #### `get_training_run`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def get_training_run(
         training_run_id: types.ModelID) -> ConcurrentFuture[types.TrainingRun]
 ```
@@ -64,7 +60,6 @@ print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}
 #### `get_training_run_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_training_run_async(
         training_run_id: types.ModelID) -> types.TrainingRun
 ```
@@ -74,8 +69,6 @@ Async version of get_training_run.
 #### `get_training_run_by_tinker_path`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def get_training_run_by_tinker_path(
         tinker_path: str) -> ConcurrentFuture[types.TrainingRun]
 ```
@@ -98,7 +91,6 @@ print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}
 #### `get_training_run_by_tinker_path_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_training_run_by_tinker_path_async(
         tinker_path: str) -> types.TrainingRun
 ```
@@ -108,7 +100,6 @@ Async version of get_training_run_by_tinker_path.
 #### `get_weights_info_by_tinker_path`
 
 ```python
-@capture_exceptions(fatal=True)
 def get_weights_info_by_tinker_path(
         tinker_path: str) -> APIFuture[types.WeightsInfoResponse]
 ```
@@ -131,8 +122,6 @@ print(f"Base Model: {response.base_model}, LoRA Rank: {response.lora_rank}")
 #### `list_training_runs`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def list_training_runs(
         limit: int = 20,
         offset: int = 0) -> ConcurrentFuture[types.TrainingRunsResponse]
@@ -160,7 +149,6 @@ next_page = rest_client.list_training_runs(limit=50, offset=50)
 #### `list_training_runs_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def list_training_runs_async(limit: int = 20,
                                    offset: int = 0
                                    ) -> types.TrainingRunsResponse
@@ -171,8 +159,6 @@ Async version of list_training_runs.
 #### `list_checkpoints`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def list_checkpoints(
     training_run_id: types.ModelID
 ) -> ConcurrentFuture[types.CheckpointsListResponse]
@@ -200,7 +186,6 @@ for checkpoint in response.checkpoints:
 #### `list_checkpoints_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def list_checkpoints_async(
         training_run_id: types.ModelID) -> types.CheckpointsListResponse
 ```
@@ -210,8 +195,6 @@ Async version of list_checkpoints.
 #### `get_checkpoint_archive_url`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def get_checkpoint_archive_url(
     training_run_id: types.ModelID, checkpoint_id: str
 ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]
@@ -238,7 +221,6 @@ print(f"Expires at: {response.expires_at}")
 #### `get_checkpoint_archive_url_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_checkpoint_archive_url_async(
         training_run_id: types.ModelID,
         checkpoint_id: str) -> types.CheckpointArchiveUrlResponse
@@ -249,8 +231,6 @@ Async version of get_checkpoint_archive_url.
 #### `delete_checkpoint`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def delete_checkpoint(training_run_id: types.ModelID,
                       checkpoint_id: str) -> ConcurrentFuture[None]
 ```
@@ -260,7 +240,6 @@ Delete a checkpoint for a training run.
 #### `delete_checkpoint_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def delete_checkpoint_async(training_run_id: types.ModelID,
                                   checkpoint_id: str) -> None
 ```
@@ -270,8 +249,6 @@ Async version of delete_checkpoint.
 #### `delete_checkpoint_from_tinker_path`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def delete_checkpoint_from_tinker_path(
         tinker_path: str) -> ConcurrentFuture[None]
 ```
@@ -281,7 +258,6 @@ Delete a checkpoint referenced by a tinker path.
 #### `delete_checkpoint_from_tinker_path_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def delete_checkpoint_from_tinker_path_async(tinker_path: str) -> None
 ```
 
@@ -290,8 +266,6 @@ Async version of delete_checkpoint_from_tinker_path.
 #### `get_checkpoint_archive_url_from_tinker_path`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def get_checkpoint_archive_url_from_tinker_path(
         tinker_path: str
 ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]
@@ -308,7 +282,6 @@ Returns:
 #### `get_checkpoint_archive_url_from_tinker_path_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_checkpoint_archive_url_from_tinker_path_async(
         tinker_path: str) -> types.CheckpointArchiveUrlResponse
 ```
@@ -318,8 +291,6 @@ Async version of get_checkpoint_archive_url_from_tinker_path.
 #### `publish_checkpoint_from_tinker_path`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def publish_checkpoint_from_tinker_path(
         tinker_path: str) -> ConcurrentFuture[None]
 ```
@@ -351,7 +322,6 @@ print("Checkpoint published successfully")
 #### `publish_checkpoint_from_tinker_path_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def publish_checkpoint_from_tinker_path_async(tinker_path: str) -> None
 ```
 
@@ -360,8 +330,6 @@ Async version of publish_checkpoint_from_tinker_path.
 #### `unpublish_checkpoint_from_tinker_path`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def unpublish_checkpoint_from_tinker_path(
         tinker_path: str) -> ConcurrentFuture[None]
 ```
@@ -393,7 +361,6 @@ print("Checkpoint unpublished successfully")
 #### `unpublish_checkpoint_from_tinker_path_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def unpublish_checkpoint_from_tinker_path_async(
         tinker_path: str) -> None
 ```
@@ -403,8 +370,6 @@ Async version of unpublish_checkpoint_from_tinker_path.
 #### `list_user_checkpoints`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def list_user_checkpoints(
         limit: int = 100,
         offset: int = 0) -> ConcurrentFuture[types.CheckpointsListResponse]
@@ -439,7 +404,6 @@ if response.cursor and response.cursor.offset + response.cursor.limit < response
 #### `list_user_checkpoints_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def list_user_checkpoints_async(limit: int = 100,
                                       offset: int = 0
                                       ) -> types.CheckpointsListResponse
@@ -450,8 +414,6 @@ Async version of list_user_checkpoints.
 #### `get_session`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def get_session(session_id: str) -> ConcurrentFuture[types.GetSessionResponse]
 ```
 
@@ -474,7 +436,6 @@ print(f"Samplers: {len(response.sampler_ids)}")
 #### `get_session_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_session_async(session_id: str) -> types.GetSessionResponse
 ```
 
@@ -483,8 +444,6 @@ Async version of get_session.
 #### `list_sessions`
 
 ```python
-@sync_only
-@capture_exceptions(fatal=True)
 def list_sessions(
         limit: int = 20,
         offset: int = 0) -> ConcurrentFuture[types.ListSessionsResponse]
@@ -511,7 +470,6 @@ next_page = rest_client.list_sessions(limit=50, offset=50)
 #### `list_sessions_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def list_sessions_async(limit: int = 20,
                               offset: int = 0) -> types.ListSessionsResponse
 ```
@@ -521,7 +479,6 @@ Async version of list_sessions.
 #### `get_sampler`
 
 ```python
-@capture_exceptions(fatal=True)
 def get_sampler(sampler_id: str) -> APIFuture[types.GetSamplerResponse]
 ```
 
@@ -549,7 +506,6 @@ print(f"Base model: {response.base_model}")
 #### `get_sampler_async`
 
 ```python
-@capture_exceptions(fatal=True)
 async def get_sampler_async(sampler_id: str) -> types.GetSamplerResponse
 ```
 

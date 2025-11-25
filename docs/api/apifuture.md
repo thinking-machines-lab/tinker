@@ -1,5 +1,3 @@
-# `tinker.lib.public_interfaces.api_future`
-
 API Future classes for handling async operations with retry logic.
 
 ## `APIFuture` Objects
@@ -41,7 +39,6 @@ result = future.result()
 #### `result_async`
 
 ```python
-@abstractmethod
 async def result_async(timeout: float | None = None) -> T
 ```
 
@@ -59,7 +56,6 @@ Raises:
 #### `result`
 
 ```python
-@abstractmethod
 def result(timeout: float | None = None) -> T
 ```
 

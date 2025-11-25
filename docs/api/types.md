@@ -1,5 +1,3 @@
-# `tinker.types.optim_step_request`
-
 ## `AdamParams` Objects
 
 ```python
@@ -22,8 +20,6 @@ Coefficient used for computing running averages of gradient square
 
 Term added to the denominator to improve numerical stability
 
-# `tinker.types.optim_step_response`
-
 ## `OptimStepResponse` Objects
 
 ```python
@@ -33,8 +29,6 @@ class OptimStepResponse(BaseModel)
 #### `metrics`
 
 Optimization step metrics as key-value pairs
-
-# `tinker.types.model_input`
 
 ## `ModelInput` Objects
 
@@ -49,7 +43,6 @@ Sequence of input chunks (formerly TokenSequence)
 #### `from_ints`
 
 ```python
-@classmethod
 def from_ints(cls, tokens: List[int]) -> "ModelInput"
 ```
 
@@ -67,7 +60,6 @@ Throws exception if there are any non-token chunks
 #### `length`
 
 ```python
-@property
 def length() -> int
 ```
 
@@ -76,7 +68,6 @@ Return the total context length used by this ModelInput.
 #### `empty`
 
 ```python
-@classmethod
 def empty(cls) -> "ModelInput"
 ```
 
@@ -98,8 +89,6 @@ def append_int(token: int) -> "ModelInput"
 
 Add a new token, return a new ModelInput.
 
-# `tinker.types.weights_info_response`
-
 ## `WeightsInfoResponse` Objects
 
 ```python
@@ -107,8 +96,6 @@ class WeightsInfoResponse(BaseModel)
 ```
 
 Minimal information for loading public checkpoints.
-
-# `tinker.types.checkpoint`
 
 ## `Checkpoint` Objects
 
@@ -165,13 +152,10 @@ The checkpoint ID
 #### `from_tinker_path`
 
 ```python
-@classmethod
 def from_tinker_path(cls, tinker_path: str) -> "ParsedCheckpointTinkerPath"
 ```
 
 Parse a tinker path to an instance of ParsedCheckpointTinkerPath
-
-# `tinker.types.checkpoint_archive_url_response`
 
 ## `CheckpointArchiveUrlResponse` Objects
 
@@ -186,8 +170,6 @@ Signed URL to download the checkpoint archive
 #### `expires`
 
 Unix timestamp when the signed URL expires, if available
-
-# `tinker.types.sampled_sequence`
 
 ## `SampledSequence` Objects
 
@@ -207,8 +189,6 @@ List of generated token IDs
 
 Log probabilities for each token (optional)
 
-# `tinker.types.try_again_response`
-
 ## `TryAgainResponse` Objects
 
 ```python
@@ -218,8 +198,6 @@ class TryAgainResponse(BaseModel)
 #### `request_id`
 
 Request ID that is still pending
-
-# `tinker.types.load_weights_request`
 
 ## `LoadWeightsRequest` Objects
 
@@ -235,8 +213,6 @@ A tinker URI for model weights at a specific step
 
 Whether to load optimizer state along with model weights
 
-# `tinker.types.telemetry_send_request`
-
 ## `TelemetrySendRequest` Objects
 
 ```python
@@ -250,8 +226,6 @@ Host platform name
 #### `sdk_version`
 
 SDK version string
-
-# `tinker.types.image_asset_pointer_chunk`
 
 ## `ImageAssetPointerChunk` Objects
 
@@ -279,8 +253,6 @@ Number of tokens this image represents
 
 Image width in pixels
 
-# `tinker.types.checkpoints_list_response`
-
 ## `CheckpointsListResponse` Objects
 
 ```python
@@ -294,8 +266,6 @@ List of available model checkpoints for the model
 #### `cursor`
 
 Pagination cursor information (None for unpaginated responses)
-
-# `tinker.types.generic_event`
 
 ## `GenericEvent` Objects
 
@@ -319,8 +289,6 @@ Log severity level
 
 Arbitrary structured JSON payload
 
-# `tinker.types.encoded_text_chunk`
-
 ## `EncodedTextChunk` Objects
 
 ```python
@@ -330,8 +298,6 @@ class EncodedTextChunk(StrictBase)
 #### `tokens`
 
 Array of token IDs
-
-# `tinker.types.forward_backward_input`
 
 ## `ForwardBackwardInput` Objects
 
@@ -351,8 +317,6 @@ Fully qualified function path for the loss function
 
 Optional configuration parameters for the loss function (e.g., PPO clip thresholds, DPO beta)
 
-# `tinker.types.session_start_event`
-
 ## `SessionStartEvent` Objects
 
 ```python
@@ -366,8 +330,6 @@ Telemetry event type
 #### `severity`
 
 Log severity level
-
-# `tinker.types.training_runs_response`
 
 ## `TrainingRunsResponse` Objects
 
@@ -383,8 +345,6 @@ List of training runs
 
 Pagination cursor information
 
-# `tinker.types.save_weights_response`
-
 ## `SaveWeightsResponse` Objects
 
 ```python
@@ -394,8 +354,6 @@ class SaveWeightsResponse(BaseModel)
 #### `path`
 
 A tinker URI for model weights at a specific step
-
-# `tinker.types.sample_request`
 
 ## `SampleRequest` Objects
 
@@ -444,8 +402,6 @@ Defaults to false.
 
 If set to a positive integer, returns the top-k logprobs for each prompt token.
 
-# `tinker.types.forward_backward_output`
-
 ## `ForwardBackwardOutput` Objects
 
 ```python
@@ -463,8 +419,6 @@ Dictionary mapping field names to tensor data
 #### `metrics`
 
 Training metrics as key-value pairs
-
-# `tinker.types.sample_response`
 
 ## `SampleResponse` Objects
 
@@ -485,8 +439,6 @@ the top-k logprobs are computed for every token in the prompt. The
 `topk_prompt_logprobs` response contains, for every token in the prompt,
 a list of up to k (token_id, logprob) tuples.
 
-# `tinker.types.create_sampling_session_response`
-
 ## `CreateSamplingSessionResponse` Objects
 
 ```python
@@ -496,8 +448,6 @@ class CreateSamplingSessionResponse(BaseModel)
 #### `sampling_session_id`
 
 The generated sampling session ID
-
-# `tinker.types.cursor`
 
 ## `Cursor` Objects
 
@@ -517,8 +467,6 @@ The maximum number of items requested
 
 The total number of items available
 
-# `tinker.types.create_model_request`
-
 ## `CreateModelRequest` Objects
 
 ```python
@@ -528,8 +476,6 @@ class CreateModelRequest(StrictBase)
 #### `base_model`
 
 Optional metadata about this model/training run, set by the end-user
-
-# `tinker.types.datum`
 
 ## `Datum` Objects
 
@@ -544,14 +490,10 @@ Dictionary mapping field names to tensor data
 #### `convert_tensors`
 
 ```python
-@model_validator(mode="before")
-@classmethod
 def convert_tensors(cls, data: Any) -> Any
 ```
 
 Convert torch.Tensor and numpy arrays to TensorData in loss_fn_inputs during construction.
-
-# `tinker.types.training_run`
 
 ## `TrainingRun` Objects
 
@@ -599,8 +541,6 @@ The most recent sampler checkpoint, if available
 
 Optional metadata about this training run, set by the end-user
 
-# `tinker.types.session_end_event`
-
 ## `SessionEndEvent` Objects
 
 ```python
@@ -619,8 +559,6 @@ Telemetry event type
 
 Log severity level
 
-# `tinker.types.telemetry_batch`
-
 ## `TelemetryBatch` Objects
 
 ```python
@@ -634,8 +572,6 @@ Host platform name
 #### `sdk_version`
 
 SDK version string
-
-# `tinker.types.unhandled_exception_event`
 
 ## `UnhandledExceptionEvent` Objects
 
@@ -654,8 +590,6 @@ Log severity level
 #### `traceback`
 
 Optional Python traceback string
-
-# `tinker.types.image_chunk`
 
 ## `ImageChunk` Objects
 
@@ -693,8 +627,6 @@ match expected_tokens.
 #### `validate_data`
 
 ```python
-@field_validator("data", mode="before")
-@classmethod
 def validate_data(cls, value: Union[bytes, str]) -> bytes
 ```
 
@@ -703,13 +635,10 @@ Deserialize base64 string to bytes if needed.
 #### `serialize_data`
 
 ```python
-@field_serializer("data")
 def serialize_data(value: bytes) -> str
 ```
 
 Serialize bytes to base64 string for JSON.
-
-# `tinker.types.save_weights_request`
 
 ## `SaveWeightsRequest` Objects
 
@@ -720,8 +649,6 @@ class SaveWeightsRequest(StrictBase)
 #### `path`
 
 A file/directory name for the weights
-
-# `tinker.types.lora_config`
 
 ## `LoraConfig` Objects
 
@@ -751,8 +678,6 @@ Whether to add loras to the MLP layers (including MoE layers)
 
 Whether to add loras to the attention layers
 
-# `tinker.types.create_sampling_session_request`
-
 ## `CreateSamplingSessionRequest` Objects
 
 ```python
@@ -780,8 +705,6 @@ Optional tinker:// path to your model weights or LoRA weights.
 
 If not provided, samples against the base model.
 
-# `tinker.types.future_retrieve_request`
-
 ## `FutureRetrieveRequest` Objects
 
 ```python
@@ -791,8 +714,6 @@ class FutureRetrieveRequest(StrictBase)
 #### `request_id`
 
 The ID of the request to retrieve
-
-# `tinker.types.tensor_data`
 
 ## `TensorData` Objects
 
@@ -828,8 +749,6 @@ def to_torch() -> "torch.Tensor"
 
 Convert TensorData to torch tensor.
 
-# `tinker.types.save_weights_for_sampler_request`
-
 ## `SaveWeightsForSamplerRequest` Objects
 
 ```python
@@ -839,8 +758,6 @@ class SaveWeightsForSamplerRequest(StrictBase)
 #### `path`
 
 A file/directory name for the weights
-
-# `tinker.types.sampling_params`
 
 ## `SamplingParams` Objects
 
@@ -872,8 +789,6 @@ Top-k sampling parameter (-1 for no limit)
 
 Nucleus sampling probability
 
-# `tinker.types.save_weights_for_sampler_response`
-
 ## `SaveWeightsForSamplerResponseInternal` Objects
 
 ```python
@@ -897,8 +812,6 @@ class SaveWeightsForSamplerResponse(BaseModel)
 #### `path`
 
 A tinker URI for model weights for sampling at a specific step
-
-# `tinker.types.load_weights_response`
 
 ## `LoadWeightsResponse` Objects
 
