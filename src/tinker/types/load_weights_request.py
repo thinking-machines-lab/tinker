@@ -14,6 +14,9 @@ class LoadWeightsRequest(StrictBase):
     path: str
     """A tinker URI for model weights at a specific step"""
 
+    optimizer: bool
+    """Whether to load optimizer state along with model weights"""
+
     seq_id: Optional[int] = None
 
     type: Literal["load_weights"] = "load_weights"

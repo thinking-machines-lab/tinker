@@ -40,14 +40,16 @@ class ServiceClient(TelemetryProvider):
                  including API keys, headers, and connection settings.
 
     Example:
-        >>> client = ServiceClient()
-            # ^^^ near-instant
-        >>> training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
-            # ^^^ takes a moment as we initialize the model and assign resources
-        >>> sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
-            # ^^^ near-instant
-        >>> rest_client = client.create_rest_client()
-            # ^^^ near-instant
+    ```python
+    client = ServiceClient()
+    # ^^^ near-instant
+    training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
+    # ^^^ takes a moment as we initialize the model and assign resources
+    sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
+    # ^^^ near-instant
+    rest_client = client.create_rest_client()
+    # ^^^ near-instant
+    ```
     """
 
     def __init__(self, user_metadata: dict[str, str] | None = None, **kwargs: Any):
@@ -75,10 +77,23 @@ class ServiceClient(TelemetryProvider):
     @sync_only
     @capture_exceptions(fatal=True)
     def get_server_capabilities(self) -> types.GetServerCapabilitiesResponse:
+        """Query the server's supported features and capabilities.
+
+        Returns:
+            GetServerCapabilitiesResponse with available models, features, and limits
+
+        Example:
+        ```python
+        capabilities = service_client.get_server_capabilities()
+        print(f"Supported models: {capabilities.supported_models}")
+        print(f"Max batch size: {capabilities.max_batch_size}")
+        ```
+        """
         return self._get_server_capabilities_submit().result()
 
     @capture_exceptions(fatal=True)
     async def get_server_capabilities_async(self) -> types.GetServerCapabilitiesResponse:
+        """Async version of get_server_capabilities."""
         return await self._get_server_capabilities_submit()
 
     def _create_lora_training_client_submit(
@@ -142,6 +157,31 @@ class ServiceClient(TelemetryProvider):
         train_unembed: bool = True,
         user_metadata: dict[str, str] | None = None,
     ) -> TrainingClient:
+        """Create a TrainingClient for LoRA fine-tuning.
+
+        Args:
+            base_model: Name of the base model to fine-tune (e.g., "Qwen/Qwen2.5-7B")
+            rank: LoRA rank controlling the size of adaptation matrices (default 32)
+            seed: Random seed for initialization. None means random seed.
+            train_mlp: Whether to train MLP layers (default True)
+            train_attn: Whether to train attention layers (default True)
+            train_unembed: Whether to train unembedding layers (default True)
+            user_metadata: Optional metadata to attach to the training run
+
+        Returns:
+            TrainingClient configured for LoRA training
+
+        Example:
+        ```python
+        training_client = service_client.create_lora_training_client(
+            base_model="Qwen/Qwen2.5-7B",
+            rank=16,
+            train_mlp=True,
+            train_attn=True
+        )
+        # Now use training_client.forward_backward() to train
+        ```
+        """
         return self._create_lora_training_client_submit(
             base_model,
             rank,
@@ -163,6 +203,7 @@ class ServiceClient(TelemetryProvider):
         train_unembed: bool = True,
         user_metadata: dict[str, str] | None = None,
     ) -> TrainingClient:
+        """Async version of create_lora_training_client."""
         return await self._create_lora_training_client_submit(
             base_model,
             rank,
@@ -178,16 +219,32 @@ class ServiceClient(TelemetryProvider):
     def create_training_client_from_state(
         self, path: str, user_metadata: dict[str, str] | None = None
     ) -> TrainingClient:
-        rest_client = self.create_rest_client()
-        training_run = rest_client.get_training_run_by_tinker_path(path).result()
+        """Create a TrainingClient from saved model weights.
 
-        # Merge user metadata dicts
-        user_metdata = {**(training_run.user_metadata or {}), **(user_metadata or {})}
+        Args:
+            path: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+            user_metadata: Optional metadata to attach to the new training run
+
+        Returns:
+            TrainingClient loaded with the specified weights
+
+        Example:
+        ```python
+        # Resume training from a checkpoint
+        training_client = service_client.create_training_client_from_state(
+            "tinker://run-id/weights/checkpoint-001"
+        )
+        # Continue training from the loaded state
+        ```
+        """
+        rest_client = self.create_rest_client()
+        # Use weights info endpoint which allows access to models with public checkpoints
+        weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
 
         training_client = self.create_lora_training_client(
-            base_model=training_run.base_model,
-            rank=training_run.lora_rank,
-            user_metadata=user_metdata,
+            base_model=weights_info.base_model,
+            rank=weights_info.lora_rank,
+            user_metadata=user_metadata,
         )
 
         training_client.load_state(path).result()
@@ -197,18 +254,18 @@ class ServiceClient(TelemetryProvider):
     async def create_training_client_from_state_async(
         self, path: str, user_metadata: dict[str, str] | None = None
     ) -> TrainingClient:
+        """Async version of create_training_client_from_state."""
         rest_client = self.create_rest_client()
-        training_run = await rest_client.get_training_run_by_tinker_path_async(path)
+        # Use weights info endpoint which allows access to models with public checkpoints
+        weights_info = await rest_client.get_weights_info_by_tinker_path(path)
 
         # Right now all training runs are LoRa runs.
-        assert training_run.is_lora and training_run.lora_rank is not None
-        # Merge user metadata dicts
-        user_metdata = {**(training_run.user_metadata or {}), **(user_metadata or {})}
+        assert weights_info.is_lora and weights_info.lora_rank is not None
 
         training_client = await self.create_lora_training_client_async(
-            base_model=training_run.base_model,
-            rank=training_run.lora_rank,
-            user_metadata=user_metdata,
+            base_model=weights_info.base_model,
+            rank=weights_info.lora_rank,
+            user_metadata=user_metadata,
         )
 
         load_future = await training_client.load_state_async(path)
@@ -222,6 +279,32 @@ class ServiceClient(TelemetryProvider):
         base_model: str | None = None,
         retry_config: RetryConfig | None = None,
     ) -> SamplingClient:
+        """Create a SamplingClient for text generation.
+
+        Args:
+            model_path: Path to saved model weights (e.g., "tinker://run-id/weights/checkpoint-001")
+            base_model: Name of base model to use (e.g., "Qwen/Qwen2.5-7B")
+            retry_config: Optional configuration for retrying failed requests
+
+        Returns:
+            SamplingClient configured for text generation
+
+        Raises:
+            ValueError: If neither model_path nor base_model is provided
+
+        Example:
+        ```python
+        # Use a base model
+        sampling_client = service_client.create_sampling_client(
+            base_model="Qwen/Qwen2.5-7B"
+        )
+
+        # Or use saved weights
+        sampling_client = service_client.create_sampling_client(
+            model_path="tinker://run-id/weights/checkpoint-001"
+        )
+        ```
+        """
         from .sampling_client import SamplingClient
 
         if model_path is None and base_model is None:
@@ -240,6 +323,7 @@ class ServiceClient(TelemetryProvider):
         base_model: str | None = None,
         retry_config: RetryConfig | None = None,
     ) -> SamplingClient:
+        """Async version of create_sampling_client."""
         from .sampling_client import SamplingClient
 
         if model_path is None and base_model is None:
@@ -255,12 +339,27 @@ class ServiceClient(TelemetryProvider):
     def create_rest_client(self) -> RestClient:
         """Create a RestClient for REST API operations.
 
+        The RestClient provides access to various REST endpoints for querying
+        model information, checkpoints, sessions, and managing checkpoint visibility.
+
         Returns:
-            RestClient: A client for listing weights and other REST operations
+            RestClient for accessing REST API endpoints
 
         Example:
-            >>> rest_client = service_client.create_rest_client()
-            >>> weights = rest_client.list_model_weights("my-model-id").result()
+        ```python
+        rest_client = service_client.create_rest_client()
+
+        # List checkpoints for a training run
+        checkpoints = rest_client.list_checkpoints("run-id").result()
+
+        # Get training run info
+        training_run = rest_client.get_training_run("run-id").result()
+
+        # Publish a checkpoint
+        rest_client.publish_checkpoint_from_tinker_path(
+            "tinker://run-id/weights/checkpoint-001"
+        ).result()
+        ```
         """
         from .rest_client import RestClient
 

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
-from typing_extensions import Literal
 
 __all__ = [
     "BadRequestError",
@@ -22,10 +21,14 @@ if TYPE_CHECKING:
 
 
 class TinkerError(Exception):
+    """Base exception for all Tinker-related errors."""
+
     pass
 
 
 class APIError(TinkerError):
+    """Base class for all API-related errors."""
+
     message: str
     request: httpx.Request
 
@@ -48,11 +51,19 @@ class APIError(TinkerError):
 
 
 class APIResponseValidationError(APIError):
+    """Raised when API response doesn't match expected schema."""
+
     response: httpx.Response
     status_code: int
 
-    def __init__(self, response: httpx.Response, body: object | None, *, message: str | None = None) -> None:
-        super().__init__(message or "Data returned by API invalid for expected schema.", response.request, body=body)
+    def __init__(
+        self, response: httpx.Response, body: object | None, *, message: str | None = None
+    ) -> None:
+        super().__init__(
+            message or "Data returned by API invalid for expected schema.",
+            response.request,
+            body=body,
+        )
         self.response = response
         self.status_code = response.status_code
 
@@ -70,44 +81,64 @@ class APIStatusError(APIError):
 
 
 class APIConnectionError(APIError):
+    """Raised when a connection error occurs while making an API request."""
+
     def __init__(self, *, message: str = "Connection error.", request: httpx.Request) -> None:
         super().__init__(message, request, body=None)
 
 
 class APITimeoutError(APIConnectionError):
+    """Raised when an API request times out."""
+
     def __init__(self, request: httpx.Request) -> None:
         super().__init__(message="Request timed out.", request=request)
 
 
 class BadRequestError(APIStatusError):
-    status_code: Literal[400] = 400  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 400: The request was invalid or malformed."""
+
+    status_code: int = 400
 
 
 class AuthenticationError(APIStatusError):
-    status_code: Literal[401] = 401  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 401: Authentication credentials are missing or invalid."""
+
+    status_code: int = 401
 
 
 class PermissionDeniedError(APIStatusError):
-    status_code: Literal[403] = 403  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 403: Insufficient permissions to access the resource."""
+
+    status_code: int = 403
 
 
 class NotFoundError(APIStatusError):
-    status_code: Literal[404] = 404  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 404: The requested resource was not found."""
+
+    status_code: int = 404
 
 
 class ConflictError(APIStatusError):
-    status_code: Literal[409] = 409  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 409: The request conflicts with the current state of the resource."""
+
+    status_code: int = 409
 
 
 class UnprocessableEntityError(APIStatusError):
-    status_code: Literal[422] = 422  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 422: The request was well-formed but contains semantic errors."""
+
+    status_code: int = 422
 
 
 class RateLimitError(APIStatusError):
-    status_code: Literal[429] = 429  # pyright: ignore[reportIncompatibleVariableOverride]
+    """HTTP 429: Too many requests, rate limit exceeded."""
+
+    status_code: int = 429
 
 
 class InternalServerError(APIStatusError):
+    """HTTP 500+: An error occurred on the server."""
+
     pass
 
 

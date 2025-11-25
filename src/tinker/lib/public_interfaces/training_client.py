@@ -62,12 +62,14 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         model_id: Unique identifier for the model to train. Required for training operations.
 
     Example:
-        >>> training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen2.5-7B")
-        >>> fwdbwd_future = training_client.forward_backward(training_data, "cross_entropy")
-        >>> optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
-        >>> fwdbwd_result = fwdbwd_future.result()  # Wait for gradients
-        >>> optim_result = optim_future.result()    # Wait for parameter update
-        >>> sampling_client = training_client.save_weights_and_get_sampling_client("my-model")
+    ```python
+    training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen2.5-7B")
+    fwdbwd_future = training_client.forward_backward(training_data, "cross_entropy")
+    optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+    fwdbwd_result = fwdbwd_future.result()  # Wait for gradients
+    optim_result = optim_future.result()    # Wait for parameter update
+    sampling_client = training_client.save_weights_and_get_sampling_client("my-model")
+    ```
     """
 
     def __init__(self, holder: InternalClientHolder, model_seq_id: int, model_id: types.ModelID):
@@ -175,6 +177,27 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         loss_fn: types.LossFnType,
         loss_fn_config: Dict[str, float] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Compute forward pass without gradients.
+
+        Args:
+            data: List of training data samples
+            loss_fn: Loss function type (e.g., "cross_entropy")
+            loss_fn_config: Optional configuration for the loss function
+
+        Returns:
+            APIFuture containing the forward pass outputs and loss
+
+        Example:
+        ```python
+        data = [types.Datum(
+            model_input=types.ModelInput.from_ints(tokenizer.encode("Hello")),
+            loss_fn_inputs={"target_tokens": types.ModelInput.from_ints(tokenizer.encode("world"))}
+        )]
+        future = training_client.forward(data, "cross_entropy")
+        result = await future
+        print(f"Loss: {result.loss}")
+        ```
+        """
         requests = self._chunked_requests(data)
 
         @capture_exceptions(fatal=True)
@@ -205,6 +228,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         loss_fn: types.LossFnType,
         loss_fn_config: Dict[str, float] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Async version of forward."""
         return self.forward(data, loss_fn, loss_fn_config)
 
     async def _send_single_forward_backward_request(
@@ -233,6 +257,35 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         loss_fn: types.LossFnType,
         loss_fn_config: Dict[str, float] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Compute forward pass and backward pass to calculate gradients.
+
+        Args:
+            data: List of training data samples
+            loss_fn: Loss function type (e.g., "cross_entropy")
+            loss_fn_config: Optional configuration for the loss function
+
+        Returns:
+            APIFuture containing the forward/backward outputs, loss, and gradients
+
+        Example:
+        ```python
+        data = [types.Datum(
+            model_input=types.ModelInput.from_ints(tokenizer.encode("Hello")),
+            loss_fn_inputs={"target_tokens": types.ModelInput.from_ints(tokenizer.encode("world"))}
+        )]
+
+        # Compute gradients
+        fwdbwd_future = training_client.forward_backward(data, "cross_entropy")
+
+        # Update parameters
+        optim_future = training_client.optim_step(
+            types.AdamParams(learning_rate=1e-4)
+        )
+
+        fwdbwd_result = await fwdbwd_future
+        print(f"Loss: {fwdbwd_result.loss}")
+        ```
+        """
         requests = self._chunked_requests(data)
 
         @capture_exceptions(fatal=True)
@@ -269,6 +322,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         loss_fn: types.LossFnType,
         loss_fn_config: Dict[str, float] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Async version of forward_backward."""
         return self.forward_backward(data, loss_fn, loss_fn_config)
 
     @sync_only
@@ -276,7 +330,32 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def forward_backward_custom(
         self, data: List[types.Datum], loss_fn: CustomLossFnV1
     ) -> APIFuture[types.ForwardBackwardOutput]:
-        """Synchronous version of forward_backward_custom_async."""
+        """Compute forward/backward with a custom loss function.
+
+        Allows you to define custom loss functions that operate on log probabilities.
+        The custom function receives logprobs and computes loss and gradients.
+
+        Args:
+            data: List of training data samples
+            loss_fn: Custom loss function that takes (data, logprobs) and returns (loss, metrics)
+
+        Returns:
+            APIFuture containing the forward/backward outputs with custom loss
+
+        Example:
+        ```python
+        def custom_loss(data, logprobs_list):
+            # Custom loss computation
+            loss = torch.mean(torch.stack([torch.mean(lp) for lp in logprobs_list]))
+            metrics = {"custom_metric": loss.item()}
+            return loss, metrics
+
+        future = training_client.forward_backward_custom(data, custom_loss)
+        result = future.result()
+        print(f"Custom loss: {result.loss}")
+        print(f"Metrics: {result.metrics}")
+        ```
+        """
         return self.holder.run_coroutine_threadsafe(
             self.forward_backward_custom_async(data, loss_fn)
         ).result()
@@ -285,6 +364,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     async def forward_backward_custom_async(
         self, data: List[types.Datum], loss_fn: CustomLossFnV1
     ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Async version of forward_backward_custom."""
         import torch
 
         # First do a forward pass and get logprobs
@@ -333,6 +413,32 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     @capture_exceptions(fatal=True)
     def optim_step(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:
+        """Update model parameters using Adam optimizer.
+
+        Args:
+            adam_params: Adam optimizer parameters (learning_rate, betas, eps, weight_decay)
+
+        Returns:
+            APIFuture containing optimizer step response
+
+        Example:
+        ```python
+        # First compute gradients
+        fwdbwd_future = training_client.forward_backward(data, "cross_entropy")
+
+        # Then update parameters
+        optim_future = training_client.optim_step(
+            types.AdamParams(
+                learning_rate=1e-4,
+                weight_decay=0.01
+            )
+        )
+
+        # Wait for both to complete
+        fwdbwd_result = await fwdbwd_future
+        optim_result = await optim_future
+        ```
+        """
         request_id = self._get_request_id()
 
         @capture_exceptions(fatal=True)
@@ -366,10 +472,27 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     async def optim_step_async(
         self, adam_params: types.AdamParams
     ) -> APIFuture[types.OptimStepResponse]:
+        """Async version of optim_step."""
         return self.optim_step(adam_params)
 
     @capture_exceptions(fatal=True)
     def save_state(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
+        """Save model weights to persistent storage.
+
+        Args:
+            name: Name for the saved checkpoint
+
+        Returns:
+            APIFuture containing the save response with checkpoint path
+
+        Example:
+        ```python
+        # Save after training
+        save_future = training_client.save_state("checkpoint-001")
+        result = await save_future
+        print(f"Saved to: {result.path}")
+        ```
+        """
         request_id = self._get_request_id()
 
         @capture_exceptions(fatal=True)
@@ -401,42 +524,91 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return self.holder.run_coroutine_threadsafe(_save_state_async())
 
     async def save_state_async(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
+        """Async version of save_state."""
         return self.save_state(name)
 
     @capture_exceptions(fatal=True)
-    def load_state(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
-        request_id = self._get_request_id()
+    async def _load_state_impl(
+        self, request_id: int, path: str, optimizer: bool
+    ) -> types.LoadWeightsResponse:
+        start_time = time.time()
 
-        @capture_exceptions(fatal=True)
-        async def _load_state_async():
-            start_time = time.time()
-
-            async def _send_request():
-                request = types.LoadWeightsRequest(
-                    model_id=self._guaranteed_model_id(),
-                    path=path,
-                    seq_id=request_id + 1,
-                )
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.weights.load(
-                        request=request,
-                    )
-
-            async with self._take_turn(request_id):
-                future = await self.holder.execute_with_retries(_send_request)
-            return await _APIFuture(
-                types.LoadWeightsResponse,
-                self.holder,
-                future,
-                request_start_time=start_time,
-                request_type="LoadWeights",
-                queue_state_observer=self,
+        async def _send_request():
+            request = types.LoadWeightsRequest(
+                model_id=self._guaranteed_model_id(),
+                path=path,
+                seq_id=request_id + 1,
+                optimizer=optimizer,
             )
+            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                return await client.weights.load(
+                    request=request,
+                )
 
-        return self.holder.run_coroutine_threadsafe(_load_state_async())
+        async with self._take_turn(request_id):
+            future = await self.holder.execute_with_retries(_send_request)
+        return await _APIFuture(
+            types.LoadWeightsResponse,
+            self.holder,
+            future,
+            request_start_time=start_time,
+            request_type="LoadWeights",
+            queue_state_observer=self,
+        )
+
+    @capture_exceptions(fatal=True)
+    def load_state(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+        """Load model weights from a saved checkpoint.
+
+        Args:
+            path: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+
+        Returns:
+            APIFuture containing the load response
+
+        Example:
+        ```python
+        # Load checkpoint to continue training
+        load_future = training_client.load_state("tinker://run-id/weights/checkpoint-001")
+        await load_future
+        # Continue training from loaded state
+        ```
+        """
+        request_id = self._get_request_id()
+        return self.holder.run_coroutine_threadsafe(self._load_state_impl(request_id, path, False))
 
     async def load_state_async(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+        """Async version of load_state."""
         return self.load_state(path)
+
+    @capture_exceptions(fatal=True)
+    def load_state_with_optimizer(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+        """Load model weights and optimizer state from a checkpoint.
+
+        Args:
+            path: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+
+        Returns:
+            APIFuture containing the load response
+
+        Example:
+        ```python
+        # Resume training with optimizer state
+        load_future = training_client.load_state_with_optimizer(
+            "tinker://run-id/weights/checkpoint-001"
+        )
+        await load_future
+        # Continue training with restored optimizer momentum
+        ```
+        """
+        request_id = self._get_request_id()
+        return self.holder.run_coroutine_threadsafe(self._load_state_impl(request_id, path, True))
+
+    async def load_state_with_optimizer_async(
+        self, path: str
+    ) -> APIFuture[types.LoadWeightsResponse]:
+        """Async version of load_state_with_optimizer."""
+        return self.load_state_with_optimizer(path)
 
     @capture_exceptions(fatal=True)
     async def _save_weights_for_sampler_impl(
@@ -478,6 +650,27 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     @capture_exceptions(fatal=True)
     def save_weights_for_sampler(self, name: str) -> APIFuture[types.SaveWeightsForSamplerResponse]:
+        """Save model weights for use with a SamplingClient.
+
+        Args:
+            name: Name for the saved sampler weights
+
+        Returns:
+            APIFuture containing the save response with sampler path
+
+        Example:
+        ```python
+        # Save weights for inference
+        save_future = training_client.save_weights_for_sampler("sampler-001")
+        result = await save_future
+        print(f"Sampler weights saved to: {result.path}")
+
+        # Use the path to create a sampling client
+        sampling_client = service_client.create_sampling_client(
+            model_path=result.path
+        )
+        ```
+        """
         request_id = self._get_request_id()
 
         async def _save_weights_for_sampler_async():
@@ -490,6 +683,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     async def save_weights_for_sampler_async(
         self, name: str
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
+        """Async version of save_weights_for_sampler."""
         return self.save_weights_for_sampler(name)
 
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
@@ -508,28 +702,76 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     @sync_only
     @capture_exceptions(fatal=True)
     def get_info(self) -> types.GetInfoResponse:
+        """Get information about the current model.
+
+        Returns:
+            GetInfoResponse with model configuration and metadata
+
+        Example:
+        ```python
+        info = training_client.get_info()
+        print(f"Model ID: {info.model_data.model_id}")
+        print(f"Base model: {info.model_data.model_name}")
+        print(f"LoRA rank: {info.model_data.lora_rank}")
+        ```
+        """
         return self._get_info_submit().result()
 
     @capture_exceptions(fatal=True)
     async def get_info_async(self) -> types.GetInfoResponse:
+        """Async version of get_info."""
         return await self._get_info_submit()
 
     @cache
     @capture_exceptions(fatal=True)
     def get_tokenizer(self) -> PreTrainedTokenizer:
+        """Get the tokenizer for the current model.
+
+        Returns:
+            PreTrainedTokenizer compatible with the model
+
+        Example:
+        ```python
+        tokenizer = training_client.get_tokenizer()
+        tokens = tokenizer.encode("Hello world")
+        text = tokenizer.decode(tokens)
+        ```
+        """
         return _get_tokenizer(self._guaranteed_model_id(), self.holder)
 
     @capture_exceptions(fatal=True)
     def create_sampling_client(
         self, model_path: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
-        return SamplingClient.create(self.holder, model_path=model_path, retry_config=retry_config).result()
+        """Create a SamplingClient from saved weights.
+
+        Args:
+            model_path: Tinker path to saved weights
+            retry_config: Optional configuration for retrying failed requests
+
+        Returns:
+            SamplingClient configured with the specified weights
+
+        Example:
+        ```python
+        sampling_client = training_client.create_sampling_client(
+            "tinker://run-id/weights/checkpoint-001"
+        )
+        # Use sampling_client for inference
+        ```
+        """
+        return SamplingClient.create(
+            self.holder, model_path=model_path, retry_config=retry_config
+        ).result()
 
     @capture_exceptions(fatal=True)
     async def create_sampling_client_async(
         self, model_path: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
-        return await SamplingClient.create(self.holder, model_path=model_path, retry_config=retry_config)
+        """Async version of create_sampling_client."""
+        return await SamplingClient.create(
+            self.holder, model_path=model_path, retry_config=retry_config
+        )
 
     def save_weights_and_get_sampling_client_submit(
         self, retry_config: RetryConfig | None = None
@@ -552,6 +794,26 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def save_weights_and_get_sampling_client(
         self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
+        """Save current weights and create a SamplingClient for inference.
+
+        Args:
+            name: Optional name for the saved weights (currently ignored for ephemeral saves)
+            retry_config: Optional configuration for retrying failed requests
+
+        Returns:
+            SamplingClient configured with the current model weights
+
+        Example:
+        ```python
+        # After training, create a sampling client directly
+        sampling_client = training_client.save_weights_and_get_sampling_client()
+
+        # Now use it for inference
+        prompt = types.ModelInput.from_ints(tokenizer.encode("Hello"))
+        params = types.SamplingParams(max_tokens=20)
+        result = sampling_client.sample(prompt, 1, params).result()
+        ```
+        """
         # Ignore name argument for ephemeral save weights for sampler
         _ = name
         return self.save_weights_and_get_sampling_client_submit(retry_config).result()
@@ -560,6 +822,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     async def save_weights_and_get_sampling_client_async(
         self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
+        """Async version of save_weights_and_get_sampling_client."""
         # Ignore name argument for ephemeral save weights for sampler
         _ = name
         return await self.save_weights_and_get_sampling_client_submit(retry_config)
@@ -587,9 +850,11 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:
     # call get_info on model_id
     from transformers.models.auto.tokenization_auto import AutoTokenizer
+
     try:
         from tml_tokenizers import get_tinker_tokenizer
     except ImportError:
+
         def get_tinker_tokenizer(model_id: str) -> PreTrainedTokenizer | None:
             return None
 

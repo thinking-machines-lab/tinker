@@ -1,0 +1,25 @@
+# Pydoc-markdown configuration for Tinker Python SDK
+# Generates MDX-compatible documentation for Nextra integration
+
+loaders:
+  - type: python
+    search_path: []
+    packages: []
+    ignore_when_discovered: [__pycache__, tests, test_*, conftest, mock_*, _test*]
+
+processors:
+  - type: filter
+    documented_only: true
+    exclude_private: true
+    exclude_special: true
+    skip_empty_modules: true
+
+renderer:
+  type: markdown
+  classdef_code_block: true
+  code_headers: true
+  code_lang: true
+  escape_html_in_docstring: false
+  insert_header_anchors: false
+  signature_code_block: true
+  render_toc: false

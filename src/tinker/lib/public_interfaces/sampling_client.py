@@ -47,11 +47,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         retry_config: Configuration for retrying failed requests
 
     Example:
-        >>> sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen2.5-7B")
-        >>> prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
-        >>> params = types.SamplingParams(max_tokens=20, temperature=0.7)
-        >>> future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
-        >>> result = future.result()
+    ```python
+    sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen2.5-7B")
+    prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
+    params = types.SamplingParams(max_tokens=20, temperature=0.7)
+    future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
+    result = future.result()
+    ```
     """
 
     def __init__(
@@ -88,8 +90,12 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         retry_config: RetryConfig | None,
     ) -> SamplingClient:
         if sampling_session_id is None:
-            sampling_session_id = await holder._create_sampling_session(model_path=model_path, base_model=base_model)
-        return SamplingClient(holder, sampling_session_id=sampling_session_id, retry_config=retry_config)
+            sampling_session_id = await holder._create_sampling_session(
+                model_path=model_path, base_model=base_model
+            )
+        return SamplingClient(
+            holder, sampling_session_id=sampling_session_id, retry_config=retry_config
+        )
 
     @staticmethod
     def create(
@@ -100,7 +106,15 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_session_id: str | None = None,
         retry_config: RetryConfig | None = None,
     ) -> APIFuture[SamplingClient]:
-        return holder.run_coroutine_threadsafe(SamplingClient._create_impl(holder, model_path=model_path, base_model=base_model, sampling_session_id=sampling_session_id, retry_config=retry_config))
+        return holder.run_coroutine_threadsafe(
+            SamplingClient._create_impl(
+                holder,
+                model_path=model_path,
+                base_model=base_model,
+                sampling_session_id=sampling_session_id,
+                retry_config=retry_config,
+            )
+        )
 
     async def _send_asample_request(
         self,
@@ -182,7 +196,28 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool = False,
         topk_prompt_logprobs: int = 0,
     ) -> ConcurrentFuture[types.SampleResponse]:
-        """Internal method that does the actual API call without retry logic."""
+        """Generate text completions from the model.
+
+        Args:
+            prompt: The input tokens as ModelInput
+            num_samples: Number of independent samples to generate
+            sampling_params: Parameters controlling generation (temperature, max_tokens, etc.)
+            include_prompt_logprobs: Whether to include log probabilities for prompt tokens
+            topk_prompt_logprobs: Number of top token log probabilities to return per position
+
+        Returns:
+            A Future containing the SampleResponse with generated text
+
+        Example:
+        ```python
+        prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
+        params = types.SamplingParams(max_tokens=20, temperature=0.7)
+        future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
+        result = future.result()
+        for sample in result.samples:
+            print(tokenizer.decode(sample.tokens))
+        ```
+        """
 
         async def _sample_async():
             return await self._sample_async_impl(
@@ -208,6 +243,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool = False,
         topk_prompt_logprobs: int = 0,
     ) -> types.SampleResponse:
+        """Async version of sample."""
         return await AwaitableConcurrentFuture(
             self.sample(
                 prompt,
@@ -220,6 +256,26 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
     @capture_exceptions(fatal=True)
     def compute_logprobs(self, prompt: types.ModelInput) -> ConcurrentFuture[list[float | None]]:
+        """Compute log probabilities for prompt tokens.
+
+        Args:
+            prompt: The input tokens as ModelInput
+
+        Returns:
+            A Future containing a list of log probabilities for each token in the prompt.
+            None values indicate tokens where log probabilities couldn't be computed.
+
+        Example:
+        ```python
+        prompt = types.ModelInput.from_ints(tokenizer.encode("Hello world"))
+        future = sampling_client.compute_logprobs(prompt)
+        logprobs = future.result()
+        for i, logprob in enumerate(logprobs):
+            if logprob is not None:
+                print(f"Token {i}: logprob = {logprob:.4f}")
+        ```
+        """
+
         async def _compute_logprobs_async() -> list[float | None]:
             sample_res = await self._sample_async_impl(
                 prompt,
@@ -236,6 +292,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         return self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()
 
     async def compute_logprobs_async(self, prompt: types.ModelInput) -> list[float | None]:
+        """Async version of compute_logprobs."""
         return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
 
     def get_telemetry(self) -> Telemetry | None:
@@ -255,7 +312,9 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             reason = "unknown"
         self._last_queue_state_logged = time.time()
 
-        logger.warning(f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {reason}")
+        logger.warning(
+            f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {reason}"
+        )
 
 
 @lru_cache(maxsize=100)

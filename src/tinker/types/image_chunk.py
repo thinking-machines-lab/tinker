@@ -25,6 +25,12 @@ class ImageChunk(StrictBase):
     width: int
     """Image width in pixels"""
 
+    expected_tokens: int | None = None
+    """Expected number of tokens this image represents.
+    This is only advisory: the tinker backend will compute the number of tokens
+    from the image, and we can fail requests quickly if the tokens does not
+    match expected_tokens."""
+
     type: Literal["image"] = "image"
 
     @field_validator("data", mode="before")
