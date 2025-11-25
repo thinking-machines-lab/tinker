@@ -18,10 +18,10 @@ Key methods:
 - compute_logprobs() - get log probabilities for prompt tokens
 
 Args:
-    holder: Internal client managing HTTP connections and async operations
-    model_path: Path to saved model weights (starts with 'tinker://')
-    base_model: Name of base model to use for inference
-    retry_config: Configuration for retrying failed requests
+- `holder`: Internal client managing HTTP connections and async operations
+- `model_path`: Path to saved model weights (starts with 'tinker://')
+- `base_model`: Name of base model to use for inference
+- `retry_config`: Configuration for retrying failed requests
 
 Example:
 ```python
@@ -48,14 +48,14 @@ def sample(
 Generate text completions from the model.
 
 Args:
-    prompt: The input tokens as ModelInput
-    num_samples: Number of independent samples to generate
-    sampling_params: Parameters controlling generation (temperature, max_tokens, etc.)
-    include_prompt_logprobs: Whether to include log probabilities for prompt tokens
-    topk_prompt_logprobs: Number of top token log probabilities to return per position
+- `prompt`: The input tokens as ModelInput
+- `num_samples`: Number of independent samples to generate
+- `sampling_params`: Parameters controlling generation (temperature, max_tokens, etc.)
+- `include_prompt_logprobs`: Whether to include log probabilities for prompt tokens
+- `topk_prompt_logprobs`: Number of top token log probabilities to return per position
 
 Returns:
-    A Future containing the SampleResponse with generated text
+- A `Future` containing the `SampleResponse` with generated text
 
 Example:
 ```python
@@ -90,10 +90,10 @@ def compute_logprobs(
 Compute log probabilities for prompt tokens.
 
 Args:
-    prompt: The input tokens as ModelInput
+- `prompt`: The input tokens as ModelInput
 
 Returns:
-    A Future containing a list of log probabilities for each token in the prompt.
+- A `Future` containing a list of log probabilities for each token in the prompt.
     None values indicate tokens where log probabilities couldn't be computed.
 
 Example:

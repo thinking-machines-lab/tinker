@@ -18,8 +18,8 @@ Key methods:
 - save_weights_and_get_sampling_client() - export trained model for inference
 
 Args:
-    holder: Internal client managing HTTP connections and async operations
-    model_id: Unique identifier for the model to train. Required for training operations.
+- `holder`: Internal client managing HTTP connections and async operations
+- `model_id`: Unique identifier for the model to train. Required for training operations.
 
 Example:
 ```python
@@ -45,12 +45,12 @@ def forward(
 Compute forward pass without gradients.
 
 Args:
-    data: List of training data samples
-    loss_fn: Loss function type (e.g., "cross_entropy")
-    loss_fn_config: Optional configuration for the loss function
+- `data`: List of training data samples
+- `loss_fn`: Loss function type (e.g., "cross_entropy")
+- `loss_fn_config`: Optional configuration for the loss function
 
 Returns:
-    APIFuture containing the forward pass outputs and loss
+- `APIFuture` containing the forward pass outputs and loss
 
 Example:
 ```python
@@ -89,12 +89,12 @@ def forward_backward(
 Compute forward pass and backward pass to calculate gradients.
 
 Args:
-    data: List of training data samples
-    loss_fn: Loss function type (e.g., "cross_entropy")
-    loss_fn_config: Optional configuration for the loss function
+- `data`: List of training data samples
+- `loss_fn`: Loss function type (e.g., "cross_entropy")
+- `loss_fn_config`: Optional configuration for the loss function
 
 Returns:
-    APIFuture containing the forward/backward outputs, loss, and gradients
+- `APIFuture` containing the forward/backward outputs, loss, and gradients
 
 Example:
 ```python
@@ -143,11 +143,11 @@ Allows you to define custom loss functions that operate on log probabilities.
 The custom function receives logprobs and computes loss and gradients.
 
 Args:
-    data: List of training data samples
-    loss_fn: Custom loss function that takes (data, logprobs) and returns (loss, metrics)
+- `data`: List of training data samples
+- `loss_fn`: Custom loss function that takes (data, logprobs) and returns (loss, metrics)
 
 Returns:
-    APIFuture containing the forward/backward outputs with custom loss
+- `APIFuture` containing the forward/backward outputs with custom loss
 
 Example:
 ```python
@@ -185,10 +185,10 @@ def optim_step(
 Update model parameters using Adam optimizer.
 
 Args:
-    adam_params: Adam optimizer parameters (learning_rate, betas, eps, weight_decay)
+- `adam_params`: Adam optimizer parameters (learning_rate, betas, eps, weight_decay)
 
 Returns:
-    APIFuture containing optimizer step response
+- `APIFuture` containing optimizer step response
 
 Example:
 ```python
@@ -227,10 +227,10 @@ def save_state(name: str) -> APIFuture[types.SaveWeightsResponse]
 Save model weights to persistent storage.
 
 Args:
-    name: Name for the saved checkpoint
+- `name`: Name for the saved checkpoint
 
 Returns:
-    APIFuture containing the save response with checkpoint path
+- `APIFuture` containing the save response with checkpoint path
 
 Example:
 ```python
@@ -258,10 +258,10 @@ def load_state(path: str) -> APIFuture[types.LoadWeightsResponse]
 Load model weights from a saved checkpoint.
 
 Args:
-    path: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
 
 Returns:
-    APIFuture containing the load response
+- `APIFuture` containing the load response
 
 Example:
 ```python
@@ -290,10 +290,10 @@ def load_state_with_optimizer(
 Load model weights and optimizer state from a checkpoint.
 
 Args:
-    path: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
 
 Returns:
-    APIFuture containing the load response
+- `APIFuture` containing the load response
 
 Example:
 ```python
@@ -325,10 +325,10 @@ def save_weights_for_sampler(
 Save model weights for use with a SamplingClient.
 
 Args:
-    name: Name for the saved sampler weights
+- `name`: Name for the saved sampler weights
 
 Returns:
-    APIFuture containing the save response with sampler path
+- `APIFuture` containing the save response with sampler path
 
 Example:
 ```python
@@ -363,7 +363,7 @@ def get_info() -> types.GetInfoResponse
 Get information about the current model.
 
 Returns:
-    GetInfoResponse with model configuration and metadata
+- `GetInfoResponse` with model configuration and metadata
 
 Example:
 ```python
@@ -393,7 +393,7 @@ def get_tokenizer() -> PreTrainedTokenizer
 Get the tokenizer for the current model.
 
 Returns:
-    PreTrainedTokenizer compatible with the model
+- `PreTrainedTokenizer` compatible with the model
 
 Example:
 ```python
@@ -414,11 +414,11 @@ def create_sampling_client(
 Create a SamplingClient from saved weights.
 
 Args:
-    model_path: Tinker path to saved weights
-    retry_config: Optional configuration for retrying failed requests
+- `model_path`: Tinker path to saved weights
+- `retry_config`: Optional configuration for retrying failed requests
 
 Returns:
-    SamplingClient configured with the specified weights
+- `SamplingClient` configured with the specified weights
 
 Example:
 ```python
@@ -451,11 +451,11 @@ def save_weights_and_get_sampling_client(
 Save current weights and create a SamplingClient for inference.
 
 Args:
-    name: Optional name for the saved weights (currently ignored for ephemeral saves)
-    retry_config: Optional configuration for retrying failed requests
+- `name`: Optional name for the saved weights (currently ignored for ephemeral saves)
+- `retry_config`: Optional configuration for retrying failed requests
 
 Returns:
-    SamplingClient configured with the current model weights
+- `SamplingClient` configured with the current model weights
 
 Example:
 ```python

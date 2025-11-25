@@ -25,7 +25,7 @@ result = api_future.result()  # Blocks until complete
 ```
 
 Args:
-    T: The type of the result value
+- `T`: The type of the result value
 
 Example:
 ```python
@@ -48,10 +48,10 @@ async def result_async(timeout: float | None = None) -> T
 Get the result asynchronously with optional timeout.
 
 Args:
-    timeout: Maximum time to wait in seconds. None means wait indefinitely.
+- `timeout`: Maximum time to wait in seconds. None means wait indefinitely.
 
 Returns:
-    The result value of type T
+- The result value of type `T`
 
 Raises:
     TimeoutError: If timeout is exceeded
@@ -66,10 +66,10 @@ def result(timeout: float | None = None) -> T
 Get the result synchronously with optional timeout.
 
 Args:
-    timeout: Maximum time to wait in seconds. None means wait indefinitely.
+- `timeout`: Maximum time to wait in seconds. None means wait indefinitely.
 
 Returns:
-    The result value of type T
+- The result value of type `T`
 
 Raises:
     TimeoutError: If timeout is exceeded
@@ -87,7 +87,7 @@ standard Future to be used in async contexts. It's commonly returned by
 Tinker API methods to provide both sync and async access patterns.
 
 Args:
-    future: A concurrent.futures.Future to wrap
+- `future`: A concurrent.futures.Future to wrap
 
 Example:
 ```python
@@ -111,10 +111,10 @@ def result(timeout: float | None = None) -> T
 Get the result synchronously with optional timeout.
 
 Args:
-    timeout: Maximum time to wait in seconds. None means wait indefinitely.
+- `timeout`: Maximum time to wait in seconds. None means wait indefinitely.
 
 Returns:
-    The result value of type T
+- The result value of type `T`
 
 Raises:
     TimeoutError: If timeout is exceeded
@@ -143,7 +143,7 @@ def future() -> ConcurrentFuture[T]
 Get the underlying concurrent.futures.Future.
 
 Returns:
-    The wrapped ConcurrentFuture object
+- The wrapped `ConcurrentFuture` object
 
 Example:
 ```python

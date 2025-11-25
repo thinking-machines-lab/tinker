@@ -20,14 +20,17 @@ Args:
 
 Example:
 ```python
+# Near instant
 client = ServiceClient()
-# ^^^ near-instant
+
+# Takes a moment as we initialize the model and assign resources
 training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
-# ^^^ takes a moment as we initialize the model and assign resources
+
+# Near-instant
 sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
-# ^^^ near-instant
+
+# Near-instant
 rest_client = client.create_rest_client()
-# ^^^ near-instant
 ```
 
 #### `get_server_capabilities`
@@ -41,7 +44,7 @@ def get_server_capabilities() -> types.GetServerCapabilitiesResponse
 Query the server's supported features and capabilities.
 
 Returns:
-    GetServerCapabilitiesResponse with available models, features, and limits
+- `GetServerCapabilitiesResponse` with available models, features, and limits
 
 Example:
 ```python
@@ -78,16 +81,16 @@ def create_lora_training_client(
 Create a TrainingClient for LoRA fine-tuning.
 
 Args:
-    base_model: Name of the base model to fine-tune (e.g., "Qwen/Qwen2.5-7B")
-    rank: LoRA rank controlling the size of adaptation matrices (default 32)
-    seed: Random seed for initialization. None means random seed.
-    train_mlp: Whether to train MLP layers (default True)
-    train_attn: Whether to train attention layers (default True)
-    train_unembed: Whether to train unembedding layers (default True)
-    user_metadata: Optional metadata to attach to the training run
+- `base_model`: Name of the base model to fine-tune (e.g., "Qwen/Qwen2.5-7B")
+- `rank`: LoRA rank controlling the size of adaptation matrices (default 32)
+- `seed`: Random seed for initialization. None means random seed.
+- `train_mlp`: Whether to train MLP layers (default True)
+- `train_attn`: Whether to train attention layers (default True)
+- `train_unembed`: Whether to train unembedding layers (default True)
+- `user_metadata`: Optional metadata to attach to the training run
 
 Returns:
-    TrainingClient configured for LoRA training
+- `TrainingClient` configured for LoRA training
 
 Example:
 ```python
@@ -129,11 +132,11 @@ def create_training_client_from_state(
 Create a TrainingClient from saved model weights.
 
 Args:
-    path: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
-    user_metadata: Optional metadata to attach to the new training run
+- `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `user_metadata`: Optional metadata to attach to the new training run
 
 Returns:
-    TrainingClient loaded with the specified weights
+- `TrainingClient` loaded with the specified weights
 
 Example:
 ```python
@@ -168,12 +171,12 @@ def create_sampling_client(
 Create a SamplingClient for text generation.
 
 Args:
-    model_path: Path to saved model weights (e.g., "tinker://run-id/weights/checkpoint-001")
-    base_model: Name of base model to use (e.g., "Qwen/Qwen2.5-7B")
-    retry_config: Optional configuration for retrying failed requests
+- `model_path`: Path to saved model weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `base_model`: Name of base model to use (e.g., "Qwen/Qwen2.5-7B")
+- `retry_config`: Optional configuration for retrying failed requests
 
 Returns:
-    SamplingClient configured for text generation
+- `SamplingClient` configured for text generation
 
 Raises:
     ValueError: If neither model_path nor base_model is provided
@@ -216,7 +219,7 @@ The RestClient provides access to various REST endpoints for querying
 model information, checkpoints, sessions, and managing checkpoint visibility.
 
 Returns:
-    RestClient for accessing REST API endpoints
+- `RestClient` for accessing REST API endpoints
 
 Example:
 ```python
