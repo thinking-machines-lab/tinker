@@ -30,7 +30,7 @@ class APIFuture(ABC, Generic[T]):
     ```
 
     Args:
-        T: The type of the result value
+    - `T`: The type of the result value
 
     Example:
     ```python
@@ -49,10 +49,10 @@ class APIFuture(ABC, Generic[T]):
         """Get the result asynchronously with optional timeout.
 
         Args:
-            timeout: Maximum time to wait in seconds. None means wait indefinitely.
+        - `timeout`: Maximum time to wait in seconds. None means wait indefinitely.
 
         Returns:
-            The result value of type T
+        - The result value of type `T`
 
         Raises:
             TimeoutError: If timeout is exceeded
@@ -64,10 +64,10 @@ class APIFuture(ABC, Generic[T]):
         """Get the result synchronously with optional timeout.
 
         Args:
-            timeout: Maximum time to wait in seconds. None means wait indefinitely.
+        - `timeout`: Maximum time to wait in seconds. None means wait indefinitely.
 
         Returns:
-            The result value of type T
+        - The result value of type `T`
 
         Raises:
             TimeoutError: If timeout is exceeded
@@ -86,7 +86,7 @@ class AwaitableConcurrentFuture(APIFuture[T]):
     Tinker API methods to provide both sync and async access patterns.
 
     Args:
-        future: A concurrent.futures.Future to wrap
+    - `future`: A concurrent.futures.Future to wrap
 
     Example:
     ```python
@@ -109,10 +109,10 @@ class AwaitableConcurrentFuture(APIFuture[T]):
         """Get the result synchronously with optional timeout.
 
         Args:
-            timeout: Maximum time to wait in seconds. None means wait indefinitely.
+        - `timeout`: Maximum time to wait in seconds. None means wait indefinitely.
 
         Returns:
-            The result value of type T
+        - The result value of type `T`
 
         Raises:
             TimeoutError: If timeout is exceeded
@@ -135,7 +135,7 @@ class AwaitableConcurrentFuture(APIFuture[T]):
         """Get the underlying concurrent.futures.Future.
 
         Returns:
-            The wrapped ConcurrentFuture object
+        - The wrapped `ConcurrentFuture` object
 
         Example:
         ```python

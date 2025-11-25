@@ -39,7 +39,7 @@ class RestClient(TelemetryProvider):
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
 
     Args:
-        holder: Internal client managing HTTP connections and async operations
+    - `holder`: Internal client managing HTTP connections and async operations
 
     Example:
     ```python
@@ -81,10 +81,10 @@ class RestClient(TelemetryProvider):
         """Get training run info.
 
         Args:
-            training_run_id: The training run ID to get information for
+        - `training_run_id`: The training run ID to get information for
 
         Returns:
-            A Future containing the training run information
+        - A `Future` containing the training run information
 
         Example:
         ```python
@@ -108,10 +108,10 @@ class RestClient(TelemetryProvider):
         """Get training run info.
 
         Args:
-            tinker_path: The tinker path to the checkpoint
+        - `tinker_path`: The tinker path to the checkpoint
 
         Returns:
-            A Future containing the training run information
+        - A `Future` containing the training run information
 
         Example:
         ```python
@@ -140,10 +140,10 @@ class RestClient(TelemetryProvider):
         """Get checkpoint information from a tinker path.
 
         Args:
-            tinker_path: The tinker path to the checkpoint
+        - `tinker_path`: The tinker path to the checkpoint
 
         Returns:
-            An APIFuture containing the checkpoint information. The future is awaitable.
+        - An `APIFuture` containing the checkpoint information. The future is awaitable.
 
         Example:
         ```python
@@ -194,11 +194,11 @@ class RestClient(TelemetryProvider):
         """List training runs with pagination support.
 
         Args:
-            limit: Maximum number of training runs to return (default 20)
-            offset: Offset for pagination (default 0)
+        - `limit`: Maximum number of training runs to return (default 20)
+        - `offset`: Offset for pagination (default 0)
 
         Returns:
-            A Future containing the TrainingRunsResponse with training runs and cursor info
+        - A `Future` containing the `TrainingRunsResponse` with training runs and cursor info
 
         Example:
         ```python
@@ -241,10 +241,10 @@ class RestClient(TelemetryProvider):
         """List available checkpoints (both training and sampler).
 
         Args:
-            training_run_id: The training run ID to list checkpoints for
+        - `training_run_id`: The training run ID to list checkpoints for
 
         Returns:
-            A Future containing the CheckpointsListResponse with available checkpoints
+        - A `Future` containing the `CheckpointsListResponse` with available checkpoints
 
         Example:
         ```python
@@ -288,11 +288,11 @@ class RestClient(TelemetryProvider):
         """Get signed URL to download checkpoint archive.
 
         Args:
-            training_run_id: The training run ID to download weights for
-            checkpoint_id: The checkpoint ID to download
+        - `training_run_id`: The training run ID to download weights for
+        - `checkpoint_id`: The checkpoint ID to download
 
         Returns:
-            A Future containing the CheckpointArchiveUrlResponse with signed URL and expiration
+        - A `Future` containing the `CheckpointArchiveUrlResponse` with signed URL and expiration
 
         Example:
         ```python
@@ -376,10 +376,10 @@ class RestClient(TelemetryProvider):
         """Get signed URL to download checkpoint archive.
 
         Args:
-            tinker_path: The tinker path to the checkpoint
+        - `tinker_path`: The tinker path to the checkpoint
 
         Returns:
-            A Future containing the CheckpointArchiveUrlResponse with signed URL and expiration
+        - A `Future` containing the `CheckpointArchiveUrlResponse` with signed URL and expiration
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._get_checkpoint_archive_url_submit(
@@ -422,10 +422,10 @@ class RestClient(TelemetryProvider):
         Published checkpoints can be unpublished using the unpublish_checkpoint_from_tinker_path method.
 
         Args:
-            tinker_path: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+        - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 
         Returns:
-            A Future that completes when the checkpoint is published
+        - A `Future` that completes when the checkpoint is published
 
         Raises:
             HTTPException: 400 if checkpoint identifier is invalid
@@ -479,10 +479,10 @@ class RestClient(TelemetryProvider):
         This reverses the effect of publishing a checkpoint.
 
         Args:
-            tinker_path: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+        - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 
         Returns:
-            A Future that completes when the checkpoint is unpublished
+        - A `Future` that completes when the checkpoint is unpublished
 
         Raises:
             HTTPException: 400 if checkpoint identifier is invalid
@@ -542,11 +542,11 @@ class RestClient(TelemetryProvider):
         numbers of checkpoints.
 
         Args:
-            limit: Maximum number of checkpoints to return (default 100)
-            offset: Offset for pagination (default 0)
+        - `limit`: Maximum number of checkpoints to return (default 100)
+        - `offset`: Offset for pagination (default 0)
 
         Returns:
-            A Future containing the CheckpointsListResponse with checkpoints and cursor info
+        - A `Future` containing the `CheckpointsListResponse` with checkpoints and cursor info
 
         Example:
         ```python
@@ -593,10 +593,10 @@ class RestClient(TelemetryProvider):
         """Get session information including all training runs and samplers.
 
         Args:
-            session_id: The session ID to get information for
+        - `session_id`: The session ID to get information for
 
         Returns:
-            A Future containing the GetSessionResponse with training_run_ids and sampler_ids
+        - A `Future` containing the `GetSessionResponse` with training_run_ids and sampler_ids
 
         Example:
         ```python
@@ -641,11 +641,11 @@ class RestClient(TelemetryProvider):
         """List sessions with pagination support.
 
         Args:
-            limit: Maximum number of sessions to return (default 20)
-            offset: Offset for pagination (default 0)
+        - `limit`: Maximum number of sessions to return (default 20)
+        - `offset`: Offset for pagination (default 0)
 
         Returns:
-            A Future containing the ListSessionsResponse with list of session IDs
+        - A `Future` containing the `ListSessionsResponse` with list of session IDs
 
         Example:
         ```python
@@ -670,10 +670,10 @@ class RestClient(TelemetryProvider):
         """Get sampler information.
 
         Args:
-            sampler_id: The sampler ID (sampling_session_id) to get information for
+        - `sampler_id`: The sampler ID (sampling_session_id) to get information for
 
         Returns:
-            An APIFuture containing the GetSamplerResponse with sampler details
+        - An `APIFuture` containing the `GetSamplerResponse` with sampler details
 
         Example:
         ```python
