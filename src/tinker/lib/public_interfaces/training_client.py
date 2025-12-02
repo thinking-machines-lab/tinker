@@ -129,9 +129,9 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return chunk.length
 
     def _estimate_number_count(self, datum: types.Datum) -> int:
-        return sum(self._estimate_number_count_in_chunk(chunk) for chunk in datum.model_input.chunks) + sum(
-            len(value.data) for _, value in datum.loss_fn_inputs.items()
-        )
+        return sum(
+            self._estimate_number_count_in_chunk(chunk) for chunk in datum.model_input.chunks
+        ) + sum(len(value.data) for _, value in datum.loss_fn_inputs.items())
 
     def _chunked_requests_generator(
         self, data: List[types.Datum]
@@ -567,6 +567,9 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def load_state(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
         """Load model weights from a saved checkpoint.
 
+        This loads only the model weights, not optimizer state (e.g., Adam momentum).
+        To also restore optimizer state, use load_state_with_optimizer.
+
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
 
@@ -575,7 +578,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
         Example:
         ```python
-        # Load checkpoint to continue training
+        # Load checkpoint to continue training (weights only, optimizer resets)
         load_future = training_client.load_state("tinker://run-id/weights/checkpoint-001")
         await load_future
         # Continue training from loaded state
