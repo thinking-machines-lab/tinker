@@ -887,7 +887,7 @@ def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> Pre
         # using the huggingface convention.
         if model_name.startswith("meta-llama/Llama-3"):
             # Avoid gating of Llama 3 models:
-            tokenizer_id = "baseten/Meta-Llama-3-tokenizer"
+            tokenizer_id = "thinkingmachineslabinc/meta-llama-3-tokenizer"
         elif model_name.count("/") == 2:
             org, model, _variant = model_name.split("/", 2)
             tokenizer_id = f"{org}/{model}"
