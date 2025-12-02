@@ -147,6 +147,46 @@ async def create_training_client_from_state_async(
 
 Async version of create_training_client_from_state.
 
+#### `create_training_client_from_state_with_optimizer`
+
+```python
+def create_training_client_from_state_with_optimizer(
+        path: str,
+        user_metadata: dict[str, str] | None = None) -> TrainingClient
+```
+
+Create a TrainingClient from saved model weights and optimizer state.
+
+This is similar to create_training_client_from_state but also restores
+optimizer state (e.g., Adam momentum), which is useful for resuming
+training exactly where it left off.
+
+Args:
+- `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `user_metadata`: Optional metadata to attach to the new training run
+
+Returns:
+- `TrainingClient` loaded with the specified weights and optimizer state
+
+Example:
+```python
+# Resume training from a checkpoint with optimizer state
+training_client = service_client.create_training_client_from_state_with_optimizer(
+    "tinker://run-id/weights/checkpoint-001"
+)
+# Continue training with restored optimizer momentum
+```
+
+#### `create_training_client_from_state_with_optimizer_async`
+
+```python
+async def create_training_client_from_state_with_optimizer_async(
+        path: str,
+        user_metadata: dict[str, str] | None = None) -> TrainingClient
+```
+
+Async version of create_training_client_from_state_with_optimizer.
+
 #### `create_sampling_client`
 
 ```python

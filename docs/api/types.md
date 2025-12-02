@@ -237,21 +237,16 @@ class ImageAssetPointerChunk(StrictBase)
 
 Image format
 
-#### `height`
-
-Image height in pixels
-
 #### `location`
 
 Path or URL to the image asset
 
-#### `tokens`
+#### `expected_tokens`
 
-Number of tokens this image represents
-
-#### `width`
-
-Image width in pixels
+Expected number of tokens this image represents.
+This is only advisory: the tinker backend will compute the number of tokens
+from the image, and we can fail requests quickly if the tokens does not
+match expected_tokens.
 
 ## `CheckpointsListResponse` Objects
 
@@ -604,18 +599,6 @@ Image data as bytes
 #### `format`
 
 Image format
-
-#### `height`
-
-Image height in pixels
-
-#### `tokens`
-
-Number of tokens this image represents
-
-#### `width`
-
-Image width in pixels
 
 #### `expected_tokens`
 

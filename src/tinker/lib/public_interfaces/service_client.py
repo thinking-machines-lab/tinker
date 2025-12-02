@@ -275,6 +275,68 @@ class ServiceClient(TelemetryProvider):
         await load_future.result_async()
         return training_client
 
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def create_training_client_from_state_with_optimizer(
+        self, path: str, user_metadata: dict[str, str] | None = None
+    ) -> TrainingClient:
+        """Create a TrainingClient from saved model weights and optimizer state.
+
+        This is similar to create_training_client_from_state but also restores
+        optimizer state (e.g., Adam momentum), which is useful for resuming
+        training exactly where it left off.
+
+        Args:
+        - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+        - `user_metadata`: Optional metadata to attach to the new training run
+
+        Returns:
+        - `TrainingClient` loaded with the specified weights and optimizer state
+
+        Example:
+        ```python
+        # Resume training from a checkpoint with optimizer state
+        training_client = service_client.create_training_client_from_state_with_optimizer(
+            "tinker://run-id/weights/checkpoint-001"
+        )
+        # Continue training with restored optimizer momentum
+        ```
+        """
+        rest_client = self.create_rest_client()
+        # Use weights info endpoint which allows access to models with public checkpoints
+        weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
+
+        training_client = self.create_lora_training_client(
+            base_model=weights_info.base_model,
+            rank=weights_info.lora_rank,
+            user_metadata=user_metadata,
+        )
+
+        training_client.load_state_with_optimizer(path).result()
+        return training_client
+
+    @capture_exceptions(fatal=True)
+    async def create_training_client_from_state_with_optimizer_async(
+        self, path: str, user_metadata: dict[str, str] | None = None
+    ) -> TrainingClient:
+        """Async version of create_training_client_from_state_with_optimizer."""
+        rest_client = self.create_rest_client()
+        # Use weights info endpoint which allows access to models with public checkpoints
+        weights_info = await rest_client.get_weights_info_by_tinker_path(path)
+
+        # Right now all training runs are LoRa runs.
+        assert weights_info.is_lora and weights_info.lora_rank is not None
+
+        training_client = await self.create_lora_training_client_async(
+            base_model=weights_info.base_model,
+            rank=weights_info.lora_rank,
+            user_metadata=user_metadata,
+        )
+
+        load_future = await training_client.load_state_with_optimizer_async(path)
+        await load_future.result_async()
+        return training_client
+
     @capture_exceptions(fatal=True)
     def create_sampling_client(
         self,
