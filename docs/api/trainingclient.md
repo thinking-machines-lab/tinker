@@ -247,6 +247,9 @@ def load_state(path: str) -> APIFuture[types.LoadWeightsResponse]
 
 Load model weights from a saved checkpoint.
 
+This loads only the model weights, not optimizer state (e.g., Adam momentum).
+To also restore optimizer state, use load_state_with_optimizer.
+
 Args:
 - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
 
@@ -255,7 +258,7 @@ Returns:
 
 Example:
 ```python
-# Load checkpoint to continue training
+# Load checkpoint to continue training (weights only, optimizer resets)
 load_future = training_client.load_state("tinker://run-id/weights/checkpoint-001")
 await load_future
 # Continue training from loaded state

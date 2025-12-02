@@ -121,6 +121,9 @@ def create_training_client_from_state(
 
 Create a TrainingClient from saved model weights.
 
+This loads only the model weights, not optimizer state. To also restore
+optimizer state (e.g., Adam momentum), use create_training_client_from_state_with_optimizer.
+
 Args:
 - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
 - `user_metadata`: Optional metadata to attach to the new training run
@@ -130,7 +133,7 @@ Returns:
 
 Example:
 ```python
-# Resume training from a checkpoint
+# Resume training from a checkpoint (weights only, optimizer resets)
 training_client = service_client.create_training_client_from_state(
     "tinker://run-id/weights/checkpoint-001"
 )
