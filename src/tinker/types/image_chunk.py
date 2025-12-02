@@ -16,15 +16,6 @@ class ImageChunk(StrictBase):
     format: Literal["png", "jpeg"]
     """Image format"""
 
-    height: int
-    """Image height in pixels"""
-
-    tokens: int
-    """Number of tokens this image represents"""
-
-    width: int
-    """Image width in pixels"""
-
     expected_tokens: int | None = None
     """Expected number of tokens this image represents.
     This is only advisory: the tinker backend will compute the number of tokens
@@ -48,4 +39,6 @@ class ImageChunk(StrictBase):
 
     @property
     def length(self) -> int:
-        return self.tokens
+        if self.expected_tokens is None:
+            raise ValueError("ImageChunk expected_tokens needs to be set in order to compute the length")
+        return self.expected_tokens

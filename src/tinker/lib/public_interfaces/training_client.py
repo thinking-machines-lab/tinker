@@ -121,8 +121,15 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
         return self.model_id
 
+    def _estimate_number_count_in_chunk(self, chunk: types.ModelInputChunk) -> int:
+        if isinstance(chunk, types.ImageChunk):
+            return len(chunk.data)
+        if isinstance(chunk, types.ImageAssetPointerChunk):
+            return len(chunk.location)
+        return chunk.length
+
     def _estimate_number_count(self, datum: types.Datum) -> int:
-        return datum.model_input.length + sum(
+        return sum(self._estimate_number_count_in_chunk(chunk) for chunk in datum.model_input.chunks) + sum(
             len(value.data) for _, value in datum.loss_fn_inputs.items()
         )
 

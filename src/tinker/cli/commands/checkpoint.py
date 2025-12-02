@@ -421,53 +421,51 @@ def unpublish(cli_context: CLIContext, checkpoint_path: str) -> None:
 
 
 @cli.command()
-@click.argument("checkpoint_path")
+@click.argument("checkpoint_paths", nargs=-1, required=True)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.pass_obj
 @handle_api_errors
-def delete(cli_context: CLIContext, checkpoint_path: str, yes: bool) -> None:
-    """Delete a checkpoint permanently.
+def delete(cli_context: CLIContext, checkpoint_paths: tuple[str, ...], yes: bool) -> None:
+    """Delete one or more checkpoints permanently.
 
-    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/weights/0001).
+    CHECKPOINT_PATHS must be tinker paths (e.g., tinker://run-id/weights/0001).
     Only the owner of the training run can delete checkpoints.
 
     WARNING: This action is permanent and cannot be undone.
     """
-    # Validate it's a tinker path
-    if not checkpoint_path.startswith("tinker://"):
-        raise TinkerCliError(
-            f"Invalid checkpoint path: {checkpoint_path}",
-            "Checkpoint path must be in the format: tinker://run-id/weights/0001",
-        )
+    # Validate all paths upfront
+    for path in checkpoint_paths:
+        if not path.startswith("tinker://"):
+            raise TinkerCliError(
+                f"Invalid checkpoint path: {path}",
+                "Checkpoint path must be in the format: tinker://run-id/weights/0001",
+            )
 
-    # Get format from context object
-    format = cli_context.format
-
-    # If not using --yes, show checkpoint info and prompt for confirmation
+    # If not using --yes, show checkpoint list and prompt for confirmation
     if not yes:
-        try:
-            checkpoint = get_checkpoint_from_path(checkpoint_path)
-
-            # Display checkpoint info using the same format as 'info' command
-            output = CheckpointInfoOutput(checkpoint)
-            output.print(format=format)
-            click.echo()
-
-        except TinkerCliError:
-            # If we can't get checkpoint info, still allow deletion attempt
-            # The API will return appropriate error if checkpoint doesn't exist
-            click.echo(f"Checkpoint path: {checkpoint_path}")
-            click.echo()
+        count = len(checkpoint_paths)
+        click.echo(f"Will delete {count} checkpoint(s):")
+        for path in checkpoint_paths:
+            click.echo(f"  - {path}")
+        click.echo()
 
         # Confirmation prompt
         click.echo("WARNING: This action is permanent and cannot be undone.")
-        if not click.confirm("Are you sure you want to delete this checkpoint?"):
+        if not click.confirm(f"Are you sure you want to delete {count} checkpoint(s)?"):
             click.echo("Deletion cancelled.")
             return
 
-    # Create client and delete
+    # Create client and delete with progress bar
     client = create_rest_client()
-    client.delete_checkpoint_from_tinker_path(checkpoint_path).result()
+
+    with click.progressbar(
+        checkpoint_paths,
+        label="Deleting checkpoints",
+        show_percent=True,
+        show_pos=True,
+    ) as bar:
+        for path in bar:
+            client.delete_checkpoint_from_tinker_path(path).result()
 
 
 @cli.command()
