@@ -38,7 +38,7 @@ def is_retryable_status_code(status_code: int) -> bool:
 @dataclass
 class RetryConfig:
     max_connections: int = DEFAULT_CONNECTION_LIMITS.max_connections or 100
-    progress_timeout: float = 30 * 60  # Very long straggler
+    progress_timeout: float = 120 * 60  # Very long straggler
     retry_delay_base: float = INITIAL_RETRY_DELAY
     retry_delay_max: float = MAX_RETRY_DELAY
     jitter_factor: float = 0.25
