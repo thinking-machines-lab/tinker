@@ -141,10 +141,11 @@ class ServiceClient(TelemetryProvider):
                 request_type="CreateModel",
             ).result_async()
             model_id = create_model_response.model_id
-            logger.info(f"Creating TrainingClient for {model_id=}")
             from .training_client import TrainingClient
 
-            return TrainingClient(self.holder, model_seq_id=model_seq_id, model_id=model_id)
+            training_client = TrainingClient(self.holder, model_seq_id=model_seq_id, model_id=model_id)
+            logger.info(f"TrainingClient initialized for model {model_id}")
+            return training_client
 
         return self.holder.run_coroutine_threadsafe(_create_lora_training_client_async())
 

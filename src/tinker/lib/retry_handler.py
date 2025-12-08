@@ -142,8 +142,8 @@ class RetryHandler(Generic[T]):  # noqa: UP046
                     # Create a dummy request for the exception (required by APIConnectionError)
                     dummy_request = httpx.Request("GET", "http://localhost")
                     raise tinker.APIConnectionError(
-                        message=f"No progress made in {self.config.progress_timeout}s. Requests appear to be stuck.",
                         request=dummy_request,
+                        message=f"No progress made in {self.config.progress_timeout}s. Requests appear to be stuck.",
                     )
                 raise
             finally:

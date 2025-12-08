@@ -155,11 +155,12 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool,
         topk_prompt_logprobs: int = 0,
     ) -> types.SampleResponse:
-        async with self.holder._sample_dispatch_semaphore:
+        estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
+        async with self.holder.sample_dispatch_rate_limit(estimated_bytes_count):
             while True:
                 if (
                     self.holder._sample_backoff_until is not None
-                    and time.time() < self.holder._sample_backoff_until
+                    and time.monotonic() < self.holder._sample_backoff_until
                 ):
                     await asyncio.sleep(1)
                     continue
@@ -175,7 +176,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 if untyped_future is not None:
                     break
                 # Handle backoff
-                self.holder._sample_backoff_until = time.time() + 1
+                backoff_duration = 1 if estimated_bytes_count <= 128 * 1024 else 5
+                self.holder._sample_backoff_until = time.monotonic() + backoff_duration
                 continue
 
         return await _APIFuture(
@@ -298,22 +300,23 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
-    def on_queue_state_change(self, queue_state: QueueState) -> None:
+    def on_queue_state_change(self, queue_state: QueueState, queue_state_reason: str | None) -> None:
         QUEUE_STATE_LOG_INTERVAL = 60
         if queue_state == QueueState.ACTIVE:
             return
         if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
             return
-        if queue_state == QueueState.PAUSED_RATE_LIMIT:
-            reason = "concurrent LoRA rate limit hit"
-        elif queue_state == QueueState.PAUSED_CAPACITY:
-            reason = "out of capacity"
-        else:
-            reason = "unknown"
+        if not queue_state_reason:
+            if queue_state == QueueState.PAUSED_RATE_LIMIT:
+                queue_state_reason = "concurrent sampler weights limit hit"
+            elif queue_state == QueueState.PAUSED_CAPACITY:
+                queue_state_reason = "Tinker backend is running short on capacity, please wait"
+            else:
+                queue_state_reason = "unknown"
         self._last_queue_state_logged = time.time()
 
         logger.warning(
-            f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {reason}"
+            f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {queue_state_reason}"
         )
 
 

@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # FwdBwdChunkSize
-MAX_CHUNK_LEN = 128
-MAX_CHUNK_NUMBER_COUNT = 500000
+MAX_CHUNK_LEN = 1024
+MAX_CHUNK_BYTES_COUNT = 5000000
 MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initializing the TrainingClient with a model_id by either calling create_lora_training_client on the ServiceClient, or initiliazing the TrainingClient with an existing model_id."
 
 CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
@@ -121,36 +121,27 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
         return self.model_id
 
-    def _estimate_number_count_in_chunk(self, chunk: types.ModelInputChunk) -> int:
-        if isinstance(chunk, types.ImageChunk):
-            return len(chunk.data)
-        if isinstance(chunk, types.ImageAssetPointerChunk):
-            return len(chunk.location)
-        return chunk.length
-
-    def _estimate_number_count(self, datum: types.Datum) -> int:
-        return sum(
-            self._estimate_number_count_in_chunk(chunk) for chunk in datum.model_input.chunks
-        ) + sum(len(value.data) for _, value in datum.loss_fn_inputs.items())
+    def _estimate_bytes_count(self, datum: types.Datum) -> int:
+        return self.holder.estimate_bytes_count_in_model_input(datum.model_input) + sum(len(value.data) * 10 for _, value in datum.loss_fn_inputs.items())
 
     def _chunked_requests_generator(
         self, data: List[types.Datum]
     ) -> Generator[List[types.Datum], None, None]:
         current_chunk: List[types.Datum] = []
-        current_chunk_number_count = 0
+        current_chunk_bytes_count = 0
 
         for datum in data:
-            estimated_number_count = self._estimate_number_count(datum)
+            estimated_bytes_count = self._estimate_bytes_count(datum)
             if (
                 len(current_chunk) > 0
-                and current_chunk_number_count + estimated_number_count > MAX_CHUNK_NUMBER_COUNT
+                and current_chunk_bytes_count + estimated_bytes_count > MAX_CHUNK_BYTES_COUNT
             ) or (len(current_chunk) == MAX_CHUNK_LEN):
                 yield current_chunk
                 current_chunk = []
-                current_chunk_number_count = 0
+                current_chunk_bytes_count = 0
 
             current_chunk.append(datum)
-            current_chunk_number_count += estimated_number_count
+            current_chunk_bytes_count += estimated_bytes_count
 
         if len(current_chunk) > 0:
             yield current_chunk
@@ -840,7 +831,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
-    def on_queue_state_change(self, queue_state: QueueState) -> None:
+    def on_queue_state_change(self, queue_state: QueueState, queue_state_reason: str | None) -> None:
         QUEUE_STATE_LOG_INTERVAL = 60
         if queue_state == QueueState.ACTIVE:
             return
@@ -848,13 +839,14 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             return
         self._last_queue_state_logged = time.time()
 
-        if queue_state == QueueState.PAUSED_RATE_LIMIT:
-            reason = "concurrent models rate limit hit"
-        elif queue_state == QueueState.PAUSED_CAPACITY:
-            reason = "out of capacity"
-        else:
-            reason = "unknown"
-        logger.warning(f"Training is paused for {self.model_id}. Reason: {reason}")
+        if not queue_state_reason:
+            if queue_state == QueueState.PAUSED_RATE_LIMIT:
+                queue_state_reason = "concurrent training clients rate limit hit"
+            elif queue_state == QueueState.PAUSED_CAPACITY:
+                queue_state_reason = "Tinker backend is running short on capacity, please wait"
+            else:
+                queue_state_reason = "unknown"
+        logger.warning(f"Training is paused for {self.model_id}. Reason: {queue_state_reason}")
 
 
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:

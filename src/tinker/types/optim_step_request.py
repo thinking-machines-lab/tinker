@@ -21,6 +21,12 @@ class AdamParams(StrictBase):
     eps: float = 1e-12
     """Term added to the denominator to improve numerical stability"""
 
+    weight_decay: float = 0.0
+    """Weight decay for the optimizer. Uses decoupled weight decay."""
+
+    grad_clip_norm: float = 0.0
+    """Gradient clip norm for the optimizer. 0.0 means no clipping."""
+
 
 class OptimStepRequest(StrictBase):
     adam_params: AdamParams

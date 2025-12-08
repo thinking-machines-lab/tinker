@@ -10,7 +10,7 @@ import time
 import traceback
 import contextlib
 from collections.abc import Coroutine, Generator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
 
 import httpx
@@ -97,6 +97,31 @@ class InternalClientHolderThreadSingleton:
 _internal_client_holder_thread_singleton = InternalClientHolderThreadSingleton()
 
 
+class BytesSemaphore:
+    def __init__(self, max_bytes: int):
+        self._bytes: int = max_bytes
+        self._condition: asyncio.Condition = asyncio.Condition()
+        self._release_task: asyncio.Task[None] | None = None
+
+    async def _release(self):
+        async with self._condition:
+            self._condition.notify_all()
+
+    @asynccontextmanager
+    async def acquire(self, bytes: int):
+        async with self._condition:
+            while self._bytes < 0:
+                await self._condition.wait()
+        self._bytes -= bytes
+
+        try:
+            yield
+        finally:
+            self._bytes += bytes
+            # Make sure the release task is never cancelled.
+            self._release_task = asyncio.create_task(self._release())
+
+
 class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def __init__(self, user_metadata: dict[str, str] | None = None, **kwargs: Any) -> None:
         self._constructor_kwargs = kwargs
@@ -106,6 +131,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
+        self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
+        self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
         self._telemetry: Telemetry | None = None
         self._session_heartbeat_task: asyncio.Task[None] | None = None
         session_id, session_heartbeat_task = self.run_coroutine_threadsafe(
@@ -119,6 +146,37 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._training_client_lock: threading.Lock = threading.Lock()
 
         self._sampling_client_counter: int = 0
+
+    @asynccontextmanager
+    async def _sample_dispatch_count_rate_limit(self):
+        async with self._sample_dispatch_semaphore:
+            yield
+
+    @asynccontextmanager
+    async def _sample_dispatch_count_throttled_rate_limit(self):
+        async with self._sample_dispatch_throttled_semaphore:
+            yield
+
+    def _sample_backoff_requested_recently(self) -> bool:
+        return self._sample_backoff_until is not None and time.monotonic() - self._sample_backoff_until < 10
+
+    @asynccontextmanager
+    async def _sample_dispatch_bytes_rate_limit(self, bytes: int):
+        if self._sample_backoff_requested_recently():
+            # Rate limit more aggressively if we received backoff response recently
+            bytes *= 20
+        async with self._sample_dispatch_bytes_semaphore.acquire(bytes):
+            yield
+
+    @asynccontextmanager
+    async def sample_dispatch_rate_limit(self, estimated_bytes_count: int):
+        async with contextlib.AsyncExitStack() as stack:
+            await stack.enter_async_context(self._sample_dispatch_count_rate_limit())
+            if self._sample_backoff_requested_recently():
+                await stack.enter_async_context(self._sample_dispatch_count_throttled_rate_limit())
+            await stack.enter_async_context(self._sample_dispatch_bytes_rate_limit(estimated_bytes_count))
+
+            yield
 
     async def _session_heartbeat(self, session_id: str):
         SESSION_HEARTBEAT_PERIOD_SEC = 10
@@ -304,6 +362,16 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                     continue
 
                 raise e
+
+    def estimate_bytes_count_in_chunk(self, chunk: types.ModelInputChunk) -> int:
+        if isinstance(chunk, types.ImageChunk):
+            return len(chunk.data)
+        if isinstance(chunk, types.ImageAssetPointerChunk):
+            return len(chunk.location)
+        return chunk.length * 10
+
+    def estimate_bytes_count_in_model_input(self, model_input: types.ModelInput) -> int:
+        return sum(self.estimate_bytes_count_in_chunk(chunk) for chunk in model_input.chunks)
 
 
 def _current_loop() -> asyncio.AbstractEventLoop | None:

@@ -57,7 +57,7 @@ class APIResponseValidationError(APIError):
     status_code: int
 
     def __init__(
-        self, response: httpx.Response, body: object | None, *, message: str | None = None
+        self, response: httpx.Response, body: object | None, message: str | None = None
     ) -> None:
         super().__init__(
             message or "Data returned by API invalid for expected schema.",
@@ -67,6 +67,14 @@ class APIResponseValidationError(APIError):
         self.response = response
         self.status_code = response.status_code
 
+    def __reduce__(self):
+        # Return a tuple of (callable, args) to recreate the exception
+        return (
+            self.__class__,
+            (self.response, self.body, self.message),  # positional args
+            None,
+        )
+
 
 class APIStatusError(APIError):
     """Raised when an API response has a status code of 4xx or 5xx."""
@@ -74,24 +82,41 @@ class APIStatusError(APIError):
     response: httpx.Response
     status_code: int
 
-    def __init__(self, message: str, *, response: httpx.Response, body: object | None) -> None:
+    def __init__(self, message: str, response: httpx.Response, body: object | None) -> None:
         super().__init__(message, response.request, body=body)
         self.response = response
         self.status_code = response.status_code
 
 
+    def __reduce__(self):
+        # Return a tuple of (callable, args) to recreate the exception
+        return (
+            self.__class__,
+            (self.message, self.response, self.body),  # positional args
+            None,
+        )
+
+
 class APIConnectionError(APIError):
     """Raised when a connection error occurs while making an API request."""
 
-    def __init__(self, *, message: str = "Connection error.", request: httpx.Request) -> None:
+    def __init__(self, request: httpx.Request, message: str = "Connection error.") -> None:
         super().__init__(message, request, body=None)
+
+    def __reduce__(self):
+        # Return a tuple of (callable, args) to recreate the exception
+        return (
+            self.__class__,
+            (self.request, self.message),  # positional args
+            None,
+        )
 
 
 class APITimeoutError(APIConnectionError):
     """Raised when an API request times out."""
 
     def __init__(self, request: httpx.Request) -> None:
-        super().__init__(message="Request timed out.", request=request)
+        super().__init__(request=request, message="Request timed out.", )
 
 
 class BadRequestError(APIStatusError):
@@ -148,10 +173,18 @@ class RequestFailedError(TinkerError):
     def __init__(
         self,
         message: str,
-        *,
         request_id: str,
         category: "RequestErrorCategory",
     ) -> None:
         super().__init__(message)
+        self.message: str = message
         self.request_id: str = request_id
         self.category: RequestErrorCategory = category
+
+    def __reduce__(self):
+        # Return a tuple of (callable, args) to recreate the exception
+        return (
+            self.__class__,
+            (self.message, self.request_id, self.category),  # positional args
+            None,
+        )

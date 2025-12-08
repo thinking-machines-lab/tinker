@@ -44,7 +44,7 @@ class QueueState(Enum):
 
 class QueueStateObserver(ABC):
     @abstractmethod
-    def on_queue_state_change(self, queue_state: QueueState) -> None:
+    def on_queue_state_change(self, queue_state: QueueState, queue_state_reason: str | None) -> None:
         raise NotImplementedError
 
 
@@ -151,6 +151,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                         with contextlib.suppress(Exception):
                             response = e.response.json()
                             if queue_state_str := response.get("queue_state", None):
+                                queue_state_reason = response.get("queue_state_reason", None)
                                 if queue_state_str == "active":
                                     queue_state = QueueState.ACTIVE
                                 elif queue_state_str == "paused_rate_limit":
@@ -159,7 +160,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                                     queue_state = QueueState.PAUSED_CAPACITY
                                 else:
                                     queue_state = QueueState.UNKNOWN
-                                self._queue_state_observer.on_queue_state_change(queue_state)
+                                self._queue_state_observer.on_queue_state_change(queue_state, queue_state_reason)
                     continue
                 if e.status_code == 410:
                     raise RetryableException(
