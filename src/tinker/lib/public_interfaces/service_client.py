@@ -143,7 +143,9 @@ class ServiceClient(TelemetryProvider):
             model_id = create_model_response.model_id
             from .training_client import TrainingClient
 
-            training_client = TrainingClient(self.holder, model_seq_id=model_seq_id, model_id=model_id)
+            training_client = TrainingClient(
+                self.holder, model_seq_id=model_seq_id, model_id=model_id
+            )
             logger.info(f"TrainingClient initialized for model {model_id}")
             return training_client
 
@@ -164,7 +166,7 @@ class ServiceClient(TelemetryProvider):
         """Create a TrainingClient for LoRA fine-tuning.
 
         Args:
-        - `base_model`: Name of the base model to fine-tune (e.g., "Qwen/Qwen2.5-7B")
+        - `base_model`: Name of the base model to fine-tune (e.g., "Qwen/Qwen3-8B")
         - `rank`: LoRA rank controlling the size of adaptation matrices (default 32)
         - `seed`: Random seed for initialization. None means random seed.
         - `train_mlp`: Whether to train MLP layers (default True)
@@ -178,7 +180,7 @@ class ServiceClient(TelemetryProvider):
         Example:
         ```python
         training_client = service_client.create_lora_training_client(
-            base_model="Qwen/Qwen2.5-7B",
+            base_model="Qwen/Qwen3-8B",
             rank=16,
             train_mlp=True,
             train_attn=True
@@ -352,7 +354,7 @@ class ServiceClient(TelemetryProvider):
 
         Args:
         - `model_path`: Path to saved model weights (e.g., "tinker://run-id/weights/checkpoint-001")
-        - `base_model`: Name of base model to use (e.g., "Qwen/Qwen2.5-7B")
+        - `base_model`: Name of base model to use (e.g., "Qwen/Qwen3-8B")
         - `retry_config`: Optional configuration for retrying failed requests
 
         Returns:
@@ -365,7 +367,7 @@ class ServiceClient(TelemetryProvider):
         ```python
         # Use a base model
         sampling_client = service_client.create_sampling_client(
-            base_model="Qwen/Qwen2.5-7B"
+            base_model="Qwen/Qwen3-8B"
         )
 
         # Or use saved weights

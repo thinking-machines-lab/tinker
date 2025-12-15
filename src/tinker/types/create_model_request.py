@@ -15,11 +15,13 @@ class CreateModelRequest(StrictBase):
     model_seq_id: int
 
     base_model: str
+    """The name of the base model to fine-tune (e.g., 'Qwen/Qwen3-8B')."""
 
-    """Optional metadata about this model/training run, set by the end-user"""
     user_metadata: Optional[dict[str, Any]] = None
+    """Optional metadata about this model/training run, set by the end-user."""
 
     lora_config: Optional[LoraConfig] = None
+    """LoRA configuration"""
 
     type: Literal["create_model"] = "create_model"
 

@@ -23,7 +23,7 @@ Args:
 
 Example:
 ```python
-sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen2.5-7B")
+sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen3-8B")
 prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
 params = types.SamplingParams(max_tokens=20, temperature=0.7)
 future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)

@@ -36,19 +36,19 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     The SamplingClient lets you generate text tokens from either a base model or from weights
     you've saved using a TrainingClient. You typically get one by calling
     `service_client.create_sampling_client()` or `training_client.save_weights_and_get_sampling_client()`.
+
     Key methods:
     - sample() - generate text completions with customizable parameters
     - compute_logprobs() - get log probabilities for prompt tokens
 
-    Args:
-    - `holder`: Internal client managing HTTP connections and async operations
+    Create method parameters:
     - `model_path`: Path to saved model weights (starts with 'tinker://')
-    - `base_model`: Name of base model to use for inference
+    - `base_model`: Name of base model to use for inference (e.g., 'Qwen/Qwen3-8B')
     - `retry_config`: Configuration for retrying failed requests
 
     Example:
     ```python
-    sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen2.5-7B")
+    sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen3-8B")
     prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
     params = types.SamplingParams(max_tokens=20, temperature=0.7)
     future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
@@ -300,7 +300,9 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
-    def on_queue_state_change(self, queue_state: QueueState, queue_state_reason: str | None) -> None:
+    def on_queue_state_change(
+        self, queue_state: QueueState, queue_state_reason: str | None
+    ) -> None:
         QUEUE_STATE_LOG_INTERVAL = 60
         if queue_state == QueueState.ACTIVE:
             return

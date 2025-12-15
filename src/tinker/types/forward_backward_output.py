@@ -8,7 +8,7 @@ __all__ = ["ForwardBackwardOutput"]
 
 class ForwardBackwardOutput(BaseModel):
     loss_fn_output_type: str
-    """The type of the ForwardBackward output. Can be one of [...] TODO"""
+    """The class name of the loss function output records (e.g., 'TorchLossReturn', 'ArrayRecord')."""
 
     loss_fn_outputs: List[LossFnOutput]
     """Dictionary mapping field names to tensor data"""

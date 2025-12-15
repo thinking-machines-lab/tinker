@@ -84,6 +84,8 @@ class AsyncTinker(AsyncAPIClient):
             raise TinkerError(
                 "The api_key client option must be set either by passing api_key to the client or by setting the TINKER_API_KEY environment variable"
             )
+        if not api_key.startswith("tml-"):
+            raise TinkerError("The api_key must start with the 'tml-' prefix")
         self.api_key = api_key
 
         if base_url is None:

@@ -43,7 +43,7 @@ def pytest_collection_modifyitems(items: list[pytest.Function]) -> None:
 
 base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
 
-api_key = "My API Key"
+api_key = "tml-My API Key"
 
 
 @pytest.fixture(scope="session")

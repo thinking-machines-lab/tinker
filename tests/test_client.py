@@ -35,7 +35,7 @@ from tinker._base_client import (
 from .utils import update_env
 
 base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
-api_key = "My API Key"
+api_key = "tml-My API Key"
 
 
 def _get_params(client: BaseClient[Any, Any]) -> dict[str, str]:
@@ -97,9 +97,9 @@ class TestTinker:
         copied = self.client.copy()
         assert id(copied) != id(self.client)
 
-        copied = self.client.copy(api_key="another My API Key")
-        assert copied.api_key == "another My API Key"
-        assert self.client.api_key == "My API Key"
+        copied = self.client.copy(api_key="tml-another My API Key")
+        assert copied.api_key == "tml-another My API Key"
+        assert self.client.api_key == "tml-My API Key"
 
     def test_copy_default_options(self) -> None:
         # options that have a default are overridden correctly
@@ -352,6 +352,10 @@ class TestTinker:
             with update_env(**{"TINKER_API_KEY": Omit()}):
                 client2 = Tinker(base_url=base_url, api_key=None, _strict_response_validation=True)
             _ = client2
+
+    def test_api_key_prefix_validation(self) -> None:
+        with pytest.raises(TinkerError):
+            Tinker(base_url=base_url, api_key="not-tml-prefix", _strict_response_validation=True)
 
     def test_default_query_option(self) -> None:
         client = Tinker(
@@ -1076,9 +1080,9 @@ class TestAsyncTinker:
         copied = self.client.copy()
         assert id(copied) != id(self.client)
 
-        copied = self.client.copy(api_key="another My API Key")
-        assert copied.api_key == "another My API Key"
-        assert self.client.api_key == "My API Key"
+        copied = self.client.copy(api_key="tml-another My API Key")
+        assert copied.api_key == "tml-another My API Key"
+        assert self.client.api_key == "tml-My API Key"
 
     def test_copy_default_options(self) -> None:
         # options that have a default are overridden correctly
@@ -1333,6 +1337,10 @@ class TestAsyncTinker:
             with update_env(**{"TINKER_API_KEY": Omit()}):
                 client2 = AsyncTinker(base_url=base_url, api_key=None, _strict_response_validation=True)
             _ = client2
+
+    def test_api_key_prefix_validation(self) -> None:
+        with pytest.raises(TinkerError):
+            AsyncTinker(base_url=base_url, api_key="not-tml-prefix", _strict_response_validation=True)
 
     def test_default_query_option(self) -> None:
         client = AsyncTinker(

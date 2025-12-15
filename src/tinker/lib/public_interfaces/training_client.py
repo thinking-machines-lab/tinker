@@ -44,6 +44,8 @@ MAX_CHUNK_LEN = 1024
 MAX_CHUNK_BYTES_COUNT = 5000000
 MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initializing the TrainingClient with a model_id by either calling create_lora_training_client on the ServiceClient, or initiliazing the TrainingClient with an existing model_id."
 
+# Type alias for custom loss functions.
+# Args: (data: List[Datum], model_outputs: List[Any]) -> (loss: Any, metrics: Dict[str, float])
 CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
 
 
@@ -63,7 +65,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     Example:
     ```python
-    training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen2.5-7B")
+    training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
     fwdbwd_future = training_client.forward_backward(training_data, "cross_entropy")
     optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
     fwdbwd_result = fwdbwd_future.result()  # Wait for gradients
@@ -122,7 +124,9 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return self.model_id
 
     def _estimate_bytes_count(self, datum: types.Datum) -> int:
-        return self.holder.estimate_bytes_count_in_model_input(datum.model_input) + sum(len(value.data) * 10 for _, value in datum.loss_fn_inputs.items())
+        return self.holder.estimate_bytes_count_in_model_input(datum.model_input) + sum(
+            len(value.data) * 10 for _, value in datum.loss_fn_inputs.items()
+        )
 
     def _chunked_requests_generator(
         self, data: List[types.Datum]
@@ -831,7 +835,9 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
-    def on_queue_state_change(self, queue_state: QueueState, queue_state_reason: str | None) -> None:
+    def on_queue_state_change(
+        self, queue_state: QueueState, queue_state_reason: str | None
+    ) -> None:
         QUEUE_STATE_LOG_INTERVAL = 60
         if queue_state == QueueState.ACTIVE:
             return

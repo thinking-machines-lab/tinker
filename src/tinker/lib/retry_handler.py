@@ -37,18 +37,37 @@ def is_retryable_status_code(status_code: int) -> bool:
 
 @dataclass
 class RetryConfig:
+    """Configuration for retry behavior on failed API requests.
+
+    Controls connection limits, timeouts, and exponential backoff parameters
+    for automatic request retries.
+    """
+
     max_connections: int = DEFAULT_CONNECTION_LIMITS.max_connections or 100
+    """Maximum number of concurrent connections allowed."""
+
     progress_timeout: float = 120 * 60  # Very long straggler
+    """Timeout in seconds before failing if no progress is made."""
+
     retry_delay_base: float = INITIAL_RETRY_DELAY
+    """Initial delay in seconds before first retry."""
+
     retry_delay_max: float = MAX_RETRY_DELAY
+    """Maximum delay in seconds between retries."""
+
     jitter_factor: float = 0.25
+    """Random jitter factor (0-1) applied to retry delays."""
+
     enable_retry_logic: bool = True
+    """Whether to enable automatic retries on failure."""
+
     retryable_exceptions: tuple[Type[Exception], ...] = (
         asyncio.TimeoutError,
         tinker.APIConnectionError,
         httpx.TimeoutException,
         RetryableException,
     )
+    """Exception types that should trigger a retry."""
 
     def __post_init__(self):
         if self.max_connections <= 0:
