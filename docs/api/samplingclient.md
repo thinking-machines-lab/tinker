@@ -11,14 +11,14 @@ Client for text generation and inference from trained or base models.
 The SamplingClient lets you generate text tokens from either a base model or from weights
 you've saved using a TrainingClient. You typically get one by calling
 `service_client.create_sampling_client()` or `training_client.save_weights_and_get_sampling_client()`.
+
 Key methods:
 - sample() - generate text completions with customizable parameters
 - compute_logprobs() - get log probabilities for prompt tokens
 
-Args:
-- `holder`: Internal client managing HTTP connections and async operations
+Create method parameters:
 - `model_path`: Path to saved model weights (starts with 'tinker://')
-- `base_model`: Name of base model to use for inference
+- `base_model`: Name of base model to use for inference (e.g., 'Qwen/Qwen3-8B')
 - `retry_config`: Configuration for retrying failed requests
 
 Example:
