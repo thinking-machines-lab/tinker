@@ -779,19 +779,29 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         )
 
     def save_weights_and_get_sampling_client_submit(
-        self, retry_config: RetryConfig | None = None
+        self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> APIFuture[SamplingClient]:
         request_id = self._get_request_id()
 
         async def _save_weights_and_get_sampling_client_async():
-            result = await self._save_weights_for_sampler_impl(request_id, None)
-            assert result.path is None
-            assert result.sampling_session_id is not None
-            return await SamplingClient.create(
-                self.holder,
-                sampling_session_id=result.sampling_session_id,
-                retry_config=retry_config,
-            )
+            result = await self._save_weights_for_sampler_impl(request_id, name)
+            if name is not None:
+                # Named save: use the path to create sampling client
+                assert result.path is not None
+                return await SamplingClient.create(
+                    self.holder,
+                    model_path=result.path,
+                    retry_config=retry_config,
+                )
+            else:
+                # Ephemeral save: use the sampling session ID
+                assert result.path is None
+                assert result.sampling_session_id is not None
+                return await SamplingClient.create(
+                    self.holder,
+                    sampling_session_id=result.sampling_session_id,
+                    retry_config=retry_config,
+                )
 
         return self.holder.run_coroutine_threadsafe(_save_weights_and_get_sampling_client_async())
 
@@ -802,7 +812,9 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         """Save current weights and create a SamplingClient for inference.
 
         Args:
-        - `name`: Optional name for the saved weights (currently ignored for ephemeral saves)
+        - `name`: Optional name for the saved weights. If provided, the checkpoint
+            will be persisted and can be retrieved via list_checkpoints(). If None,
+            creates an ephemeral checkpoint that is not persisted.
         - `retry_config`: Optional configuration for retrying failed requests
 
         Returns:
@@ -810,7 +822,12 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
         Example:
         ```python
-        # After training, create a sampling client directly
+        # After training, create a sampling client with persistent checkpoint
+        sampling_client = training_client.save_weights_and_get_sampling_client(
+            name="my-trained-model"
+        )
+
+        # Or create an ephemeral sampling client (not persisted)
         sampling_client = training_client.save_weights_and_get_sampling_client()
 
         # Now use it for inference
@@ -819,18 +836,14 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         result = sampling_client.sample(prompt, 1, params).result()
         ```
         """
-        # Ignore name argument for ephemeral save weights for sampler
-        _ = name
-        return self.save_weights_and_get_sampling_client_submit(retry_config).result()
+        return self.save_weights_and_get_sampling_client_submit(name, retry_config).result()
 
     @capture_exceptions(fatal=True)
     async def save_weights_and_get_sampling_client_async(
         self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
         """Async version of save_weights_and_get_sampling_client."""
-        # Ignore name argument for ephemeral save weights for sampler
-        _ = name
-        return await self.save_weights_and_get_sampling_client_submit(retry_config)
+        return await self.save_weights_and_get_sampling_client_submit(name, retry_config)
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
