@@ -617,7 +617,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     @capture_exceptions(fatal=True)
     async def _save_weights_for_sampler_impl(
-        self, request_id: int, name: str | None
+        self, request_id: int, name: str | None, poll_timeout: float | None = None
     ) -> types.SaveWeightsForSamplerResponseInternal:
         assert asyncio.get_event_loop() == self.holder.get_loop()
         start_time = time.time()
@@ -651,6 +651,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             request_start_time=start_time,
             request_type="SaveWeightsForSampler",
             queue_state_observer=self,
+            poll_timeout=poll_timeout,
         )
 
     @capture_exceptions(fatal=True)
@@ -779,12 +780,12 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         )
 
     def save_weights_and_get_sampling_client_submit(
-        self, retry_config: RetryConfig | None = None
+        self, retry_config: RetryConfig | None = None, poll_timeout: float | None = None
     ) -> APIFuture[SamplingClient]:
         request_id = self._get_request_id()
 
         async def _save_weights_and_get_sampling_client_async():
-            result = await self._save_weights_for_sampler_impl(request_id, None)
+            result = await self._save_weights_for_sampler_impl(request_id, None, poll_timeout=poll_timeout)
             assert result.path is None
             assert result.sampling_session_id is not None
             return await SamplingClient.create(
@@ -797,16 +798,24 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     @capture_exceptions(fatal=True)
     def save_weights_and_get_sampling_client(
-        self, name: str | None = None, retry_config: RetryConfig | None = None
+        self,
+        name: str | None = None,
+        retry_config: RetryConfig | None = None,
+        timeout: float | None = 300.0,
     ) -> SamplingClient:
         """Save current weights and create a SamplingClient for inference.
 
         Args:
         - `name`: Optional name for the saved weights (currently ignored for ephemeral saves)
         - `retry_config`: Optional configuration for retrying failed requests
+        - `timeout`: Maximum time in seconds to wait for the operation to complete.
+            Defaults to 300 seconds (5 minutes). Set to None to wait indefinitely.
 
         Returns:
         - `SamplingClient` configured with the current model weights
+
+        Raises:
+        - `TimeoutError`: If the operation takes longer than the specified timeout
 
         Example:
         ```python
@@ -821,16 +830,42 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         """
         # Ignore name argument for ephemeral save weights for sampler
         _ = name
-        return self.save_weights_and_get_sampling_client_submit(retry_config).result()
+        # Pass timeout to both the internal polling loop and the result() call
+        # This ensures the operation fails fast instead of retrying indefinitely
+        return self.save_weights_and_get_sampling_client_submit(
+            retry_config, poll_timeout=timeout
+        ).result(timeout=timeout)
 
     @capture_exceptions(fatal=True)
     async def save_weights_and_get_sampling_client_async(
-        self, name: str | None = None, retry_config: RetryConfig | None = None
+        self,
+        name: str | None = None,
+        retry_config: RetryConfig | None = None,
+        timeout: float | None = 300.0,
     ) -> SamplingClient:
-        """Async version of save_weights_and_get_sampling_client."""
+        """Async version of save_weights_and_get_sampling_client.
+
+        Args:
+        - `name`: Optional name for the saved weights (currently ignored for ephemeral saves)
+        - `retry_config`: Optional configuration for retrying failed requests
+        - `timeout`: Maximum time in seconds to wait for the operation to complete.
+            Defaults to 300 seconds (5 minutes). Set to None to wait indefinitely.
+
+        Returns:
+        - `SamplingClient` configured with the current model weights
+
+        Raises:
+        - `asyncio.TimeoutError`: If the operation takes longer than the specified timeout
+        """
         # Ignore name argument for ephemeral save weights for sampler
         _ = name
-        return await self.save_weights_and_get_sampling_client_submit(retry_config)
+        # Pass timeout to the internal polling loop to prevent indefinite retries
+        if timeout is not None:
+            return await asyncio.wait_for(
+                self.save_weights_and_get_sampling_client_submit(retry_config, poll_timeout=timeout),
+                timeout=timeout,
+            )
+        return await self.save_weights_and_get_sampling_client_submit(retry_config, poll_timeout=timeout)
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

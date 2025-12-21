@@ -57,12 +57,14 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         request_start_time: float,
         request_type: str,
         queue_state_observer: QueueStateObserver | None = None,
+        poll_timeout: float | None = None,
     ):
         self.model_cls = model_cls
         self.holder = holder
         self.untyped_future = untyped_future
         self.request_type = request_type
         self._cached_result: Any = _UNCOMPUTED
+        self._poll_timeout = poll_timeout
 
         # This helps us collect telemetry about how long (1) it takes the
         # client to serialize the request, (2) round-trip time to the server
@@ -72,7 +74,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         self.request_start_time = request_start_time
         self.request_future_start_time = time.time()
         self.request_queue_roundtrip_time = self.request_future_start_time - request_start_time
-        self._future = self.holder.run_coroutine_threadsafe(self._result_async())
+        self._future = self.holder.run_coroutine_threadsafe(self._result_async(timeout=poll_timeout))
         self._queue_state_observer: QueueStateObserver | None = queue_state_observer
 
     async def _result_async(self, timeout: float | None = None) -> T:
