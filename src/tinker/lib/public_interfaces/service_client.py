@@ -253,6 +253,11 @@ class ServiceClient(TelemetryProvider):
         training_client = self.create_lora_training_client(
             base_model=weights_info.base_model,
             rank=weights_info.lora_rank,
+            train_unembed=weights_info.train_unembed
+            if weights_info.train_unembed is not None
+            else True,
+            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
+            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
         )
 
@@ -274,6 +279,11 @@ class ServiceClient(TelemetryProvider):
         training_client = await self.create_lora_training_client_async(
             base_model=weights_info.base_model,
             rank=weights_info.lora_rank,
+            train_unembed=weights_info.train_unembed
+            if weights_info.train_unembed is not None
+            else True,
+            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
+            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
         )
 
@@ -315,6 +325,11 @@ class ServiceClient(TelemetryProvider):
         training_client = self.create_lora_training_client(
             base_model=weights_info.base_model,
             rank=weights_info.lora_rank,
+            train_unembed=weights_info.train_unembed
+            if weights_info.train_unembed is not None
+            else True,
+            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
+            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
         )
 
@@ -336,6 +351,11 @@ class ServiceClient(TelemetryProvider):
         training_client = await self.create_lora_training_client_async(
             base_model=weights_info.base_model,
             rank=weights_info.lora_rank,
+            train_unembed=weights_info.train_unembed
+            if weights_info.train_unembed is not None
+            else True,
+            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
+            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
         )
 

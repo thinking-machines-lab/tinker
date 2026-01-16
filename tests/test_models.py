@@ -1,15 +1,15 @@
 import json
-from typing import TYPE_CHECKING, Any, Dict, List, Union, Optional, cast
 from datetime import datetime, timezone
-from typing_extensions import Literal, Annotated, TypeAliasType
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
-import pytest
 import pydantic
+import pytest
 from pydantic import Field
+from typing_extensions import Annotated, Literal, TypeAliasType
 
-from tinker._utils import PropertyInfo
-from tinker._compat import PYDANTIC_V2, parse_obj, model_dump, model_json
+from tinker._compat import PYDANTIC_V2, model_dump, model_json, parse_obj
 from tinker._models import BaseModel, construct_type
+from tinker._utils import PropertyInfo
 
 
 class BasicModel(BaseModel):
@@ -706,7 +706,7 @@ def test_discriminated_unions_unknown_variant() -> None:
     # just chooses the first variant
     assert isinstance(m, A)
     assert m.type == "c"  # type: ignore[comparison-overlap]
-    assert m.data == None  # type: ignore[unreachable]
+    assert m.data is None  # type: ignore[unreachable]
     assert m.new_thing == "bar"
 
 
@@ -812,7 +812,8 @@ def test_discriminated_unions_invalid_data_uses_cache() -> None:
     assert not hasattr(UnionType, "__discriminator__")
 
     m = construct_type(
-        value={"type": "b", "data": "foo"}, type_=cast(Any, Annotated[UnionType, PropertyInfo(discriminator="type")])
+        value={"type": "b", "data": "foo"},
+        type_=cast(Any, Annotated[UnionType, PropertyInfo(discriminator="type")]),
     )
     assert isinstance(m, B)
     assert m.type == "b"
@@ -822,7 +823,8 @@ def test_discriminated_unions_invalid_data_uses_cache() -> None:
     assert discriminator is not None
 
     m = construct_type(
-        value={"type": "b", "data": "foo"}, type_=cast(Any, Annotated[UnionType, PropertyInfo(discriminator="type")])
+        value={"type": "b", "data": "foo"},
+        type_=cast(Any, Annotated[UnionType, PropertyInfo(discriminator="type")]),
     )
     assert isinstance(m, B)
     assert m.type == "b"

@@ -1,4 +1,4 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import model_validator
 
@@ -17,7 +17,7 @@ except ImportError:
 import numpy as np
 
 if TYPE_CHECKING:
-    import torch
+    import torch  # noqa: TC004
 
 __all__ = ["Datum"]
 

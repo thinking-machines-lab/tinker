@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Any, Dict, List
 import click
 
 if TYPE_CHECKING:
-    from tinker.types import Checkpoint
+    from tinker.lib.public_interfaces.rest_client import RestClient
+    from tinker.types import Checkpoint, TrainingRun
 
 from ..client import create_rest_client, handle_api_errors
 from ..context import CLIContext
@@ -111,19 +112,28 @@ class CheckpointListOutput(OutputBase):
 class CheckpointInfoOutput(OutputBase):
     """Output for 'tinker checkpoint info' command."""
 
-    def __init__(self, checkpoint: "Checkpoint"):
+    def __init__(self, checkpoint: "Checkpoint", training_run: "TrainingRun"):
         """Initialize with a single checkpoint.
 
         Args:
             checkpoint: Checkpoint object
+            training_run: TrainingRun object for additional info like LoRA rank
         """
         self.checkpoint = checkpoint
+        self.training_run = training_run
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON output."""
         if hasattr(self.checkpoint, "model_dump"):
-            return self.checkpoint.model_dump()
-        return dict(self.checkpoint)
+            result = self.checkpoint.model_dump()
+        else:
+            result = dict(self.checkpoint)
+
+        # Add training run info
+        result["is_lora"] = self.training_run.is_lora
+        result["lora_rank"] = self.training_run.lora_rank
+
+        return result
 
     def get_title(self) -> str | None:
         """Return title for table output."""
@@ -156,6 +166,15 @@ class CheckpointInfoOutput(OutputBase):
             parts = self.checkpoint.tinker_path.replace("tinker://", "").split("/")
             if parts:
                 rows.append(["Training Run ID", parts[0]])
+
+        # LoRA information from training run
+        if self.training_run.is_lora:
+            if self.training_run.lora_rank:
+                rows.append(["LoRA", f"Yes (Rank {self.training_run.lora_rank})"])
+            else:
+                rows.append(["LoRA", "Yes"])
+        else:
+            rows.append(["LoRA", "No"])
 
         return rows
 
@@ -213,11 +232,12 @@ class CheckpointDownloadOutput(OutputBase):
         return rows
 
 
-def get_checkpoint_from_path(checkpoint_path: str) -> "Checkpoint":
+def get_checkpoint_from_path(client: "RestClient", checkpoint_path: str) -> "Checkpoint":
     """Get checkpoint details from a tinker path.
 
     Args:
         checkpoint_path: A tinker path like "tinker://run-id/weights/0001"
+        client: RestClient instance to use for API calls
 
     Returns:
         Checkpoint object
@@ -230,7 +250,6 @@ def get_checkpoint_from_path(checkpoint_path: str) -> "Checkpoint":
 
     try:
         parsed = ParsedCheckpointTinkerPath.from_tinker_path(checkpoint_path)
-        client = create_rest_client()
 
         # Get the checkpoint info
         checkpoints_response = client.list_checkpoints(parsed.training_run_id).result()
@@ -367,10 +386,18 @@ def info(cli_context: CLIContext, checkpoint_path: str) -> None:
             "Checkpoint path must be in the format: tinker://run-id/weights/0001",
         )
 
-    checkpoint = get_checkpoint_from_path(checkpoint_path)
+    # Lazy import
+    from tinker import ParsedCheckpointTinkerPath
+
+    client = create_rest_client()
+    checkpoint = get_checkpoint_from_path(client, checkpoint_path)
+
+    # Fetch training run for additional info (like LoRA rank)
+    parsed = ParsedCheckpointTinkerPath.from_tinker_path(checkpoint_path)
+    training_run = client.get_training_run(parsed.training_run_id).result()
 
     # Create output object
-    output = CheckpointInfoOutput(checkpoint=checkpoint)
+    output = CheckpointInfoOutput(checkpoint=checkpoint, training_run=training_run)
 
     # Print in requested format
     output.print(format=format)
@@ -510,11 +537,11 @@ def download(
         tinker checkpoint download tinker://run-123/weights/final --force
     """
     # Lazy imports to maintain fast CLI startup
-    import urllib.error
-    import urllib.request
+    import shutil
     import tarfile
     import tempfile
-    import shutil
+    import urllib.error
+    import urllib.request
     from pathlib import Path
 
     # Validate it's a tinker path

@@ -8,10 +8,12 @@ Enable execution of the CLI via python -m tinker.cli
 """
 
 import sys
+
 import click
-from .lazy_group import LazyGroup
+
 from .context import CLIContext
 from .exceptions import TinkerCliError
+from .lazy_group import LazyGroup
 
 
 @click.group(

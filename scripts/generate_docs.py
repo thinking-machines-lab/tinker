@@ -15,8 +15,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List
 
-import yaml
-
 
 def cd_to_project_root():
     """Change to the project root (parent of the scripts directory)."""
@@ -41,15 +39,18 @@ class ModuleAnalyzer:
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
-                        if isinstance(target, ast.Name) and target.id == '__all__':
-                            if isinstance(node.value, ast.List):
-                                return [
-                                    elt.s for elt in node.value.elts
-                                    if isinstance(elt, ast.Str)
-                                ] or [
-                                    elt.value for elt in node.value.elts
-                                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
-                                ]
+                        if (
+                            isinstance(target, ast.Name)
+                            and target.id == "__all__"
+                            and isinstance(node.value, ast.List)
+                        ):
+                            return [
+                                elt.s for elt in node.value.elts if isinstance(elt, ast.Str)
+                            ] or [
+                                elt.value
+                                for elt in node.value.elts
+                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                            ]
         except Exception as e:
             print(f"Warning: Could not parse {module_path}: {e}")
         return []
@@ -61,9 +62,9 @@ class ModuleAnalyzer:
 
         for py_file in tinker_path.rglob("*.py"):
             # Skip test files and private modules
-            if any(part.startswith('test') or part.startswith('_test') for part in py_file.parts):
+            if any(part.startswith(("test", "_test")) for part in py_file.parts):
                 continue
-            if '__pycache__' in py_file.parts:
+            if "__pycache__" in py_file.parts:
                 continue
 
             # Calculate module name
@@ -72,10 +73,10 @@ class ModuleAnalyzer:
             module_parts.append(relative_path.stem)
 
             # Skip __init__ files in module name
-            if module_parts[-1] == '__init__':
+            if module_parts[-1] == "__init__":
                 module_parts = module_parts[:-1]
 
-            module_name = '.'.join(module_parts)
+            module_name = ".".join(module_parts)
             if module_name:  # Skip empty module names
                 modules[module_name] = py_file
 
@@ -89,25 +90,20 @@ class DocumentationGenerator:
         self.config_path = config_path
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.analyzer = ModuleAnalyzer(Path('src'))
+        self.analyzer = ModuleAnalyzer(Path("src"))
 
     def run_pydoc_markdown(self, modules: List[str], output_file: Path) -> bool:
         """Run pydoc-markdown for specific modules."""
         try:
             # Build the command
-            cmd = ['pydoc-markdown', 'pydoc-markdown.yml', '-I', 'src']
+            cmd = ["pydoc-markdown", "pydoc-markdown.yml", "-I", "src"]
 
             # Add modules
             for module in modules:
-                cmd.extend(['-m', module])
+                cmd.extend(["-m", module])
 
             # Run pydoc-markdown
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
             if result.returncode == 0:
                 # Write output to file
@@ -129,15 +125,15 @@ class DocumentationGenerator:
 
         # Generate individual pages for each client
         client_modules = [
-            ('ServiceClient', 'tinker.lib.public_interfaces.service_client'),
-            ('TrainingClient', 'tinker.lib.public_interfaces.training_client'),
-            ('SamplingClient', 'tinker.lib.public_interfaces.sampling_client'),
-            ('RestClient', 'tinker.lib.public_interfaces.rest_client'),
-            ('APIFuture', 'tinker.lib.public_interfaces.api_future'),
+            ("ServiceClient", "tinker.lib.public_interfaces.service_client"),
+            ("TrainingClient", "tinker.lib.public_interfaces.training_client"),
+            ("SamplingClient", "tinker.lib.public_interfaces.sampling_client"),
+            ("RestClient", "tinker.lib.public_interfaces.rest_client"),
+            ("APIFuture", "tinker.lib.public_interfaces.api_future"),
         ]
 
         for class_name, module in client_modules:
-            output_file = self.output_dir / f'{class_name.lower().replace("_", "-")}.md'
+            output_file = self.output_dir / f"{class_name.lower().replace('_', '-')}.md"
             self.run_pydoc_markdown([module], output_file)
 
     def generate_all_types(self):
@@ -146,18 +142,18 @@ class DocumentationGenerator:
 
         # Get all type modules
         all_modules = self.analyzer.find_all_modules()
-        type_modules = [m for m in all_modules.keys() if m.startswith('tinker.types')]
+        type_modules = [m for m in all_modules if m.startswith("tinker.types")]
 
         if type_modules:
-            output_file = self.output_dir / 'types.md'
+            output_file = self.output_dir / "types.md"
             self.run_pydoc_markdown(type_modules, output_file)
 
     def generate_exceptions(self):
         """Generate exception hierarchy documentation."""
         print("\n=== Generating Exception Documentation ===")
 
-        output_file = self.output_dir / 'exceptions.md'
-        self.run_pydoc_markdown(['tinker._exceptions'], output_file)
+        output_file = self.output_dir / "exceptions.md"
+        self.run_pydoc_markdown(["tinker._exceptions"], output_file)
 
     def generate_nextra_meta(self):
         """Generate _meta.json for Nextra navigation."""
@@ -170,10 +166,10 @@ class DocumentationGenerator:
             "restclient": "RestClient",
             "apifuture": "APIFuture",
             "types": "Parameters",
-            "exceptions": "Exceptions"
+            "exceptions": "Exceptions",
         }
 
-        meta_file = self.output_dir / '_meta.json'
+        meta_file = self.output_dir / "_meta.json"
         meta_file.write_text(json.dumps(meta, indent=2))
         print(f"Generated: {meta_file}")
 
@@ -204,8 +200,8 @@ def main():
 
     # Paths
     project_root = Path.cwd()
-    config_path = project_root / 'pydoc-markdown.yml'
-    output_dir = project_root / 'docs' / 'api'
+    config_path = project_root / "pydoc-markdown.yml"
+    output_dir = project_root / "docs" / "api"
 
     # Check if config exists
     if not config_path.exists():

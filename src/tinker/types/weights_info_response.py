@@ -11,3 +11,9 @@ class WeightsInfoResponse(BaseModel):
     is_lora: bool
 
     lora_rank: int | None = None
+
+    train_unembed: bool | None = None
+
+    train_mlp: bool | None = None
+
+    train_attn: bool | None = None

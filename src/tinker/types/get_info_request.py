@@ -1,4 +1,3 @@
-from typing import Optional
 from typing_extensions import Literal
 
 from .._compat import PYDANTIC_V2, ConfigDict

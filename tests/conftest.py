@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
 import logging
-from typing import TYPE_CHECKING, Iterator, AsyncIterator
+import os
+from typing import TYPE_CHECKING, AsyncIterator, Iterator
 
 import httpx
 import pytest
 from pytest_asyncio import is_async_test
 
-from tinker import Tinker, AsyncTinker, DefaultAioHttpClient
+from tinker import AsyncTinker, DefaultAioHttpClient, Tinker
 from tinker._utils import is_dict
 
 if TYPE_CHECKING:
@@ -38,7 +38,9 @@ def pytest_collection_modifyitems(items: list[pytest.Function]) -> None:
 
         async_client_param = item.callspec.params.get("async_client")
         if is_dict(async_client_param) and async_client_param.get("http_client") == "aiohttp":
-            item.add_marker(pytest.mark.skip(reason="aiohttp client is not compatible with respx_mock"))
+            item.add_marker(
+                pytest.mark.skip(reason="aiohttp client is not compatible with respx_mock")
+            )
 
 
 base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
@@ -77,6 +79,9 @@ async def async_client(request: FixtureRequest) -> AsyncIterator[AsyncTinker]:
         raise TypeError(f"Unexpected fixture parameter type {type(param)}, expected bool or dict")
 
     async with AsyncTinker(
-        base_url=base_url, api_key=api_key, _strict_response_validation=strict, http_client=http_client
+        base_url=base_url,
+        api_key=api_key,
+        _strict_response_validation=strict,
+        http_client=http_client,
     ) as client:
         yield client

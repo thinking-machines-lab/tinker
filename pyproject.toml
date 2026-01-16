@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.7.0"
+version = "0.8.0"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -137,57 +137,3 @@ reportOverlappingOverload = false
 
 reportImportCycles = false
 reportPrivateUsage = false
-
-[tool.ruff]
-line-length = 120
-output-format = "grouped"
-target-version = "py38"
-
-[tool.ruff.format]
-docstring-code-format = true
-
-[tool.ruff.lint]
-select = [
-  # isort
-  "I",
-  # bugbear rules
-  "B",
-  # remove unused imports
-  "F401",
-  # bare except statements
-  "E722",
-  # unused arguments
-  "ARG",
-  # print statements
-  "T201",
-  "T203",
-  # misuse of typing.TYPE_CHECKING
-  "TC004",
-  # import rules
-  "TID251",
-]
-ignore = [
-  # mutable defaults
-  "B006",
-]
-unfixable = [
-  # disable auto fix for print statements
-  "T201",
-  "T203",
-]
-
-[tool.ruff.lint.flake8-tidy-imports.banned-api]
-"functools.lru_cache".msg = "This function does not retain type information for the wrapped function's arguments; The `lru_cache` function from `_utils` should be used instead"
-
-[tool.ruff.lint.isort]
-length-sort = true
-length-sort-straight = true
-combine-as-imports = true
-extra-standard-library = ["typing_extensions"]
-known-first-party = ["tinker", "tests"]
-
-[tool.ruff.lint.per-file-ignores]
-"bin/**.py" = ["T201", "T203"]
-"scripts/**.py" = ["T201", "T203"]
-"tests/**.py" = ["T201", "T203"]
-"examples/**.py" = ["T201", "T203"]

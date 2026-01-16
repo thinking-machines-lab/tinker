@@ -62,7 +62,7 @@ from ._response import (
     BaseAPIResponse,
     extract_response_type,
 )
-from ._streaming import AsyncStream, SSEBytesDecoder, SSEDecoder, Stream
+from ._streaming import AsyncStream, SSEBytesDecoder, SSEDecoder
 from ._types import (
     NOT_GIVEN,
     AnyMapping,
@@ -85,14 +85,12 @@ from ._utils import asyncify, is_dict, is_given, is_list, is_mapping, lru_cache
 log: logging.Logger = logging.getLogger(__name__)
 
 # TODO: make base page type vars covariant
-SyncPageT = TypeVar("SyncPageT", bound="BaseSyncPage[Any]")
 AsyncPageT = TypeVar("AsyncPageT", bound="BaseAsyncPage[Any]")
 
 
 _T = TypeVar("_T")
 _T_co = TypeVar("_T_co", covariant=True)
 
-_StreamT = TypeVar("_StreamT", bound=Stream[Any])
 _AsyncStreamT = TypeVar("_AsyncStreamT", bound=AsyncStream[Any])
 
 if TYPE_CHECKING:
@@ -304,7 +302,7 @@ class BaseAsyncPage(BasePage[_T], Generic[_T]):
 
 
 _HttpxClientT = TypeVar("_HttpxClientT", bound=Union[httpx.Client, httpx.AsyncClient])
-_DefaultStreamT = TypeVar("_DefaultStreamT", bound=Union[Stream[Any], AsyncStream[Any]])
+_DefaultStreamT = TypeVar("_DefaultStreamT", bound=AsyncStream[Any])
 
 
 class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
@@ -1072,7 +1070,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         options: FinalRequestOptions,
         response: httpx.Response,
         stream: bool,
-        stream_cls: type[Stream[Any]] | type[AsyncStream[Any]] | None,
+        stream_cls: type[AsyncStream[Any]] | None,
         retries_taken: int = 0,
     ) -> ResponseT:
         origin = get_origin(cast_to) or cast_to

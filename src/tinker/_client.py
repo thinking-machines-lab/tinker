@@ -15,7 +15,6 @@ from ._compat import cached_property
 from ._exceptions import APIStatusError, TinkerError
 from ._qs import Querystring
 from ._streaming import AsyncStream as AsyncStream
-from ._streaming import Stream as Stream
 from ._types import (
     NOT_GIVEN,
     NotGiven,
@@ -29,7 +28,7 @@ from ._utils import get_async_library, is_given
 from ._version import __version__
 
 if TYPE_CHECKING:
-    from .resources import futures, models, sampling, service, telemetry, training, weights
+    from .resources import futures, telemetry
     from .resources.futures import AsyncFuturesResource
     from .resources.models import AsyncModelsResource
     from .resources.sampling import AsyncSamplingResource
@@ -152,10 +151,6 @@ class AsyncTinker(AsyncAPIClient):
     def with_raw_response(self) -> AsyncTinkerWithRawResponse:
         return AsyncTinkerWithRawResponse(self)
 
-    @cached_property
-    def with_streaming_response(self) -> AsyncTinkerWithStreamedResponse:
-        return AsyncTinkerWithStreamedResponse(self)
-
     @property
     @override
     def qs(self) -> Querystring:
@@ -272,36 +267,6 @@ class AsyncTinkerWithRawResponse:
         self._client = client
 
     @cached_property
-    def service(self) -> service.AsyncServiceResourceWithRawResponse:
-        from .resources.service import AsyncServiceResourceWithRawResponse
-
-        return AsyncServiceResourceWithRawResponse(self._client.service)
-
-    @cached_property
-    def training(self) -> training.AsyncTrainingResourceWithRawResponse:
-        from .resources.training import AsyncTrainingResourceWithRawResponse
-
-        return AsyncTrainingResourceWithRawResponse(self._client.training)
-
-    @cached_property
-    def models(self) -> models.AsyncModelsResourceWithRawResponse:
-        from .resources.models import AsyncModelsResourceWithRawResponse
-
-        return AsyncModelsResourceWithRawResponse(self._client.models)
-
-    @cached_property
-    def weights(self) -> weights.AsyncWeightsResourceWithRawResponse:
-        from .resources.weights import AsyncWeightsResourceWithRawResponse
-
-        return AsyncWeightsResourceWithRawResponse(self._client.weights)
-
-    @cached_property
-    def sampling(self) -> sampling.AsyncSamplingResourceWithRawResponse:
-        from .resources.sampling import AsyncSamplingResourceWithRawResponse
-
-        return AsyncSamplingResourceWithRawResponse(self._client.sampling)
-
-    @cached_property
     def futures(self) -> futures.AsyncFuturesResourceWithRawResponse:
         from .resources.futures import AsyncFuturesResourceWithRawResponse
 
@@ -312,52 +277,3 @@ class AsyncTinkerWithRawResponse:
         from .resources.telemetry import AsyncTelemetryResourceWithRawResponse
 
         return AsyncTelemetryResourceWithRawResponse(self._client.telemetry)
-
-
-class AsyncTinkerWithStreamedResponse:
-    _client: AsyncTinker
-
-    def __init__(self, client: AsyncTinker) -> None:
-        self._client = client
-
-    @cached_property
-    def service(self) -> service.AsyncServiceResourceWithStreamingResponse:
-        from .resources.service import AsyncServiceResourceWithStreamingResponse
-
-        return AsyncServiceResourceWithStreamingResponse(self._client.service)
-
-    @cached_property
-    def training(self) -> training.AsyncTrainingResourceWithStreamingResponse:
-        from .resources.training import AsyncTrainingResourceWithStreamingResponse
-
-        return AsyncTrainingResourceWithStreamingResponse(self._client.training)
-
-    @cached_property
-    def models(self) -> models.AsyncModelsResourceWithStreamingResponse:
-        from .resources.models import AsyncModelsResourceWithStreamingResponse
-
-        return AsyncModelsResourceWithStreamingResponse(self._client.models)
-
-    @cached_property
-    def weights(self) -> weights.AsyncWeightsResourceWithStreamingResponse:
-        from .resources.weights import AsyncWeightsResourceWithStreamingResponse
-
-        return AsyncWeightsResourceWithStreamingResponse(self._client.weights)
-
-    @cached_property
-    def sampling(self) -> sampling.AsyncSamplingResourceWithStreamingResponse:
-        from .resources.sampling import AsyncSamplingResourceWithStreamingResponse
-
-        return AsyncSamplingResourceWithStreamingResponse(self._client.sampling)
-
-    @cached_property
-    def futures(self) -> futures.AsyncFuturesResourceWithStreamingResponse:
-        from .resources.futures import AsyncFuturesResourceWithStreamingResponse
-
-        return AsyncFuturesResourceWithStreamingResponse(self._client.futures)
-
-    @cached_property
-    def telemetry(self) -> telemetry.AsyncTelemetryResourceWithStreamingResponse:
-        from .resources.telemetry import AsyncTelemetryResourceWithStreamingResponse
-
-        return AsyncTelemetryResourceWithStreamingResponse(self._client.telemetry)

@@ -1,9 +1,9 @@
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 from .._models import BaseModel
-from .severity import Severity
 from .event_type import EventType
+from .severity import Severity
 
 __all__ = ["UnhandledExceptionEvent"]
 

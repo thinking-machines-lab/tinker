@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 
 logger: logging.Logger = logging.getLogger("tinker")
 httpx_logger: logging.Logger = logging.getLogger("httpx")

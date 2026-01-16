@@ -1,24 +1,20 @@
 import pytest
 
 from tinker.lib.chunked_fwdbwd_helpers import (
-    _unique,
     _metrics_reduction,
-    REDUCE_MAP,
 )
-from tinker.types import ForwardBackwardOutput, LossFnOutput, TensorData
+from tinker.types import ForwardBackwardOutput, TensorData
 
 
 class TestMetricsReductionWithUnique:
     """Test the _metrics_reduction function with unique metrics."""
 
-    def create_forward_backward_output(self, metrics: dict, num_loss_fn_outputs: int = 1) -> ForwardBackwardOutput:
+    def create_forward_backward_output(
+        self, metrics: dict, num_loss_fn_outputs: int = 1
+    ) -> ForwardBackwardOutput:
         """Helper to create ForwardBackwardOutput for testing."""
         # LossFnOutput is Dict[str, TensorData], so create sample data
-        tensor_data = TensorData(
-            data=[0.0],
-            dtype="float32",
-            shape=[1]
-        )
+        tensor_data = TensorData(data=[0.0], dtype="float32", shape=[1])
         loss_fn_outputs = [{"loss": tensor_data} for _ in range(num_loss_fn_outputs)]
         return ForwardBackwardOutput(
             loss_fn_output_type="test",
@@ -28,9 +24,7 @@ class TestMetricsReductionWithUnique:
 
     def test_unique_reduction_single_result(self):
         """Test unique reduction with single result."""
-        results = [
-            self.create_forward_backward_output({"clock_cycle:unique": 12345})
-        ]
+        results = [self.create_forward_backward_output({"clock_cycle:unique": 12345})]
 
         reduced = _metrics_reduction(results)
 
@@ -56,16 +50,20 @@ class TestMetricsReductionWithUnique:
     def test_unique_reduction_with_other_metrics(self):
         """Test unique reduction alongside other metric types."""
         results = [
-            self.create_forward_backward_output({
-                "clock_cycle:unique": 100,
-                "loss:mean": 0.5,
-                "accuracy:max": 0.8,
-            }),
-            self.create_forward_backward_output({
-                "clock_cycle:unique": 101,
-                "loss:mean": 0.6,
-                "accuracy:max": 0.9,
-            }),
+            self.create_forward_backward_output(
+                {
+                    "clock_cycle:unique": 100,
+                    "loss:mean": 0.5,
+                    "accuracy:max": 0.8,
+                }
+            ),
+            self.create_forward_backward_output(
+                {
+                    "clock_cycle:unique": 101,
+                    "loss:mean": 0.6,
+                    "accuracy:max": 0.9,
+                }
+            ),
         ]
 
         reduced = _metrics_reduction(results)
@@ -98,7 +96,7 @@ class TestMetricsReductionWithUnique:
         # all results to have a metric for it to be processed
         assert "clock_cycle:unique" not in reduced
         assert "other_metric:mean" not in reduced
-        assert len(reduced) == 0   # Should be empty
+        assert len(reduced) == 0  # Should be empty
 
     def test_unique_reduction_with_float_values(self):
         """Test unique reduction with float values."""
@@ -114,9 +112,7 @@ class TestMetricsReductionWithUnique:
 
     def test_invalid_reduction_type_raises_assertion(self):
         """Test that invalid reduction types raise AssertionError."""
-        results = [
-            self.create_forward_backward_output({"invalid:nonexistent": 100})
-        ]
+        results = [self.create_forward_backward_output({"invalid:nonexistent": 100})]
 
         with pytest.raises(AssertionError, match="Invalid reduction nonexistent"):
             _metrics_reduction(results)

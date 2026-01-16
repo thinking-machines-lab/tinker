@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
 import time
 import traceback
-import contextlib
 from collections.abc import Coroutine, Generator
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
@@ -158,7 +158,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             yield
 
     def _sample_backoff_requested_recently(self) -> bool:
-        return self._sample_backoff_until is not None and time.monotonic() - self._sample_backoff_until < 10
+        return (
+            self._sample_backoff_until is not None
+            and time.monotonic() - self._sample_backoff_until < 10
+        )
 
     @asynccontextmanager
     async def _sample_dispatch_bytes_rate_limit(self, bytes: int):
@@ -174,7 +177,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             await stack.enter_async_context(self._sample_dispatch_count_rate_limit())
             if self._sample_backoff_requested_recently():
                 await stack.enter_async_context(self._sample_dispatch_count_throttled_rate_limit())
-            await stack.enter_async_context(self._sample_dispatch_bytes_rate_limit(estimated_bytes_count))
+            await stack.enter_async_context(
+                self._sample_dispatch_bytes_rate_limit(estimated_bytes_count)
+            )
 
             yield
 

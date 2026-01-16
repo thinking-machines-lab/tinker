@@ -1,25 +1,25 @@
-from .models import (
-    AsyncModelsResource,
-)
 from .futures import (
     AsyncFuturesResource,
     AsyncFuturesResourceWithRawResponse,
 )
-from .service import (
-    AsyncServiceResource,
-)
-from .weights import (
-    AsyncWeightsResource,
+from .models import (
+    AsyncModelsResource,
 )
 from .sampling import (
     AsyncSamplingResource,
 )
-from .training import (
-    AsyncTrainingResource,
+from .service import (
+    AsyncServiceResource,
 )
 from .telemetry import (
     AsyncTelemetryResource,
     AsyncTelemetryResourceWithRawResponse,
+)
+from .training import (
+    AsyncTrainingResource,
+)
+from .weights import (
+    AsyncWeightsResource,
 )
 
 __all__ = [

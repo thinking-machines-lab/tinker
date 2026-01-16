@@ -23,5 +23,7 @@ class ImageAssetPointerChunk(StrictBase):
     @property
     def length(self) -> int:
         if self.expected_tokens is None:
-            raise ValueError("ImageAssetPointerChunk expected_tokens needs to be set in order to compute the length")
+            raise ValueError(
+                "ImageAssetPointerChunk expected_tokens needs to be set in order to compute the length"
+            )
         return self.expected_tokens

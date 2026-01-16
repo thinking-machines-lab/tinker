@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Sequence, Set, cast
 
 import numpy as np
+
 from tinker.types import ForwardBackwardOutput, LossFnOutput
 
 logger = logging.getLogger(__name__)
