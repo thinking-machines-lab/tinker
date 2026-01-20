@@ -86,7 +86,6 @@ def _convert_tensor_dtype_to_torch(dtype: TensorDtype) -> "torch.dtype":
     """Convert TensorDtype to torch dtype."""
     if not _HAVE_TORCH:
         raise ImportError("PyTorch is not installed. Cannot convert to torch dtype.")
-    import torch
 
     if dtype == "float32":
         return torch.float32

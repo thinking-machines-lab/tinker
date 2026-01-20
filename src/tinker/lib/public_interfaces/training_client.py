@@ -26,7 +26,16 @@ from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
 from .sampling_client import SamplingClient, _load_tokenizer_from_model_info
 
+try:
+    import torch  # type: ignore[import-not-found]
+
+    _HAVE_TORCH = True
+except ImportError:
+    _HAVE_TORCH = False
+
+
 if TYPE_CHECKING:
+    import torch
     from transformers.tokenization_utils import PreTrainedTokenizer
 
     from ..internal_client_holder import InternalClientHolder
@@ -363,12 +372,13 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         self, data: List[types.Datum], loss_fn: CustomLossFnV1
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward_backward_custom."""
-        import torch
+        if not _HAVE_TORCH:
+            raise ImportError("PyTorch is not installed. Cannot run custom forward_backward.")
 
         # First do a forward pass and get logprobs
         forward_future = await self.forward_async(data, "cross_entropy")
         forward_result = await forward_future.result_async()
-        logprobs_list: List[torch.Tensor] = []
+        logprobs_list: List["torch.Tensor"] = []
         for out in forward_result.loss_fn_outputs:
             logprob = torch.tensor(out["logprobs"].data).clone().detach().requires_grad_(True)
             logprobs_list.append(logprob)
