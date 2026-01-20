@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import sys
 import asyncio
-import functools
 import contextvars
-from typing import Any, TypeVar, Callable, Awaitable
-from typing_extensions import ParamSpec
+import functools
+import sys
+from typing import Any, Awaitable, Callable, TypeVar
 
 import anyio
-import sniffio
 import anyio.to_thread
+import sniffio
+from typing_extensions import ParamSpec
 
 T_Retval = TypeVar("T_Retval")
 T_ParamSpec = ParamSpec("T_ParamSpec")
@@ -21,7 +21,10 @@ else:
     # backport of https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread
     # for Python 3.8 support
     async def _asyncio_to_thread(
-        func: Callable[T_ParamSpec, T_Retval], /, *args: T_ParamSpec.args, **kwargs: T_ParamSpec.kwargs
+        func: Callable[T_ParamSpec, T_Retval],
+        /,
+        *args: T_ParamSpec.args,
+        **kwargs: T_ParamSpec.kwargs,
     ) -> Any:
         """Asynchronously run function *func* in a separate thread.
 
@@ -50,7 +53,9 @@ async def to_thread(
 
 
 # inspired by `asyncer`, https://github.com/tiangolo/asyncer
-def asyncify(function: Callable[T_ParamSpec, T_Retval]) -> Callable[T_ParamSpec, Awaitable[T_Retval]]:
+def asyncify(
+    function: Callable[T_ParamSpec, T_Retval],
+) -> Callable[T_ParamSpec, Awaitable[T_Retval]]:
     """
     Take a blocking function and create an async one that receives the same
     positional and keyword arguments. For python version 3.9 and above, it uses

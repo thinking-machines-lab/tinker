@@ -8,7 +8,7 @@ defines its own output class that inherits from OutputBase.
 import sys
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List, Callable, Union
+from typing import Any, Callable, Dict, List, Union
 
 
 class OutputBase(ABC):
@@ -84,7 +84,8 @@ class OutputBase(ABC):
         from rich.console import Console
         from rich.table import Table
 
-        console = Console()
+        # Disable emoji processing to prevent IDs from being rendered as emoji
+        console = Console(emoji=False)
 
         # Create table with optional title
         title = self.get_title()

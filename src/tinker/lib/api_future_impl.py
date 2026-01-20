@@ -44,7 +44,9 @@ class QueueState(Enum):
 
 class QueueStateObserver(ABC):
     @abstractmethod
-    def on_queue_state_change(self, queue_state: QueueState, queue_state_reason: str | None) -> None:
+    def on_queue_state_change(
+        self, queue_state: QueueState, queue_state_reason: str | None
+    ) -> None:
         raise NotImplementedError
 
 
@@ -160,7 +162,9 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                                     queue_state = QueueState.PAUSED_CAPACITY
                                 else:
                                     queue_state = QueueState.UNKNOWN
-                                self._queue_state_observer.on_queue_state_change(queue_state, queue_state_reason)
+                                self._queue_state_observer.on_queue_state_change(
+                                    queue_state, queue_state_reason
+                                )
                     continue
                 if e.status_code == 410:
                     raise RetryableException(

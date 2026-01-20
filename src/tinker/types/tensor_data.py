@@ -1,10 +1,11 @@
-from typing import List, Union, Optional, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from .._models import StrictBase
 from .tensor_dtype import TensorDtype
 
 try:
     import torch  # type: ignore[import-not-found]
+
     _HAVE_TORCH = True
 except ImportError:
     _HAVE_TORCH = False
@@ -13,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    import torch
+    import torch  # noqa: TC004
 
 __all__ = ["TensorData"]
 

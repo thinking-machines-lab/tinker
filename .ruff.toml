@@ -1,6 +1,4 @@
 line-length = 100
-include = []
-exclude = []
 force-exclude = true
 
 [lint]
@@ -35,6 +33,6 @@ select = [
   "TC004", # runtime-import-in-type-checking-block
   "TC005", # empty-type-checking-block
 ]
-ignore = ["E501", "SIM108", "SIM117"]
+ignore = ["E501", "E721", "SIM105", "SIM108", "SIM117"]
 unfixable = ["B905"]
 extend-safe-fixes = ["TC004", "TC005"]

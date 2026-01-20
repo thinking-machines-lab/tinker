@@ -87,7 +87,6 @@ class APIStatusError(APIError):
         self.response = response
         self.status_code = response.status_code
 
-
     def __reduce__(self):
         # Return a tuple of (callable, args) to recreate the exception
         return (
@@ -116,7 +115,7 @@ class APITimeoutError(APIConnectionError):
     """Raised when an API request times out."""
 
     def __init__(self, request: httpx.Request) -> None:
-        super().__init__(request=request, message="Request timed out.", )
+        super().__init__(request=request, message="Request timed out.")
 
 
 class BadRequestError(APIStatusError):

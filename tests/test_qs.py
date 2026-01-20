@@ -1,5 +1,5 @@
-from typing import Any, cast
 from functools import partial
+from typing import Any, cast
 from urllib.parse import unquote
 
 import pytest
@@ -57,8 +57,14 @@ def test_array_comma(method: str) -> None:
 def test_array_repeat() -> None:
     assert unquote(stringify({"in": ["foo", "bar"]})) == "in=foo&in=bar"
     assert unquote(stringify({"a": {"b": [True, False]}})) == "a[b]=true&a[b]=false"
-    assert unquote(stringify({"a": {"b": [True, False, None, True]}})) == "a[b]=true&a[b]=false&a[b]=true"
-    assert unquote(stringify({"in": ["foo", {"b": {"c": ["d", "e"]}}]})) == "in=foo&in[b][c]=d&in[b][c]=e"
+    assert (
+        unquote(stringify({"a": {"b": [True, False, None, True]}}))
+        == "a[b]=true&a[b]=false&a[b]=true"
+    )
+    assert (
+        unquote(stringify({"in": ["foo", {"b": {"c": ["d", "e"]}}]}))
+        == "in=foo&in[b][c]=d&in[b][c]=e"
+    )
 
 
 @pytest.mark.parametrize("method", ["class", "function"])
@@ -70,9 +76,14 @@ def test_array_brackets(method: str) -> None:
 
     assert unquote(serialise({"in": ["foo", "bar"]})) == "in[]=foo&in[]=bar"
     assert unquote(serialise({"a": {"b": [True, False]}})) == "a[b][]=true&a[b][]=false"
-    assert unquote(serialise({"a": {"b": [True, False, None, True]}})) == "a[b][]=true&a[b][]=false&a[b][]=true"
+    assert (
+        unquote(serialise({"a": {"b": [True, False, None, True]}}))
+        == "a[b][]=true&a[b][]=false&a[b][]=true"
+    )
 
 
 def test_unknown_array_format() -> None:
-    with pytest.raises(NotImplementedError, match="Unknown array_format value: foo, choose from comma, repeat"):
+    with pytest.raises(
+        NotImplementedError, match="Unknown array_format value: foo, choose from comma, repeat"
+    ):
         stringify({"a": ["foo", "bar"]}, array_format=cast(Any, "foo"))

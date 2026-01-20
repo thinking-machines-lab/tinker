@@ -1,5 +1,6 @@
 import operator
 from typing import Any
+
 from typing_extensions import override
 
 from tinker._utils import LazyProxy

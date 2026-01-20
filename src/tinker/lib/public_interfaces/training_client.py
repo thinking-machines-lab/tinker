@@ -7,7 +7,6 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
-from functools import cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Tuple
 
 from tinker import types
@@ -25,7 +24,7 @@ from ..api_future_impl import (
 from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
-from .sampling_client import SamplingClient
+from .sampling_client import SamplingClient, _load_tokenizer_from_model_info
 
 try:
     import torch  # type: ignore[import-not-found]
@@ -394,7 +393,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             grads.append(logprob.grad)
 
         linear_loss_data = []
-        for datum, grad in zip(data, grads):
+        for datum, grad in zip(data, grads, strict=True):
             loss_fn_inputs: Any = {
                 "target_tokens": datum.loss_fn_inputs["target_tokens"],
                 "weights": -grad,  # Pass PyTorch tensor directly (will be converted to TensorData)
@@ -734,7 +733,6 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         """Async version of get_info."""
         return await self._get_info_submit()
 
-    @cache
     @capture_exceptions(fatal=True)
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Get the tokenizer for the current model.
@@ -863,15 +861,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
 
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:
-    # call get_info on model_id
-    from transformers.models.auto.tokenization_auto import AutoTokenizer
-
-    try:
-        from tml_tokenizers import get_tinker_tokenizer
-    except ImportError:
-
-        def get_tinker_tokenizer(model_id: str) -> PreTrainedTokenizer | None:
-            return None
+    """Get tokenizer for a training model by fetching model info first."""
 
     async def _get_info_async():
         with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -882,29 +872,4 @@ def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> Pre
     model_name = info.model_data.model_name
     assert model_name is not None, "This shouldn't happen: model_name is None"
 
-    # Use tokenizer_id from get_info if available, otherwise fall back to heuristic logic
-    kwargs = {}
-    tokenizer_id = info.model_data.tokenizer_id
-    if tokenizer_id is None:
-        # We generally adhere to the huggingface convention of "<org>/<model>" but
-        # in some cases we'll deploy variants using the format
-        # "<org>/<model>/<variant>". In that case, we want to load the tokenizer
-        # using the huggingface convention.
-        if model_name.startswith("meta-llama/Llama-3"):
-            # Avoid gating of Llama 3 models:
-            tokenizer_id = "thinkingmachineslabinc/meta-llama-3-tokenizer"
-        elif model_name.count("/") == 2:
-            org, model, _variant = model_name.split("/", 2)
-            tokenizer_id = f"{org}/{model}"
-        else:
-            tokenizer_id = model_name
-
-    if tokenizer_id == "moonshotai/Kimi-K2-Thinking":
-        kwargs = {
-            "trust_remote_code": True,
-            "revision": "612681931a8c906ddb349f8ad0f582cb552189cd",
-        }
-    if (tokenizer := get_tinker_tokenizer(tokenizer_id)) is not None:
-        return tokenizer
-
-    return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)
+    return _load_tokenizer_from_model_info(model_name, info.model_data.tokenizer_id)

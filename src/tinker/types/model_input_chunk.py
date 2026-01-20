@@ -1,4 +1,5 @@
 from typing import Union
+
 from typing_extensions import Annotated, TypeAlias
 
 from .._utils import PropertyInfo

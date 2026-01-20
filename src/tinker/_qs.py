@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, List, Tuple, Union, Mapping, TypeVar
+from typing import Any, List, Mapping, Tuple, TypeVar, Union
 from urllib.parse import parse_qs, urlencode
+
 from typing_extensions import Literal, get_args
 
 from ._types import NOT_GIVEN, NotGiven, NotGivenOr
@@ -92,7 +93,9 @@ class Querystring:
                 return [
                     (
                         key,
-                        ",".join(self._primitive_value_to_str(item) for item in value if item is not None),
+                        ",".join(
+                            self._primitive_value_to_str(item) for item in value if item is not None
+                        ),
                     ),
                 ]
             elif array_format == "repeat":
@@ -147,4 +150,6 @@ class Options:
         nested_format: NotGivenOr[NestedFormat] = NOT_GIVEN,
     ) -> None:
         self.array_format = qs.array_format if isinstance(array_format, NotGiven) else array_format
-        self.nested_format = qs.nested_format if isinstance(nested_format, NotGiven) else nested_format
+        self.nested_format = (
+            qs.nested_format if isinstance(nested_format, NotGiven) else nested_format
+        )

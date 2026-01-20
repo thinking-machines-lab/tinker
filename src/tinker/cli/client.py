@@ -7,7 +7,7 @@ and network errors.
 
 import sys
 from functools import wraps
-from typing import TypeVar, Callable, Any, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
 from .exceptions import TinkerCliError
 
@@ -72,17 +72,17 @@ def handle_api_errors(func: F) -> F:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         # Lazy import to avoid slow startup
         from tinker._exceptions import (
-            APIError,
-            BadRequestError,
-            AuthenticationError,
-            PermissionDeniedError,
-            NotFoundError,
-            UnprocessableEntityError,
-            RateLimitError,
-            InternalServerError,
-            APIStatusError,
             APIConnectionError,
+            APIError,
+            APIStatusError,
             APITimeoutError,
+            AuthenticationError,
+            BadRequestError,
+            InternalServerError,
+            NotFoundError,
+            PermissionDeniedError,
+            RateLimitError,
+            UnprocessableEntityError,
         )
 
         try:

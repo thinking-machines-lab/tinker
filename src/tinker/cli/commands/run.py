@@ -5,7 +5,7 @@ This module implements the 'tinker run' commands, including:
 - info: Show details of a specific run
 """
 
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List
 
 import click
 
@@ -16,6 +16,39 @@ from ..client import create_rest_client, handle_api_errors
 from ..context import CLIContext
 from ..output import OutputBase, format_timestamp
 
+# Define available columns for run list
+# Each column has: (header_name, getter_function, description)
+AVAILABLE_COLUMNS: Dict[str, tuple[str, Callable[["TrainingRun"], str], str]] = {
+    "id": ("Run ID", lambda r: r.training_run_id, "Training run ID"),
+    "model": ("Base Model", lambda r: r.base_model, "Base model name"),
+    "owner": ("Owner", lambda r: r.model_owner, "Model owner"),
+    "lora": (
+        "LoRA",
+        lambda r: f"Rank {r.lora_rank}"
+        if r.is_lora and r.lora_rank
+        else ("Yes" if r.is_lora else "No"),
+        "LoRA status and rank",
+    ),
+    "updated": (
+        "Last Update",
+        lambda r: format_timestamp(r.last_request_time),
+        "Last request time",
+    ),
+    "status": ("Status", lambda r: "Failed" if r.corrupted else "OK", "Run status (OK or Failed)"),
+    "checkpoint": (
+        "Last Checkpoint",
+        lambda r: r.last_checkpoint.checkpoint_id if r.last_checkpoint else "None",
+        "Most recent training checkpoint ID",
+    ),
+    "checkpoint_time": (
+        "Checkpoint Time",
+        lambda r: format_timestamp(r.last_checkpoint.time) if r.last_checkpoint else "N/A",
+        "Time of last checkpoint",
+    ),
+}
+
+DEFAULT_COLUMNS = ["id", "model", "lora", "updated", "status"]
+
 
 class RunListOutput(OutputBase):
     """Output for 'tinker run list' command."""
@@ -23,6 +56,7 @@ class RunListOutput(OutputBase):
     def __init__(
         self,
         runs: List["TrainingRun"],
+        columns: List[str],
         total_count: int | None = None,
         shown_count: int | None = None,
     ):
@@ -30,10 +64,12 @@ class RunListOutput(OutputBase):
 
         Args:
             runs: List of TrainingRun objects
+            columns: List of column names to display
             total_count: Total number of runs available (from cursor)
             shown_count: Number of runs shown in this response
         """
         self.runs = runs
+        self.columns = columns
         self.total_count = total_count
         self.shown_count = shown_count if shown_count is not None else len(runs)
 
@@ -60,7 +96,7 @@ class RunListOutput(OutputBase):
         if self.total_count is not None and self.total_count > self.shown_count:
             remaining = self.total_count - self.shown_count
             if remaining == 1:
-                title += f" (1 more not shown, use --limit to see more)"
+                title += " (1 more not shown, use --limit to see more)"
             else:
                 title += f" ({remaining} more not shown, use --limit to see more)"
 
@@ -68,31 +104,18 @@ class RunListOutput(OutputBase):
 
     def get_table_columns(self) -> List[str]:
         """Return column headers for table output."""
-        return ["Run ID", "Base Model", "Owner", "LoRA", "Last Update", "Status"]
+        return [AVAILABLE_COLUMNS[col][0] for col in self.columns if col in AVAILABLE_COLUMNS]
 
     def get_table_rows(self) -> List[List[str]]:
         """Return rows for table output."""
         rows = []
         for run in self.runs:
-            # Format LoRA information
-            if run.is_lora and run.lora_rank:
-                lora_info = f"Rank {run.lora_rank}"
-            elif run.is_lora:
-                lora_info = "Yes"
-            else:
-                lora_info = "No"
-
-            rows.append(
-                [
-                    run.training_run_id,
-                    run.base_model,
-                    run.model_owner,
-                    lora_info,
-                    format_timestamp(run.last_request_time),
-                    "Failed" if run.corrupted else "Active",
-                ]
-            )
-
+            row = []
+            for col in self.columns:
+                if col in AVAILABLE_COLUMNS:
+                    getter = AVAILABLE_COLUMNS[col][1]
+                    row.append(getter(run))
+            rows.append(row)
         return rows
 
 
@@ -142,7 +165,7 @@ class RunInfoOutput(OutputBase):
         rows.append(["Last Update", format_timestamp(self.run.last_request_time)])
 
         # Corruption status
-        rows.append(["Status", "Failed" if self.run.corrupted else "Active"])
+        rows.append(["Status", "Failed" if self.run.corrupted else "OK"])
 
         # Last checkpoints
         if self.run.last_checkpoint:
@@ -164,6 +187,15 @@ class RunInfoOutput(OutputBase):
         return rows
 
 
+def _build_columns_help() -> str:
+    """Build help text listing available columns."""
+    lines = ["Columns to display (comma-separated). Available columns:"]
+    for name, (header, _, desc) in AVAILABLE_COLUMNS.items():
+        lines.append(f"  {name}: {desc}")
+    lines.append(f"Default: {','.join(DEFAULT_COLUMNS)}")
+    return "\n".join(lines)
+
+
 # Click command group for run commands
 @click.group()
 def cli():
@@ -178,12 +210,32 @@ def cli():
     default=20,
     help="Maximum number of runs to fetch (default: 20, use --limit=0 to fetch all)",
 )
+@click.option(
+    "--columns",
+    "-c",
+    default=None,
+    help=_build_columns_help(),
+)
 @click.pass_obj
 @handle_api_errors
-def list(cli_context: CLIContext, limit: int) -> None:
+def list(cli_context: CLIContext, limit: int, columns: str | None) -> None:
     """List all training runs."""
     # Get format from context object
     format = cli_context.format
+
+    # Parse columns
+    if columns:
+        column_list = [c.strip() for c in columns.split(",")]
+        # Validate columns
+        invalid = [c for c in column_list if c not in AVAILABLE_COLUMNS]
+        if invalid:
+            raise click.BadParameter(
+                f"Unknown column(s): {', '.join(invalid)}. "
+                f"Available: {', '.join(AVAILABLE_COLUMNS.keys())}",
+                param_hint="'--columns'",
+            )
+    else:
+        column_list = DEFAULT_COLUMNS
 
     # Create client
     client = create_rest_client()
@@ -229,7 +281,9 @@ def list(cli_context: CLIContext, limit: int) -> None:
                     break
 
     # Create output object with pagination information
-    output = RunListOutput(runs=all_runs, total_count=total_count, shown_count=len(all_runs))
+    output = RunListOutput(
+        runs=all_runs, columns=column_list, total_count=total_count, shown_count=len(all_runs)
+    )
 
     # Print in requested format
     output.print(format=format)

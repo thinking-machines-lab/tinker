@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar, Iterable, cast
+from typing import Generic, Iterable, TypeVar, cast
+
 from typing_extensions import override
 
 T = TypeVar("T")

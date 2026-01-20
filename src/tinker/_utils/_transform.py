@@ -1,33 +1,34 @@
 from __future__ import annotations
 
-import io
 import base64
+import io
 import pathlib
-from typing import Any, Mapping, TypeVar, cast
 from datetime import date, datetime
-from typing_extensions import Literal, get_args, override, get_type_hints as _get_type_hints
+from typing import Any, Mapping, TypeVar, cast
 
 import anyio
 import pydantic
+from typing_extensions import Literal, get_args, override
+from typing_extensions import get_type_hints as _get_type_hints
 
-from ._utils import (
-    is_list,
-    is_given,
-    lru_cache,
-    is_mapping,
-    is_iterable,
-)
+from .._compat import get_origin, is_typeddict, model_dump
 from .._files import is_base64_file_input
 from ._typing import (
-    is_list_type,
-    is_union_type,
     extract_type_arg,
-    is_iterable_type,
-    is_required_type,
     is_annotated_type,
+    is_iterable_type,
+    is_list_type,
+    is_required_type,
+    is_union_type,
     strip_annotated_type,
 )
-from .._compat import get_origin, model_dump, is_typeddict
+from ._utils import (
+    is_given,
+    is_iterable,
+    is_list,
+    is_mapping,
+    lru_cache,
+)
 
 _T = TypeVar("_T")
 
@@ -146,7 +147,7 @@ def _maybe_transform_key(key: str, type_: type) -> str:
 
 
 def _no_transform_needed(annotation: type) -> bool:
-    return annotation == float or annotation == int
+    return annotation in (float, int)
 
 
 def _transform_recursive(
@@ -177,7 +178,9 @@ def _transform_recursive(
 
     if origin == dict and is_mapping(data):
         items_type = get_args(stripped_type)[1]
-        return {key: _transform_recursive(value, annotation=items_type) for key, value in data.items()}
+        return {
+            key: _transform_recursive(value, annotation=items_type) for key, value in data.items()
+        }
 
     if (
         # List[T]
@@ -339,7 +342,9 @@ async def _async_transform_recursive(
 
     if origin == dict and is_mapping(data):
         items_type = get_args(stripped_type)[1]
-        return {key: _transform_recursive(value, annotation=items_type) for key, value in data.items()}
+        return {
+            key: _transform_recursive(value, annotation=items_type) for key, value in data.items()
+        }
 
     if (
         # List[T]
@@ -362,7 +367,10 @@ async def _async_transform_recursive(
                 return data
             return list(data)
 
-        return [await _async_transform_recursive(d, annotation=annotation, inner_type=inner_type) for d in data]
+        return [
+            await _async_transform_recursive(d, annotation=annotation, inner_type=inner_type)
+            for d in data
+        ]
 
     if is_union_type(stripped_type):
         # For union types we run the transformation against all subtypes to ensure that everything is transformed.
@@ -389,7 +397,9 @@ async def _async_transform_recursive(
     return data
 
 
-async def _async_format_data(data: object, format_: PropertyFormat, format_template: str | None) -> object:
+async def _async_format_data(
+    data: object, format_: PropertyFormat, format_template: str | None
+) -> object:
     if isinstance(data, (date, datetime)):
         if format_ == "iso8601":
             return data.isoformat()
@@ -433,7 +443,9 @@ async def _async_transform_typeddict(
             # we do not have a type annotation for this field, leave it as is
             result[key] = value
         else:
-            result[_maybe_transform_key(key, type_)] = await _async_transform_recursive(value, annotation=type_)
+            result[_maybe_transform_key(key, type_)] = await _async_transform_recursive(
+                value, annotation=type_
+            )
     return result
 
 

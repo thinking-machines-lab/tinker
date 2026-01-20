@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-import os
-import inspect
-import traceback
 import contextlib
-from typing import Any, TypeVar, Iterator, cast
+import inspect
+import os
+import traceback
 from datetime import date, datetime
-from typing_extensions import Literal, get_args, get_origin, assert_type
+from typing import Any, Iterator, TypeVar, cast
 
-from tinker._types import Omit, NoneType
+from typing_extensions import Literal, assert_type, get_args, get_origin
+
+from tinker._compat import PYDANTIC_V2, field_outer_type, get_model_fields
+from tinker._models import BaseModel
+from tinker._types import NoneType, Omit
 from tinker._utils import (
+    extract_type_arg,
+    is_annotated_type,
     is_dict,
     is_list,
     is_list_type,
-    is_union_type,
-    extract_type_arg,
-    is_annotated_type,
     is_type_alias_type,
+    is_union_type,
 )
-from tinker._compat import PYDANTIC_V2, field_outer_type, get_model_fields
-from tinker._models import BaseModel
 
 BaseModelT = TypeVar("BaseModelT", bound=BaseModel)
 

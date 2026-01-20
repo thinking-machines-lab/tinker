@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 
-from .datum import Datum
 from .._models import StrictBase
+from .datum import Datum
 from .loss_fn_type import LossFnType
 
 __all__ = ["ForwardBackwardInput"]

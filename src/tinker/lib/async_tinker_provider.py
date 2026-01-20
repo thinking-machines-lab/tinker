@@ -7,8 +7,8 @@ from typing import Any, Protocol, TypeVar
 
 from tinker._client import AsyncTinker
 
-from .public_interfaces.api_future import AwaitableConcurrentFuture
 from .client_connection_pool_type import ClientConnectionPoolType
+from .public_interfaces.api_future import AwaitableConcurrentFuture
 
 T = TypeVar("T")
 

@@ -1,28 +1,27 @@
 from __future__ import annotations
 
-import os
-import re
-import inspect
 import functools
+import inspect
+import re
+from datetime import date, datetime
 from typing import (
     Any,
-    Tuple,
-    Mapping,
-    TypeVar,
     Callable,
     Iterable,
+    Mapping,
     Sequence,
+    Tuple,
+    TypeVar,
     cast,
     overload,
 )
-from pathlib import Path
-from datetime import date, datetime
-from typing_extensions import TypeGuard
 
 import sniffio
+from typing_extensions import TypeGuard
 
-from .._types import NotGiven, FileTypes, NotGivenOr, HeadersLike
-from .._compat import parse_date as parse_date, parse_datetime as parse_datetime
+from .._compat import parse_date as parse_date
+from .._compat import parse_datetime as parse_datetime
+from .._types import FileTypes, HeadersLike, NotGiven, NotGivenOr
 
 _T = TypeVar("_T")
 _TupleT = TypeVar("_TupleT", bound=Tuple[object, ...])
@@ -257,7 +256,7 @@ def required_args(*variants: Sequence[str]) -> Callable[[CallableT], CallableT]:
                         f"{func.__name__}() takes {len(positional)} argument(s) but {len(args)} were given"
                     ) from None
 
-            for key in kwargs.keys():
+            for key in kwargs:
                 given_params.add(key)
 
             for variant in variants:
@@ -267,7 +266,10 @@ def required_args(*variants: Sequence[str]) -> Callable[[CallableT], CallableT]:
             else:  # no break
                 if len(variants) > 1:
                     variations = human_join(
-                        ["(" + human_join([quote(arg) for arg in variant], final="and") + ")" for variant in variants]
+                        [
+                            "(" + human_join([quote(arg) for arg in variant], final="and") + ")"
+                            for variant in variants
+                        ]
                     )
                     msg = f"Missing required arguments; Expected either {variations} arguments to be given"
                 else:
@@ -364,12 +366,6 @@ def removesuffix(string: str, suffix: str) -> str:
     return string
 
 
-def file_from_path(path: str) -> FileTypes:
-    contents = Path(path).read_bytes()
-    file_name = os.path.basename(path)
-    return (file_name, contents)
-
-
 def get_required_header(headers: HeadersLike, header: str) -> str:
     lower_header = header.lower()
     if is_mapping_t(headers):
@@ -379,7 +375,9 @@ def get_required_header(headers: HeadersLike, header: str) -> str:
                 return v
 
     # to deal with the case where the header looks like Stainless-Event-Id
-    intercaps_header = re.sub(r"([^\w])(\w)", lambda pat: pat.group(1) + pat.group(2).upper(), header.capitalize())
+    intercaps_header = re.sub(
+        r"([^\w])(\w)", lambda pat: pat.group(1) + pat.group(2).upper(), header.capitalize()
+    )
 
     for normalized_header in [header, lower_header, header.upper(), intercaps_header]:
         value = headers.get(normalized_header)

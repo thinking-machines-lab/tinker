@@ -21,6 +21,8 @@ from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
 from ..retry_handler import RetryConfig, RetryHandler
 
 if TYPE_CHECKING:
+    from transformers.tokenization_utils import PreTrainedTokenizer
+
     from ..internal_client_holder import InternalClientHolder
 
 # pyright: reportPrivateImportUsage=false
@@ -297,6 +299,27 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         """Async version of compute_logprobs."""
         return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
 
+    @capture_exceptions(fatal=True)
+    def get_tokenizer(self) -> PreTrainedTokenizer:
+        """Get the tokenizer for the current model.
+
+        Returns:
+        - `PreTrainedTokenizer` compatible with the model
+        """
+
+        async def _get_sampler_async():
+            async def _send_request():
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.get(
+                        f"/api/v1/samplers/{self._sampling_session_id}",
+                        cast_to=types.GetSamplerResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        sampler_info = self.holder.run_coroutine_threadsafe(_get_sampler_async()).result()
+        return _load_tokenizer_from_model_info(sampler_info.base_model)
+
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
@@ -328,3 +351,51 @@ def _get_retry_handler(
 ) -> RetryHandler:
     retry_config = retry_config or RetryConfig()
     return RetryHandler(config=retry_config, name=name, telemetry=telemetry)
+
+
+@lru_cache(maxsize=32)
+def _load_tokenizer_from_model_info(
+    model_name: str, tokenizer_id: str | None = None
+) -> PreTrainedTokenizer:
+    """Load a tokenizer given a model name and optional tokenizer_id.
+
+    This is a shared helper used by both TrainingClient and SamplingClient.
+
+    Args:
+        model_name: The model name (e.g., "Qwen/Qwen3-8B")
+        tokenizer_id: Optional explicit tokenizer ID. If None, heuristics are applied.
+
+    Returns:
+        The loaded PreTrainedTokenizer
+    """
+    from transformers.models.auto.tokenization_auto import AutoTokenizer
+
+    # Use tokenizer_id if provided, otherwise fall back to heuristic logic
+    kwargs = {}
+    if tokenizer_id is None:
+        # We generally adhere to the huggingface convention of "<org>/<model>" but
+        # in some cases we'll deploy variants using the format
+        # "<org>/<model>/<variant>". In that case, we want to load the tokenizer
+        # using the huggingface convention.
+        if model_name.startswith("meta-llama/Llama-3"):
+            # Avoid gating of Llama 3 models:
+            tokenizer_id = "thinkingmachineslabinc/meta-llama-3-instruct-tokenizer"
+        elif model_name.count("/") == 2:
+            org, model, _variant = model_name.split("/", 2)
+            tokenizer_id = f"{org}/{model}"
+        else:
+            tokenizer_id = model_name
+
+    if tokenizer_id.startswith("TML/"):
+        from tml_tokenizers.tinker_tokenizers import get_tinker_tokenizer
+
+        if (tokenizer := get_tinker_tokenizer(tokenizer_id)) is not None:
+            return tokenizer
+
+    if tokenizer_id == "moonshotai/Kimi-K2-Thinking":
+        kwargs = {
+            "trust_remote_code": True,
+            "revision": "612681931a8c906ddb349f8ad0f582cb552189cd",
+        }
+
+    return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)

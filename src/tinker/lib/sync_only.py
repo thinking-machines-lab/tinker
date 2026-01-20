@@ -22,10 +22,8 @@ def is_jupyter() -> bool:
         get_ipython  # type: ignore
     except NameError:
         return False
-    shell = get_ipython().__class__.__name__  # type: ignore
-    if shell in ("ZMQInteractiveShell", "Shell"):
-        return True  # Jupyter notebook or qtconsole
-    return False  # Other type of shell
+    shell = get_ipython().__class__.__name__  # type: ignore  # noqa: F821
+    return shell in ("ZMQInteractiveShell", "Shell")  # Jupyter notebook or qtconsole
 
 
 def is_in_async_context() -> bool:

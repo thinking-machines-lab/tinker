@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, Type, Union, Generic, TypeVar, Callable, Optional, cast
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, Callable, Generic, Type, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Generic, Optional, Type, TypeVar, Union, cast
 
 import pydantic
 from pydantic.fields import FieldInfo
 from typing_extensions import (
-    List,
-    Unpack,
-    Literal,
     ClassVar,
+    List,
     ParamSpec,
     Protocol,
     Required,
@@ -81,10 +78,12 @@ class StrictBase(pydantic.BaseModel):
     Don't allow extra fields, so user errors are caught earlier.
     Use this for request types.
     """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     def __str__(self) -> str:
         return repr(self)
+
 
 class BaseModel(pydantic.BaseModel):
     """
@@ -116,11 +115,7 @@ def _construct_field(value: object, field: FieldInfo, key: str) -> object:
 def is_basemodel(type_: type) -> bool:
     """Returns whether or not the given type is either a `BaseModel` or a union of `BaseModel`"""
     if is_union(type_):
-        for variant in get_args(type_):
-            if is_basemodel(variant):
-                return True
-
-        return False
+        return any(is_basemodel(variant) for variant in get_args(type_))
 
     return is_basemodel_type(type_)
 

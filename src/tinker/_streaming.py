@@ -1,84 +1,22 @@
 # Note: initially copied from https://github.com/florimondmanca/httpx-sse/blob/master/src/httpx_sse/_decoders.py
 from __future__ import annotations
 
-import json
+import contextlib
 import inspect
+import json
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, Iterator, AsyncIterator, cast
-from typing_extensions import Self, Protocol, TypeGuard, override, get_origin, runtime_checkable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Generic, Iterator, TypeVar, cast
 
 import httpx
+from typing_extensions import Protocol, Self, TypeGuard, get_origin, override, runtime_checkable
 
 from ._utils import extract_type_var_from_base
 
 if TYPE_CHECKING:
-    from ._client import Tinker, AsyncTinker
+    from ._client import AsyncTinker
 
 
 _T = TypeVar("_T")
-
-
-class Stream(Generic[_T]):
-    """Provides the core interface to iterate over a synchronous stream response."""
-
-    response: httpx.Response
-
-    _decoder: SSEBytesDecoder
-
-    def __init__(
-        self,
-        *,
-        cast_to: type[_T],
-        response: httpx.Response,
-        client: Tinker,
-    ) -> None:
-        self.response = response
-        self._cast_to = cast_to
-        self._client = client
-        self._decoder = client._make_sse_decoder()
-        self._iterator = self.__stream__()
-
-    def __next__(self) -> _T:
-        return self._iterator.__next__()
-
-    def __iter__(self) -> Iterator[_T]:
-        for item in self._iterator:
-            yield item
-
-    def _iter_events(self) -> Iterator[ServerSentEvent]:
-        yield from self._decoder.iter_bytes(self.response.iter_bytes())
-
-    def __stream__(self) -> Iterator[_T]:
-        cast_to = cast(Any, self._cast_to)
-        response = self.response
-        process_data = self._client._process_response_data
-        iterator = self._iter_events()
-
-        for sse in iterator:
-            yield process_data(data=sse.json(), cast_to=cast_to, response=response)
-
-        # Ensure the entire stream is consumed
-        for _sse in iterator:
-            ...
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def close(self) -> None:
-        """
-        Close the response and release the connection.
-
-        Automatically called if the response body is read to completion.
-        """
-        self.response.close()
 
 
 class AsyncStream(Generic[_T]):
@@ -246,7 +184,12 @@ class SSEDecoder:
         # See: https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation  # noqa: E501
 
         if not line:
-            if not self._event and not self._data and not self._last_event_id and self._retry is None:
+            if (
+                not self._event
+                and not self._data
+                and not self._last_event_id
+                and self._retry is None
+            ):
                 return None
 
             sse = ServerSentEvent(
@@ -281,10 +224,8 @@ class SSEDecoder:
             else:
                 self._last_event_id = value
         elif fieldname == "retry":
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 self._retry = int(value)
-            except (TypeError, ValueError):
-                pass
         else:
             pass  # Field is ignored.
 
@@ -302,10 +243,10 @@ class SSEBytesDecoder(Protocol):
         ...
 
 
-def is_stream_class_type(typ: type) -> TypeGuard[type[Stream[object]] | type[AsyncStream[object]]]:
+def is_stream_class_type(typ: type) -> TypeGuard[type[AsyncStream[object]]]:
     """TypeGuard for determining whether or not the given type is a subclass of `Stream` / `AsyncStream`"""
     origin = get_origin(typ) or typ
-    return inspect.isclass(origin) and issubclass(origin, (Stream, AsyncStream))
+    return inspect.isclass(origin) and issubclass(origin, (AsyncStream,))
 
 
 def extract_stream_chunk_type(
@@ -323,11 +264,11 @@ def extract_stream_chunk_type(
     extract_stream_chunk_type(MyStream) -> bytes
     ```
     """
-    from ._base_client import Stream, AsyncStream
+    from ._base_client import AsyncStream
 
     return extract_type_var_from_base(
         stream_cls,
         index=0,
-        generic_bases=cast("tuple[type, ...]", (Stream, AsyncStream)),
+        generic_bases=cast("tuple[type, ...]", (AsyncStream,)),
         failure_message=failure_message,
     )

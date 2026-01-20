@@ -1,8 +1,8 @@
 from typing import List
 
 from .._models import StrictBase
-from .model_input_chunk import ModelInputChunk
 from .encoded_text_chunk import EncodedTextChunk
+from .model_input_chunk import ModelInputChunk
 
 __all__ = ["ModelInput"]
 
@@ -10,7 +10,6 @@ __all__ = ["ModelInput"]
 class ModelInput(StrictBase):
     chunks: List[ModelInputChunk]
     """Sequence of input chunks (formerly TokenSequence)"""
-
 
     @classmethod
     def from_ints(cls, tokens: List[int]) -> "ModelInput":
@@ -25,7 +24,9 @@ class ModelInput(StrictBase):
         Throws exception if there are any non-token chunks
         """
         if not all(isinstance(chunk, EncodedTextChunk) for chunk in self.chunks):
-            raise ValueError(f"to_ints only supported for ModelInput with EncodedTextChunks, got {[type(chunk) for chunk in self.chunks]}")
+            raise ValueError(
+                f"to_ints only supported for ModelInput with EncodedTextChunks, got {[type(chunk) for chunk in self.chunks]}"
+            )
         return [token for chunk in self.chunks for token in chunk.tokens]
 
     @property

@@ -1,6 +1,5 @@
 from typing import Optional
 
-from ..._compat import PYDANTIC_V2, ConfigDict
 from ..._models import BaseModel
 from ..model_id import ModelID
 from ..request_id import RequestID

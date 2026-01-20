@@ -2,9 +2,9 @@ from pathlib import Path
 
 import anyio
 import pytest
-from dirty_equals import IsDict, IsList, IsBytes, IsTuple
+from dirty_equals import IsBytes, IsDict, IsList, IsTuple
 
-from tinker._files import to_httpx_files, async_to_httpx_files
+from tinker._files import async_to_httpx_files, to_httpx_files
 
 readme_path = Path(__file__).parent.parent.joinpath("README.md")
 
@@ -43,7 +43,9 @@ async def test_async_tuple_input() -> None:
 
 
 def test_string_not_allowed() -> None:
-    with pytest.raises(TypeError, match="Expected file types input to be a FileContent type or to be a tuple"):
+    with pytest.raises(
+        TypeError, match="Expected file types input to be a FileContent type or to be a tuple"
+    ):
         to_httpx_files(
             {
                 "file": "foo",  # type: ignore

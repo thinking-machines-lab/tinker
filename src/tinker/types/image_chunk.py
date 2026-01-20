@@ -40,5 +40,7 @@ class ImageChunk(StrictBase):
     @property
     def length(self) -> int:
         if self.expected_tokens is None:
-            raise ValueError("ImageChunk expected_tokens needs to be set in order to compute the length")
+            raise ValueError(
+                "ImageChunk expected_tokens needs to be set in order to compute the length"
+            )
         return self.expected_tokens
