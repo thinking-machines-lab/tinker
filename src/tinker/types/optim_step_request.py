@@ -26,7 +26,7 @@ class AdamParams(StrictBase):
     """Weight decay for the optimizer. Uses decoupled weight decay."""
 
     grad_clip_norm: float = 0.0
-    """Gradient clip norm for the optimizer. 0.0 means no clipping."""
+    """Maximum global gradient norm. If the global gradient norm is greater than this value, it will be clipped to this value. 0.0 means no clipping."""
 
 
 class OptimStepRequest(StrictBase):

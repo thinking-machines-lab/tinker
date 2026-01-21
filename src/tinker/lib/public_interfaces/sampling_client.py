@@ -370,6 +370,8 @@ def _load_tokenizer_from_model_info(
     """
     from transformers.models.auto.tokenization_auto import AutoTokenizer
 
+    model_name = model_name.split(":")[0]
+
     # Use tokenizer_id if provided, otherwise fall back to heuristic logic
     kwargs = {}
     if tokenizer_id is None:
