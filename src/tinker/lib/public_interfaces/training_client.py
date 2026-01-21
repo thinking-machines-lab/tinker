@@ -27,15 +27,12 @@ from ..sync_only import sync_only
 from .sampling_client import SamplingClient, _load_tokenizer_from_model_info
 
 try:
-    import torch  # type: ignore[import-not-found]
-
-    _HAVE_TORCH = True
+    import torch
 except ImportError:
-    _HAVE_TORCH = False
+    torch = None
 
 
 if TYPE_CHECKING:
-    import torch
     from transformers.tokenization_utils import PreTrainedTokenizer
 
     from ..internal_client_holder import InternalClientHolder
@@ -372,13 +369,13 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         self, data: List[types.Datum], loss_fn: CustomLossFnV1
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward_backward_custom."""
-        if not _HAVE_TORCH:
+        if torch is None:
             raise ImportError("PyTorch is not installed. Cannot run custom forward_backward.")
 
         # First do a forward pass and get logprobs
         forward_future = await self.forward_async(data, "cross_entropy")
         forward_result = await forward_future.result_async()
-        logprobs_list: List["torch.Tensor"] = []
+        logprobs_list = []
         for out in forward_result.loss_fn_outputs:
             logprob = torch.tensor(out["logprobs"].data).clone().detach().requires_grad_(True)
             logprobs_list.append(logprob)
@@ -422,6 +419,11 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
     @capture_exceptions(fatal=True)
     def optim_step(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:
         """Update model parameters using Adam optimizer.
+
+        The Adam optimizer used by tinker is identical
+        to [torch.optim.AdamW](https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html).
+        Note that unlike PyTorch, Tinker's default weight decay value is 0.0 (no weight decay).
+
 
         Args:
         - `adam_params`: Adam optimizer parameters (learning_rate, betas, eps, weight_decay)

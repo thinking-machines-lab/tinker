@@ -116,10 +116,12 @@ def get_model_fields(model: type[pydantic.BaseModel]) -> dict[str, FieldInfo]:
     return model.__fields__  # type: ignore
 
 
-def model_copy(model: _ModelT, *, deep: bool = False) -> _ModelT:
+def model_copy(
+    model: _ModelT, *, deep: bool = False, update: dict[str, Any] | None = None
+) -> _ModelT:
     if PYDANTIC_V2:
-        return model.model_copy(deep=deep)
-    return model.copy(deep=deep)  # type: ignore
+        return model.model_copy(deep=deep, update=update)  # type: ignore
+    return model.copy(deep=deep, update=update)  # type: ignore
 
 
 def model_json(model: pydantic.BaseModel, *, indent: int | None = None) -> str:

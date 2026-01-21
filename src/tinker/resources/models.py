@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from .._base_client import make_request_options
-from .._compat import model_dump
+from .._compat import model_copy, model_dump
 from .._resource import AsyncAPIResource
 from .._types import NOT_GIVEN, Body, Headers, NotGiven, Query
 from ..types.create_model_request import CreateModelRequest
@@ -104,12 +104,19 @@ class AsyncModelsResource(AsyncAPIResource):
         if max_retries is not NOT_GIVEN:
             options["max_retries"] = max_retries
 
-        return await self._post(
+        result = await self._post(
             "/api/v1/get_info",
             body=model_dump(request, exclude_unset=True, mode="json"),
             options=options,
             cast_to=GetInfoResponse,
         )
+        if result.model_data.tokenizer_id:
+            tokenizer_id = result.model_data.tokenizer_id.split(":")[0]
+            updated_model_data = model_copy(
+                result.model_data, update={"tokenizer_id": tokenizer_id}
+            )
+            result = model_copy(result, update={"model_data": updated_model_data})
+        return result
 
     async def unload(
         self,
