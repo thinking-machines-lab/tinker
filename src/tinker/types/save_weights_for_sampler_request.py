@@ -19,6 +19,9 @@ class SaveWeightsForSamplerRequest(StrictBase):
 
     seq_id: Optional[int] = None
 
+    ttl_seconds: Optional[int] = None
+    """TTL in seconds for this checkpoint (None = never expires)"""
+
     type: Literal["save_weights_for_sampler"] = "save_weights_for_sampler"
 
     if PYDANTIC_V2:

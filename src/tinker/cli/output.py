@@ -177,22 +177,33 @@ def format_timestamp(dt: Union[datetime, str, None]) -> str:
         # Calculate time difference
         delta = now - dt
 
-        # Format based on age
+        # Handle future times (negative delta means dt is in the future)
+        is_future = delta.total_seconds() < 0
+        if is_future:
+            delta = dt - now
+            suffix = ""
+            prefix = "in "
+        else:
+            suffix = " ago"
+            prefix = ""
+
+        # Format based on magnitude
+        total_seconds = int(delta.total_seconds())
         if delta.days > 30:
             return dt.strftime("%Y-%m-%d")
         elif delta.days > 7:
             weeks = delta.days // 7
-            return f"{weeks} week{'s' if weeks > 1 else ''} ago"
+            return f"{prefix}{weeks} week{'s' if weeks > 1 else ''}{suffix}"
         elif delta.days > 0:
-            return f"{delta.days} day{'s' if delta.days > 1 else ''} ago"
-        elif delta.seconds > 3600:
-            hours = delta.seconds // 3600
-            return f"{hours} hour{'s' if hours > 1 else ''} ago"
-        elif delta.seconds > 60:
-            minutes = delta.seconds // 60
-            return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
+            return f"{prefix}{delta.days} day{'s' if delta.days > 1 else ''}{suffix}"
+        elif total_seconds > 3600:
+            hours = total_seconds // 3600
+            return f"{prefix}{hours} hour{'s' if hours > 1 else ''}{suffix}"
+        elif total_seconds > 60:
+            minutes = total_seconds // 60
+            return f"{prefix}{minutes} minute{'s' if minutes > 1 else ''}{suffix}"
         else:
-            return "just now"
+            return "just now" if not is_future else "in less than a minute"
 
     except Exception:
         # If any error occurs, just return string representation

@@ -27,6 +27,9 @@ class Checkpoint(BaseModel):
     public: bool = False
     """Whether the checkpoint is publicly accessible"""
 
+    expires_at: datetime | None = None
+    """When this checkpoint expires (None = never expires)"""
+
 
 class ParsedCheckpointTinkerPath(BaseModel):
     tinker_path: str

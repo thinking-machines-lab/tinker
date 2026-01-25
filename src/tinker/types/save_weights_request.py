@@ -17,6 +17,9 @@ class SaveWeightsRequest(StrictBase):
 
     seq_id: Optional[int] = None
 
+    ttl_seconds: Optional[int] = None
+    """TTL in seconds for this checkpoint (None = never expires)"""
+
     type: Literal["save_weights"] = "save_weights"
 
     if PYDANTIC_V2:

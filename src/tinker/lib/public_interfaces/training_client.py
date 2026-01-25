@@ -486,11 +486,14 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         return self.optim_step(adam_params)
 
     @capture_exceptions(fatal=True)
-    def save_state(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
+    def save_state(
+        self, name: str, ttl_seconds: int | None = None
+    ) -> APIFuture[types.SaveWeightsResponse]:
         """Save model weights to persistent storage.
 
         Args:
         - `name`: Name for the saved checkpoint
+        - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
 
         Returns:
         - `APIFuture` containing the save response with checkpoint path
@@ -514,6 +517,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     model_id=self._guaranteed_model_id(),
                     path=name,
                     seq_id=request_id + 1,
+                    ttl_seconds=ttl_seconds,
                 )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.save(
@@ -533,9 +537,11 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
         return self.holder.run_coroutine_threadsafe(_save_state_async())
 
-    async def save_state_async(self, name: str) -> APIFuture[types.SaveWeightsResponse]:
+    async def save_state_async(
+        self, name: str, ttl_seconds: int | None = None
+    ) -> APIFuture[types.SaveWeightsResponse]:
         """Async version of save_state."""
-        return self.save_state(name)
+        return self.save_state(name, ttl_seconds=ttl_seconds)
 
     @capture_exceptions(fatal=True)
     async def _load_state_impl(
@@ -625,7 +631,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     @capture_exceptions(fatal=True)
     async def _save_weights_for_sampler_impl(
-        self, request_id: int, name: str | None
+        self, request_id: int, name: str | None, ttl_seconds: int | None = None
     ) -> types.SaveWeightsForSamplerResponseInternal:
         assert asyncio.get_event_loop() == self.holder.get_loop()
         start_time = time.time()
@@ -636,6 +642,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     model_id=self._guaranteed_model_id(),
                     path=name,
                     seq_id=request_id + 1,
+                    ttl_seconds=ttl_seconds,
                 )
             else:
                 sampling_session_seq_id = self.holder._sampling_client_counter
@@ -644,6 +651,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     model_id=self._guaranteed_model_id(),
                     seq_id=request_id + 1,
                     sampling_session_seq_id=sampling_session_seq_id,
+                    ttl_seconds=ttl_seconds,
                 )
             with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                 return await client.weights.save_for_sampler(
@@ -662,11 +670,14 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         )
 
     @capture_exceptions(fatal=True)
-    def save_weights_for_sampler(self, name: str) -> APIFuture[types.SaveWeightsForSamplerResponse]:
+    def save_weights_for_sampler(
+        self, name: str, ttl_seconds: int | None = None
+    ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         """Save model weights for use with a SamplingClient.
 
         Args:
         - `name`: Name for the saved sampler weights
+        - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
 
         Returns:
         - `APIFuture` containing the save response with sampler path
@@ -687,17 +698,17 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         request_id = self._get_request_id()
 
         async def _save_weights_for_sampler_async():
-            result = await self._save_weights_for_sampler_impl(request_id, name)
+            result = await self._save_weights_for_sampler_impl(request_id, name, ttl_seconds)
             assert result.path is not None
             return types.SaveWeightsForSamplerResponse(path=result.path)
 
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
     async def save_weights_for_sampler_async(
-        self, name: str
+        self, name: str, ttl_seconds: int | None = None
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         """Async version of save_weights_for_sampler."""
-        return self.save_weights_for_sampler(name)
+        return self.save_weights_for_sampler(name, ttl_seconds=ttl_seconds)
 
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
         async def _get_info_async():
