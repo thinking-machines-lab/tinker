@@ -88,7 +88,7 @@ class CheckpointListOutput(OutputBase):
 
     def get_table_columns(self) -> List[str]:
         """Return column headers for table output."""
-        return ["Checkpoint ID", "Type", "Size", "Public", "Created", "Path"]
+        return ["Checkpoint ID", "Type", "Size", "Public", "Created", "Expires", "Path"]
 
     def get_table_rows(self) -> List[List[str]]:
         """Return rows for table output."""
@@ -103,6 +103,7 @@ class CheckpointListOutput(OutputBase):
                     else "N/A",
                     format_bool(ckpt.public),
                     format_timestamp(ckpt.time),
+                    format_timestamp(ckpt.expires_at) if ckpt.expires_at else "Never",
                     ckpt.tinker_path,
                 ]
             )
@@ -160,6 +161,12 @@ class CheckpointInfoOutput(OutputBase):
 
         # Creation time
         rows.append(["Created", format_timestamp(self.checkpoint.time)])
+
+        # Expiration time
+        if self.checkpoint.expires_at:
+            rows.append(["Expires", format_timestamp(self.checkpoint.expires_at)])
+        else:
+            rows.append(["Expires", "Never"])
 
         # Parse training run ID from path
         if self.checkpoint.tinker_path.startswith("tinker://"):
