@@ -288,6 +288,56 @@ async def get_checkpoint_archive_url_from_tinker_path_async(
 
 Async version of get_checkpoint_archive_url_from_tinker_path.
 
+#### `export_checkpoint_to_hub`
+
+```python
+def export_checkpoint_to_hub(
+        tinker_path: str,
+        repo_id: str | None,
+        *,
+        private: bool = True,
+        token: str | None = None,
+        revision: str | None = None,
+        commit_message: str | None = None,
+        create_pr: bool = False,
+        exist_ok: bool = True,
+        allow_patterns: Sequence[str] | None = None,
+        ignore_patterns: Sequence[str] | None = None,
+        add_model_card: bool = True,
+) -> str
+```
+
+Download a checkpoint archive, extract the PEFT adapter files, optionally add a README.md
+model card, and upload to the Hugging Face Hub.
+
+Args:
+- `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+- `repo_id`: Hugging Face repo ID (e.g., "username/my-lora-adapter"). If None,
+  a name is derived from the base model and checkpoint path.
+- `private`: Whether to create the repo as private (default True)
+- `token`: Hugging Face access token (optional)
+- `revision`: Target branch/revision to upload to (optional)
+- `commit_message`: Commit message for the upload (optional)
+- `create_pr`: Whether to create a PR instead of pushing to the main branch
+- `exist_ok`: Whether repo creation should succeed if repo exists
+- `allow_patterns`: Optional list of file patterns to include
+- `ignore_patterns`: Optional list of file patterns to exclude
+- `add_model_card`: Whether to add a README.md if missing (default True)
+
+Returns:
+- The repo_id that was uploaded to
+
+Example:
+```python
+rest_client = service_client.create_rest_client()
+repo_id = rest_client.export_checkpoint_to_hub(
+    "tinker://run-id/weights/final",
+    "username/my-lora-adapter",
+    private=True,
+)
+print(f"Uploaded to: {repo_id}")
+```
+
 #### `publish_checkpoint_from_tinker_path`
 
 ```python
