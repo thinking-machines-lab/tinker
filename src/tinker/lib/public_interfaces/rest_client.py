@@ -535,6 +535,19 @@ class RestClient(TelemetryProvider):
             except Exception:
                 pass
 
+            # Normalize adapter_config.json so base_model_name_or_path is a string.
+            try:
+                import json
+
+                config_data = json.loads(adapter_config.read_text(encoding="utf-8"))
+                if not isinstance(config_data.get("base_model_name_or_path"), str):
+                    config_data["base_model_name_or_path"] = base_model
+                    adapter_config.write_text(
+                        json.dumps(config_data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                    )
+            except Exception:
+                pass
+
             if repo_id is None:
                 base_short = base_model.split("/")[-1] if base_model != "unknown" else "adapter"
                 derived = f"tinker-{base_short}-{parsed_tinker_path.training_run_id}"
@@ -545,7 +558,7 @@ class RestClient(TelemetryProvider):
             # Add a lightweight model card if missing
             readme_path = extract_dir / "README.md"
             if add_model_card and not readme_path.exists():
-                tags: list[str] = ["tinker", "peft", "lora", "transformers"]
+                tags: list[str] = ["tinker", "peft", "lora"]
                 if base_model != "unknown":
                     tags.append(f"base_model:adapter:{base_model}")
                 model_card = [
@@ -585,6 +598,11 @@ class RestClient(TelemetryProvider):
 
             api = HfApi(token=token)
             api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
+
+            if allow_patterns is None:
+                ignore_patterns = list(ignore_patterns) if ignore_patterns else []
+                if "checkpoint_complete" not in ignore_patterns:
+                    ignore_patterns.append("checkpoint_complete")
 
             api.upload_folder(
                 folder_path=os.fspath(extract_dir),
