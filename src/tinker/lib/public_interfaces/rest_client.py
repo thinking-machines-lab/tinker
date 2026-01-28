@@ -574,7 +574,7 @@ class RestClient(TelemetryProvider):
                     [
                         "---",
                         "",
-                        "# LoRA Adapter (Tinker)",
+                        "# Tinker LoRA Adapter",
                         "",
                         f"This repository contains a LoRA adapter exported from Tinker.",
                         "",
