@@ -425,8 +425,10 @@ class RestClient(TelemetryProvider):
         - `repo_id`: Hugging Face repo ID (e.g., "username/my-lora-adapter"). If None,
           a name is derived from the base model and checkpoint path.
         - `private`: Whether to create the repo as private (default False)
-        - `token`: Hugging Face access token (optional)
-        - `revision`: Target branch/revision to upload to (optional)
+        - `token`: Hugging Face access token (optional). If None, uses the token
+          from `hf auth login` or the `HF_TOKEN` env var if available.
+        - `revision`: Target branch/revision to upload to (optional). If None and
+          repo_id is None, defaults to a name derived from the checkpoint id.
         - `commit_message`: Commit message for the upload (optional)
         - `create_pr`: Whether to create a PR instead of pushing to the main branch
         - `exist_ok`: Whether repo creation should succeed if repo exists
@@ -535,9 +537,10 @@ class RestClient(TelemetryProvider):
 
             if repo_id is None:
                 base_short = base_model.split("/")[-1] if base_model != "unknown" else "adapter"
-                checkpoint_id = parsed_tinker_path.checkpoint_id.replace("/", "-")
-                derived = f"tinker-{base_short}-{parsed_tinker_path.training_run_id}-{checkpoint_id}"
+                derived = f"tinker-{base_short}-{parsed_tinker_path.training_run_id}"
                 repo_id = _sanitize_repo_name(derived)
+                if revision is None:
+                    revision = _sanitize_repo_name(parsed_tinker_path.checkpoint_id.replace("/", "-"))
 
             # Add a lightweight model card if missing
             readme_path = extract_dir / "README.md"

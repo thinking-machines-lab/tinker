@@ -313,10 +313,13 @@ model card, and upload to the Hugging Face Hub.
 Args:
 - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 - `repo_id`: Hugging Face repo ID (e.g., "username/my-lora-adapter"). If None,
-  a name is derived from the base model and checkpoint path.
+  a name is derived from the base model and training run, and `revision` is
+  derived from the checkpoint id.
 - `private`: Whether to create the repo as private (default True)
-- `token`: Hugging Face access token (optional)
-- `revision`: Target branch/revision to upload to (optional)
+- `token`: Hugging Face access token (optional). If None, uses the token
+  from `hf auth login` or the `HF_TOKEN` env var if available.
+- `revision`: Target branch/revision to upload to (optional). If None and
+  repo_id is None, defaults to a name derived from the checkpoint id.
 - `commit_message`: Commit message for the upload (optional)
 - `create_pr`: Whether to create a PR instead of pushing to the main branch
 - `exist_ok`: Whether repo creation should succeed if repo exists
