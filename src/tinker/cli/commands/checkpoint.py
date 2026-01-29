@@ -6,7 +6,6 @@ This module implements the 'tinker checkpoint' commands, including:
 - download: Download and extract checkpoint archives
 """
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 
 import click
@@ -542,6 +541,7 @@ def _safe_extract_tar(
     format: str,
 ) -> None:
     import tarfile
+    from pathlib import Path
 
     base = extract_dir.resolve()
     with tarfile.open(archive_path, "r") as tar:
@@ -580,6 +580,7 @@ def _download_checkpoint_archive(
 ) -> int:
     import urllib.error
     import urllib.request
+    from pathlib import Path
 
     try:
         with urllib.request.urlopen(url, timeout=60) as response:
