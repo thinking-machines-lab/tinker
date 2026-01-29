@@ -1031,7 +1031,7 @@ def push_hf(
     if not checkpoint_path.startswith("tinker://"):
         raise TinkerCliError(
             f"Invalid checkpoint path: {checkpoint_path}",
-            "Checkpoint path must be in the format: tinker://run-id/weights/0001",
+            "Checkpoint path must be in the format: tinker://run-id/sampler_weights/0001",
         )
 
     client = create_rest_client()
