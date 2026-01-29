@@ -324,6 +324,237 @@ def get_checkpoint_from_path(client: "RestClient", checkpoint_path: str) -> "Che
         raise TinkerCliError(f"Failed to retrieve checkpoint: {e}")
 
 
+def _export_checkpoint_to_hub(
+    client: "RestClient",
+    tinker_path: str,
+    repo_id: str | None,
+    *,
+    private: bool,
+    revision: str | None,
+    commit_message: str | None,
+    create_pr: bool,
+    exist_ok: bool,
+    allow_patterns: list[str] | None,
+    ignore_patterns: list[str] | None,
+    add_model_card: bool,
+) -> str:
+    # Lazy imports to keep CLI startup fast
+    try:
+        from huggingface_hub import HfApi, hf_hub_download
+    except ImportError as exc:
+        raise TinkerCliError(
+            "huggingface_hub is required for this command.",
+            "Install it with: pip install huggingface_hub",
+        ) from exc
+
+    import json
+    import os
+    import re
+    import tarfile
+    import tempfile
+    import urllib.request
+    from pathlib import Path
+
+    from tinker import ParsedCheckpointTinkerPath
+
+    # Validate tinker path
+    parsed_tinker_path = ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+
+    def _safe_extract(tar: tarfile.TarFile, path: Path) -> None:
+        base = path.resolve()
+        for member in tar.getmembers():
+            if member.issym() or member.islnk():
+                raise TinkerCliError(
+                    "Unsafe symlink or hardlink in tar archive",
+                    "Archive may be corrupted or malicious.",
+                )
+            member_path = (path / member.name).resolve()
+            if not str(member_path).startswith(str(base)):
+                raise TinkerCliError(
+                    "Unsafe path in tar archive",
+                    "Archive may be corrupted or malicious.",
+                )
+        tar.extractall(path=path)
+
+    def _sanitize_repo_name(value: str) -> str:
+        safe_chars = []
+        for ch in value:
+            if ch.isalnum() or ch in {"-", "_", "."}:
+                safe_chars.append(ch)
+            else:
+                safe_chars.append("-")
+        name = "".join(safe_chars)
+        while "--" in name:
+            name = name.replace("--", "-")
+        return name.strip("-_ .")
+
+    url_response = client.get_checkpoint_archive_url_from_tinker_path(tinker_path).result()
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        archive_path = temp_root / "checkpoint.tar"
+        extract_dir = temp_root / "extract"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+
+        with urllib.request.urlopen(url_response.url, timeout=60) as response:
+            with open(archive_path, "wb") as f:
+                while True:
+                    chunk = response.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+        with tarfile.open(archive_path, "r") as tar:
+            _safe_extract(tar, extract_dir)
+
+        adapter_config = extract_dir / "adapter_config.json"
+        adapter_safetensors = extract_dir / "adapter_model.safetensors"
+        adapter_bin = extract_dir / "adapter_model.bin"
+        checkpoint_complete = extract_dir / "checkpoint_complete"
+        if not adapter_config.exists() or not (
+            adapter_safetensors.exists() or adapter_bin.exists()
+        ):
+            raise TinkerCliError(
+                "Checkpoint archive does not contain a PEFT adapter.",
+                "Expected adapter_config.json and adapter_model.safetensors (or adapter_model.bin).",
+            )
+        if not checkpoint_complete.exists():
+            raise TinkerCliError(
+                "Checkpoint archive is missing 'checkpoint_complete'.",
+                "The adapter files may be incomplete.",
+            )
+
+        base_model = "unknown"
+        lora_rank = None
+        train_mlp = None
+        train_attn = None
+        train_unembed = None
+        try:
+            weights_info = client.get_weights_info_by_tinker_path(tinker_path).result()
+            base_model = weights_info.base_model
+            lora_rank = weights_info.lora_rank
+            train_mlp = weights_info.train_mlp
+            train_attn = weights_info.train_attn
+            train_unembed = weights_info.train_unembed
+        except Exception:
+            pass
+
+        try:
+            config_data = json.loads(adapter_config.read_text(encoding="utf-8"))
+            if not isinstance(config_data.get("base_model_name_or_path"), str):
+                config_data["base_model_name_or_path"] = base_model
+                adapter_config.write_text(
+                    json.dumps(config_data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                )
+        except Exception:
+            pass
+
+        if repo_id is None:
+            base_short = base_model.split("/")[-1] if base_model != "unknown" else "adapter"
+            derived = f"tinker-{base_short}-{parsed_tinker_path.training_run_id}"
+            repo_id = _sanitize_repo_name(derived)
+            if revision is None:
+                revision = _sanitize_repo_name(parsed_tinker_path.checkpoint_id.replace("/", "-"))
+
+        readme_path = extract_dir / "README.md"
+        if add_model_card and not readme_path.exists():
+            tags: list[str] = ["tinker", "peft", "lora"]
+            if base_model != "unknown":
+                tags.append(f"base_model:adapter:{base_model}")
+            model_card = [
+                "---",
+                f"base_model: {base_model}",
+                "library_name: peft",
+                "tags:",
+            ]
+            for tag in tags:
+                model_card.append(f"- {tag}")
+            model_card.append(f"tinker_path: {tinker_path}")
+            model_card.extend(
+                [
+                    "---",
+                    "",
+                    "# Tinker LoRA Adapter",
+                    "",
+                    "This repository contains a LoRA adapter exported from Tinker.",
+                    "",
+                    "## Usage",
+                    "",
+                    "```python",
+                    "from transformers import AutoModelForCausalLM",
+                    "",
+                    f'adapter_id = "{repo_id}"',
+                    f'base_model = "{base_model}"',
+                    "",
+                    'model = AutoModelForCausalLM.from_pretrained(adapter_id, device_map="auto")',
+                    "```",
+                    "",
+                    "## Source",
+                    "",
+                    "```",
+                    f"{tinker_path}",
+                    "```",
+                    "",
+                    "## Details",
+                    "",
+                    f"- Base model: {base_model}",
+                ]
+            )
+            if lora_rank is not None:
+                model_card.append(f"- LoRA rank: {lora_rank}")
+            if train_mlp is not None or train_attn is not None or train_unembed is not None:
+                model_card.append(
+                    f"- Trained modules: attn={train_attn}, mlp={train_mlp}, unembed={train_unembed}"
+                )
+            model_card.append("")
+            readme_path.write_text("\n".join(model_card), encoding="utf-8")
+
+        api = HfApi()
+        api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
+
+        def _readme_tinker_path() -> str | None:
+            try:
+                readme_file = hf_hub_download(
+                    repo_id=repo_id,
+                    filename="README.md",
+                    revision=revision,
+                    token=None,
+                )
+            except Exception:
+                return None
+            try:
+                text = Path(readme_file).read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                return None
+            match = re.search(r"tinker://[^\s`]+", text)
+            return match.group(0) if match else None
+
+        existing_tinker_path = _readme_tinker_path()
+        if existing_tinker_path and existing_tinker_path != tinker_path:
+            raise TinkerCliError(
+                "Repo ID appears to contain a different Tinker checkpoint.",
+                f"Found {existing_tinker_path}, expected {tinker_path}.",
+            )
+
+        if allow_patterns is None:
+            ignore_patterns = list(ignore_patterns) if ignore_patterns else []
+            if "checkpoint_complete" not in ignore_patterns:
+                ignore_patterns.append("checkpoint_complete")
+
+        api.upload_folder(
+            folder_path=os.fspath(extract_dir),
+            repo_id=repo_id,
+            path_in_repo="",
+            revision=revision,
+            commit_message=commit_message,
+            create_pr=create_pr,
+            allow_patterns=list(allow_patterns) if allow_patterns else None,
+            ignore_patterns=list(ignore_patterns) if ignore_patterns else None,
+        )
+
+    return repo_id
+
+
 # Click command group for checkpoint commands
 @click.group()
 def cli():
@@ -801,13 +1032,15 @@ def push_hf(
         )
 
     client = create_rest_client()
-    repo_id_out = client.export_checkpoint_to_hub(
+    repo_id_out = _export_checkpoint_to_hub(
+        client,
         checkpoint_path,
         repo_id,
         private=not public,
         revision=revision,
         commit_message=commit_message,
         create_pr=create_pr,
+        exist_ok=True,
         allow_patterns=list(allow_patterns) if allow_patterns else None,
         ignore_patterns=list(ignore_patterns) if ignore_patterns else None,
         add_model_card=not no_model_card,
