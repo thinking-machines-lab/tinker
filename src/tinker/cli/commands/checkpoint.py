@@ -1025,7 +1025,7 @@ def push_hf(
 ) -> None:
     """Upload a checkpoint to the Hugging Face Hub as a PEFT adapter.
 
-    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/weights/0001).
+    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/sampler_weights/0001).
     """
     # Validate it's a tinker path
     if not checkpoint_path.startswith("tinker://"):
