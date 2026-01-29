@@ -6,6 +6,7 @@ This module implements the 'tinker checkpoint' commands, including:
 - download: Download and extract checkpoint archives
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 
 import click
@@ -350,31 +351,13 @@ def _export_checkpoint_to_hub(
     import json
     import os
     import re
-    import tarfile
     import tempfile
-    import urllib.request
     from pathlib import Path
 
     from tinker import ParsedCheckpointTinkerPath
 
     # Validate tinker path
     parsed_tinker_path = ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-
-    def _safe_extract(tar: tarfile.TarFile, path: Path) -> None:
-        base = path.resolve()
-        for member in tar.getmembers():
-            if member.issym() or member.islnk():
-                raise TinkerCliError(
-                    "Unsafe symlink or hardlink in tar archive",
-                    "Archive may be corrupted or malicious.",
-                )
-            member_path = (path / member.name).resolve()
-            if not str(member_path).startswith(str(base)):
-                raise TinkerCliError(
-                    "Unsafe path in tar archive",
-                    "Archive may be corrupted or malicious.",
-                )
-        tar.extractall(path=path)
 
     def _sanitize_repo_name(value: str) -> str:
         safe_chars = []
@@ -388,24 +371,20 @@ def _export_checkpoint_to_hub(
             name = name.replace("--", "-")
         return name.strip("-_ .")
 
-    url_response = client.get_checkpoint_archive_url_from_tinker_path(tinker_path).result()
-
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
         archive_path = temp_root / "checkpoint.tar"
         extract_dir = temp_root / "extract"
         extract_dir.mkdir(parents=True, exist_ok=True)
 
-        with urllib.request.urlopen(url_response.url, timeout=60) as response:
-            with open(archive_path, "wb") as f:
-                while True:
-                    chunk = response.read(8192)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-
-        with tarfile.open(archive_path, "r") as tar:
-            _safe_extract(tar, extract_dir)
+        url_response = client.get_checkpoint_archive_url_from_tinker_path(tinker_path).result()
+        _download_checkpoint_archive(
+            url_response.url,
+            archive_path=archive_path,
+            show_progress=False,
+            format="json",
+        )
+        _safe_extract_tar(archive_path, extract_dir, show_progress=False, format="json")
 
         adapter_config = extract_dir / "adapter_config.json"
         adapter_safetensors = extract_dir / "adapter_model.safetensors"
@@ -553,6 +532,93 @@ def _export_checkpoint_to_hub(
         )
 
     return repo_id
+
+
+def _safe_extract_tar(
+    archive_path: "Path",
+    extract_dir: "Path",
+    *,
+    show_progress: bool,
+    format: str,
+) -> None:
+    import tarfile
+
+    base = extract_dir.resolve()
+    with tarfile.open(archive_path, "r") as tar:
+        members = tar.getmembers()
+        for member in members:
+            if member.issym() or member.islnk():
+                raise TinkerCliError(
+                    "Unsafe symlink or hardlink in tar archive",
+                    "Archive may be corrupted or malicious.",
+                )
+            member_path = (extract_dir / member.name).resolve()
+            if not str(member_path).startswith(str(base)):
+                raise TinkerCliError(
+                    "Unsafe path in tar archive",
+                    "Archive may be corrupted or malicious.",
+                )
+        if show_progress and format != "json":
+            with click.progressbar(
+                members,
+                label="Extracting archive ",
+                show_percent=True,
+                show_pos=True,
+            ) as bar:
+                for member in bar:
+                    tar.extract(member, path=extract_dir)
+        else:
+            tar.extractall(path=extract_dir)
+
+
+def _download_checkpoint_archive(
+    url: str,
+    *,
+    archive_path: "Path",
+    show_progress: bool,
+    format: str,
+) -> int:
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            total_size = int(response.headers.get("Content-Length", 0))
+
+            if show_progress and format != "json":
+                with click.progressbar(
+                    length=total_size,
+                    label="Downloading archive",
+                    show_percent=True,
+                    show_pos=True,
+                    show_eta=True,
+                ) as bar:
+                    with open(archive_path, "wb") as f:
+                        while True:
+                            chunk = response.read(8192)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            bar.update(len(chunk))
+            else:
+                with open(archive_path, "wb") as f:
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+    except urllib.error.URLError as e:
+        raise TinkerCliError(
+            f"Failed to download checkpoint: {e}",
+            "Please check your network connection and try again.",
+        ) from e
+    except IOError as e:
+        raise TinkerCliError(
+            f"Failed to save checkpoint: {e}",
+            f"Please check that you have write permissions to {archive_path.parent}",
+        ) from e
+
+    return total_size
 
 
 # Click command group for checkpoint commands
@@ -820,10 +886,7 @@ def download(
     """
     # Lazy imports to maintain fast CLI startup
     import shutil
-    import tarfile
     import tempfile
-    import urllib.error
-    import urllib.request
     from pathlib import Path
 
     # Validate it's a tinker path
@@ -859,102 +922,41 @@ def download(
                 "Use --force to overwrite or choose a different output directory.",
             )
 
-    # Create client and get download URL
-    client = create_rest_client()
-    url_response = client.get_checkpoint_archive_url_from_tinker_path(checkpoint_path).result()
-
     # Use a temporary directory for the archive
     with tempfile.TemporaryDirectory() as temp_dir:
         archive_path = Path(temp_dir) / f"{checkpoint_id}.tar"
         extract_dir = target_path
 
-        # Download the archive with progress bar
+        # Create client and get download URL
+        client = create_rest_client()
+        url_response = client.get_checkpoint_archive_url_from_tinker_path(checkpoint_path).result()
+
+        total_size = _download_checkpoint_archive(
+            url_response.url,
+            archive_path=archive_path,
+            show_progress=True,
+            format=format,
+        )
+
+        # Extract the checkpoint
         try:
-            # Open the URL connection
-            with urllib.request.urlopen(url_response.url, timeout=30) as response:
-                # Get total file size from headers
-                total_size = int(response.headers.get("Content-Length", 0))
-
-                # Download with progress bar
-                if format != "json":
-                    with click.progressbar(
-                        length=total_size,
-                        label="Downloading archive",
-                        show_percent=True,
-                        show_pos=True,
-                        show_eta=True,
-                    ) as bar:
-                        with open(archive_path, "wb") as f:
-                            while True:
-                                chunk = response.read(8192)
-                                if not chunk:
-                                    break
-                                f.write(chunk)
-                                bar.update(len(chunk))
-                else:
-                    # Silent download for JSON output
-                    with open(archive_path, "wb") as f:
-                        while True:
-                            chunk = response.read(8192)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-
-            # Extract the checkpoint
-            try:
-                # Create extraction directory
-                extract_dir.mkdir(parents=True, exist_ok=True)
-
-                # Extract the tar archive
-                with tarfile.open(archive_path, "r") as tar:
-                    # Get list of members for progress tracking
-                    members = tar.getmembers()
-
-                    if format != "json":
-                        with click.progressbar(
-                            members,
-                            label="Extracting archive ",
-                            show_percent=True,
-                            show_pos=True,
-                        ) as bar:
-                            for member in bar:
-                                tar.extract(member, path=extract_dir)
-                    else:
-                        # Extract all at once for few files
-                        tar.extractall(path=extract_dir)
-
-                destination = str(extract_dir)
-
-                # Delete archive after successful extraction
-                if archive_path.exists():
-                    archive_path.unlink()
-
-            except tarfile.TarError as e:
-                raise TinkerCliError(
-                    f"Failed to extract archive: {e}",
-                    "The downloaded file may be corrupted. Try downloading again.",
-                )
-
-            # Create output object
-            output_obj = CheckpointDownloadOutput(
-                checkpoint_path=checkpoint_path,
-                file_size_bytes=total_size if total_size > 0 else None,
-                destination=destination,
-            )
-
-            # Print in requested format
-            output_obj.print(format=format)
-
-        except urllib.error.URLError as e:
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            _safe_extract_tar(archive_path, extract_dir, show_progress=True, format=format)
+            destination = str(extract_dir)
+            if archive_path.exists():
+                archive_path.unlink()
+        except Exception as e:
             raise TinkerCliError(
-                f"Failed to download checkpoint: {e}",
-                "Please check your network connection and try again.",
+                f"Failed to extract archive: {e}",
+                "The downloaded file may be corrupted. Try downloading again.",
             )
-        except IOError as e:
-            raise TinkerCliError(
-                f"Failed to save checkpoint: {e}",
-                f"Please check that you have write permissions to {output_dir}",
-            )
+
+        output_obj = CheckpointDownloadOutput(
+            checkpoint_path=checkpoint_path,
+            file_size_bytes=total_size if total_size > 0 else None,
+            destination=destination,
+        )
+        output_obj.print(format=format)
 
 
 @cli.command(name="push-hf")
