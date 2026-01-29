@@ -344,7 +344,7 @@ def _export_checkpoint_to_hub(
     except ImportError as exc:
         raise TinkerCliError(
             "huggingface_hub is required for this command.",
-            "Install it with: pip install huggingface_hub",
+            "Install it with: pip install huggingface_hub, then run: hf auth login",
         ) from exc
 
     import json
@@ -534,14 +534,13 @@ def _export_checkpoint_to_hub(
 
 
 def _safe_extract_tar(
-    archive_path: "Path",
-    extract_dir: "Path",
+    archive_path,
+    extract_dir,
     *,
     show_progress: bool,
     format: str,
 ) -> None:
     import tarfile
-    from pathlib import Path
 
     base = extract_dir.resolve()
     with tarfile.open(archive_path, "r") as tar:
@@ -574,13 +573,12 @@ def _safe_extract_tar(
 def _download_checkpoint_archive(
     url: str,
     *,
-    archive_path: "Path",
+    archive_path,
     show_progress: bool,
     format: str,
 ) -> int:
     import urllib.error
     import urllib.request
-    from pathlib import Path
 
     try:
         with urllib.request.urlopen(url, timeout=60) as response:
