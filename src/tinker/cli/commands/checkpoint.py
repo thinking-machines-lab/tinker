@@ -358,6 +358,12 @@ def _export_checkpoint_to_hub(
     # Validate tinker path
     parsed_tinker_path = ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
 
+    api = HfApi()
+    try:
+        api.whoami()
+    except Exception as exc:
+        raise TinkerCliError("Not logged in", "Run: hf auth login") from exc
+
     def _sanitize_repo_name(value: str) -> str:
         safe_chars = []
         for ch in value:
@@ -436,7 +442,7 @@ def _export_checkpoint_to_hub(
 
         readme_path = extract_dir / "README.md"
         if add_model_card and not readme_path.exists():
-            tags: list[str] = ["tinker", "peft", "lora"]
+            tags: List[str] = ["tinker", "peft", "lora"]
             if base_model != "unknown":
                 tags.append(f"base_model:adapter:{base_model}")
             model_card = [
@@ -487,7 +493,6 @@ def _export_checkpoint_to_hub(
             model_card.append("")
             readme_path.write_text("\n".join(model_card), encoding="utf-8")
 
-        api = HfApi()
         api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
 
         def _readme_tinker_path() -> str | None:
