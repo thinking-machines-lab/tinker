@@ -691,6 +691,7 @@ def list(cli_context: CLIContext, run_id: str | None, limit: int) -> None:
                 show_percent=True,
                 show_pos=True,
                 show_eta=True,
+                hidden=cli_context.format != "table",
             ) as bar:
                 bar.update(len(all_checkpoints))
 
@@ -842,6 +843,7 @@ def delete(cli_context: CLIContext, checkpoint_paths: tuple[str, ...], yes: bool
         label="Deleting checkpoints",
         show_percent=True,
         show_pos=True,
+        hidden=cli_context.format != "table",
     ) as bar:
         for path in bar:
             client.delete_checkpoint_from_tinker_path(path).result()

@@ -15,6 +15,7 @@ from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..api_future_impl import _APIFuture
 from ..internal_client_holder import InternalClientHolder
+from ..queue_state_logger import QueueStateLogger
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
 
@@ -139,6 +140,7 @@ class ServiceClient(TelemetryProvider):
                 future,
                 request_start_time=start_time,
                 request_type="CreateModel",
+                queue_state_observer=QueueStateLogger(base_model, "Model creation"),
             ).result_async()
             model_id = create_model_response.model_id
             from .training_client import TrainingClient
