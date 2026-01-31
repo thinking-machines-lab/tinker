@@ -62,6 +62,7 @@ class LazyGroup(click.Group):
 - `tinker run info <run-id>` - Show details of a specific run
 - `tinker checkpoint list` - List all checkpoints
 - `tinker checkpoint info <checkpoint-id>` - Show checkpoint details
+- `tinker checkpoint push-hf <checkpoint-path>` - Upload a checkpoint to Hugging Face Hub
 
 ### 4. Output System with Inheritance
 
@@ -240,6 +241,9 @@ tinker checkpoint list run-abc123
 
 # Show checkpoint details
 tinker checkpoint info ckpt-xyz789
+
+# Upload checkpoint to Hugging Face Hub
+tinker checkpoint push-hf tinker://run-abc123/sampler_weights/000040 --repo username/my-lora-adapter
 
 # JSON output
 tinker --format json run list
