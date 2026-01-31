@@ -263,6 +263,7 @@ def list(cli_context: CLIContext, limit: int, columns: str | None) -> None:
             show_percent=True,
             show_pos=True,
             show_eta=True,
+            hidden=cli_context.format != "table",
         ) as bar:
             bar.update(len(all_runs))
 

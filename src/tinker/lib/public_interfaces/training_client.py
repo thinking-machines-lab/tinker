@@ -16,12 +16,11 @@ from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..api_future_impl import (
-    QueueState,
-    QueueStateObserver,
     _APIFuture,
     _CombinedAPIFuture,
 )
 from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
+from ..queue_state_logger import QueueStateLogger
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
 from .sampling_client import SamplingClient, _load_tokenizer_from_model_info
@@ -51,7 +50,7 @@ MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initi
 CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
 
 
-class TrainingClient(TelemetryProvider, QueueStateObserver):
+class TrainingClient(TelemetryProvider):
     """Client for training ML models with forward/backward passes and optimization.
 
     The TrainingClient corresponds to a fine-tuned model that you can train and sample from.
@@ -88,7 +87,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
         self._turn_counter: int = 0
         self._turn_waiters: dict[int, asyncio.Event] = {}
 
-        self._last_queue_state_logged: float = 0
+        self._queue_state_logger = QueueStateLogger(str(model_id), "Training")
 
     # Reserves a request id for a request. Requests are to be executed in the order of request ids.
     def _get_request_id(self) -> int:
@@ -219,7 +218,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     untyped_future,
                     request_start_time=start_time,
                     request_type="Forward",
-                    queue_state_observer=self,
+                    queue_state_observer=self._queue_state_logger,
                 )
                 futures.append(api_future)
             return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
@@ -312,7 +311,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                     untyped_future,
                     request_start_time=start_time,
                     request_type="ForwardBackward",
-                    queue_state_observer=self,
+                    queue_state_observer=self._queue_state_logger,
                 )
                 futures.append(api_future)
 
@@ -474,7 +473,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 untyped_future,
                 request_start_time=start_time,
                 request_type="OptimStep",
-                queue_state_observer=self,
+                queue_state_observer=self._queue_state_logger,
             )
 
         return self.holder.run_coroutine_threadsafe(_optim_step_async())
@@ -532,7 +531,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
                 future,
                 request_start_time=start_time,
                 request_type="SaveWeights",
-                queue_state_observer=self,
+                queue_state_observer=self._queue_state_logger,
             )
 
         return self.holder.run_coroutine_threadsafe(_save_state_async())
@@ -569,7 +568,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             future,
             request_start_time=start_time,
             request_type="LoadWeights",
-            queue_state_observer=self,
+            queue_state_observer=self._queue_state_logger,
         )
 
     @capture_exceptions(fatal=True)
@@ -666,7 +665,7 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
             future,
             request_start_time=start_time,
             request_type="SaveWeightsForSampler",
-            queue_state_observer=self,
+            queue_state_observer=self._queue_state_logger,
         )
 
     @capture_exceptions(fatal=True)
@@ -852,25 +851,6 @@ class TrainingClient(TelemetryProvider, QueueStateObserver):
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
-
-    def on_queue_state_change(
-        self, queue_state: QueueState, queue_state_reason: str | None
-    ) -> None:
-        QUEUE_STATE_LOG_INTERVAL = 60
-        if queue_state == QueueState.ACTIVE:
-            return
-        if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
-            return
-        self._last_queue_state_logged = time.time()
-
-        if not queue_state_reason:
-            if queue_state == QueueState.PAUSED_RATE_LIMIT:
-                queue_state_reason = "concurrent training clients rate limit hit"
-            elif queue_state == QueueState.PAUSED_CAPACITY:
-                queue_state_reason = "Tinker backend is running short on capacity, please wait"
-            else:
-                queue_state_reason = "unknown"
-        logger.warning(f"Training is paused for {self.model_id}. Reason: {queue_state_reason}")
 
 
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:
