@@ -498,15 +498,15 @@ def _export_checkpoint_to_hub(
         # Create the revision/branch if specified and it doesn't exist
         if revision:
             try:
-                # Check if the branch exists
                 refs = api.list_repo_refs(repo_id=repo_id)
                 branch_exists = any(ref.name == revision for ref in refs.branches)
                 if not branch_exists:
-                    # Create the branch from main
                     api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
-            except Exception:
-                # If we can't check or create the branch, try to proceed anyway
-                pass
+            except Exception as e:
+                raise TinkerCliError(
+                    f"Failed to create branch {revision} in repo {repo_id}",
+                    f"Error: {e}",
+                ) from e
 
         def _readme_tinker_path() -> str | None:
             try:
