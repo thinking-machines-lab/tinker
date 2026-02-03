@@ -519,10 +519,13 @@ def _export_checkpoint_to_hub(
                 f"Found {existing_tinker_path}, expected {tinker_path}.",
             )
 
+        # Remove checkpoint_complete file before upload if no allow_patterns specified
+        # Workaround: huggingface_hub (which uses typer internally) conflicts with
+        # our Click-based CLI when "checkpoint_complete" is in ignore_patterns
         if allow_patterns is None:
-            ignore_patterns = list(ignore_patterns) if ignore_patterns else []
-            if "checkpoint_complete" not in ignore_patterns:
-                ignore_patterns.append("checkpoint_complete")
+            checkpoint_complete_file = extract_dir / "checkpoint_complete"
+            if checkpoint_complete_file.exists():
+                checkpoint_complete_file.unlink()
 
         api.upload_folder(
             folder_path=os.fspath(extract_dir),
