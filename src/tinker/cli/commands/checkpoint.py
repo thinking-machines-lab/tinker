@@ -335,7 +335,6 @@ def _export_checkpoint_to_hub(
     create_pr: bool,
     exist_ok: bool,
     allow_patterns: list[str] | None,
-    ignore_patterns: list[str] | None,
     add_model_card: bool,
 ) -> str:
     # Lazy imports to keep CLI startup fast
@@ -533,12 +532,9 @@ def _export_checkpoint_to_hub(
             )
 
         # Remove checkpoint_complete file before upload if no allow_patterns specified
-        # Workaround: huggingface_hub (which uses typer internally) conflicts with
-        # our Click-based CLI when "checkpoint_complete" is in ignore_patterns
         if allow_patterns is None:
             checkpoint_complete_file = extract_dir / "checkpoint_complete"
-            if checkpoint_complete_file.exists():
-                checkpoint_complete_file.unlink()
+            checkpoint_complete_file.unlink(missing_ok=True)
 
         api.upload_folder(
             folder_path=os.fspath(extract_dir),
@@ -548,7 +544,6 @@ def _export_checkpoint_to_hub(
             commit_message=commit_message,
             create_pr=create_pr,
             allow_patterns=list(allow_patterns) if allow_patterns else None,
-            ignore_patterns=list(ignore_patterns) if ignore_patterns else None,
         )
 
     return repo_id
@@ -1020,12 +1015,6 @@ def download(
     help="Only upload files matching this pattern (can be repeated).",
 )
 @click.option(
-    "--ignore-pattern",
-    "ignore_patterns",
-    multiple=True,
-    help="Skip files matching this pattern (can be repeated).",
-)
-@click.option(
     "--no-model-card",
     is_flag=True,
     help="Do not create a README.md model card if one is missing.",
@@ -1041,7 +1030,6 @@ def push_hf(
     commit_message: str | None,
     create_pr: bool,
     allow_patterns: tuple[str, ...],
-    ignore_patterns: tuple[str, ...],
     no_model_card: bool,
 ) -> None:
     """Upload a checkpoint to the Hugging Face Hub as a PEFT adapter.
@@ -1066,7 +1054,6 @@ def push_hf(
         create_pr=create_pr,
         exist_ok=True,
         allow_patterns=list(allow_patterns) if allow_patterns else None,
-        ignore_patterns=list(ignore_patterns) if ignore_patterns else None,
         add_model_card=not no_model_card,
     )
 
