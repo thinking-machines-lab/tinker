@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from concurrent.futures import Future as ConcurrentFuture
 from typing import TYPE_CHECKING
@@ -272,12 +273,29 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.CheckpointArchiveUrlResponse]:
         """Internal method to submit get checkpoint archive URL request."""
 
+        async def _status_task():
+            logger.warning(
+                f"Creating checkpoint archive for run id: {training_run_id} checkpoint id: {checkpoint_id} (this may take a while)"
+            )
+            i = 0
+            while True:
+                await asyncio.sleep(30)
+                i += 1
+                if i > 5:
+                    logger.warning("... still running")
+
         async def _get_checkpoint_archive_url_async() -> types.CheckpointArchiveUrlResponse:
-            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                return await client.weights.get_checkpoint_archive_url(
-                    model_id=training_run_id,
-                    checkpoint_id=checkpoint_id,
-                )
+            status_task = asyncio.create_task(_status_task())
+            try:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    result = await client.weights.get_checkpoint_archive_url(
+                        model_id=training_run_id,
+                        checkpoint_id=checkpoint_id,
+                    )
+            finally:
+                status_task.cancel()
+
+            return result
 
         return self.holder.run_coroutine_threadsafe(_get_checkpoint_archive_url_async())
 

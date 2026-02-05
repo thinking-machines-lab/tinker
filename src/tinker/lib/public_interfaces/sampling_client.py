@@ -400,4 +400,11 @@ def _load_tokenizer_from_model_info(
             "revision": "612681931a8c906ddb349f8ad0f582cb552189cd",
         }
 
+    if tokenizer_id in ("moonshotai/Kimi-K2.5-Text-Only", "moonshotai/Kimi-K2.5"):
+        tokenizer_id = "moonshotai/Kimi-K2.5"
+        kwargs = {
+            "trust_remote_code": True,
+            "revision": "2426b45b6af0da48d0dcce71bbce6225e5c73adc",
+        }
+
     return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)
