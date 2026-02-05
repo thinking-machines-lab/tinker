@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 
 import httpx
@@ -239,6 +240,7 @@ class AsyncWeightsResource(AsyncAPIResource):
         extra_query: Query | None = None,
         extra_body: Body | None = None,
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_retries: int = 6,
     ) -> CheckpointArchiveUrlResponse:
         """
         Get signed URL to download checkpoint archive.
@@ -277,34 +279,40 @@ class AsyncWeightsResource(AsyncAPIResource):
         )
         options["follow_redirects"] = False
 
-        try:
-            response = await self._get(
-                f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
-                cast_to=APIResponse,
-                options=options,
-            )
-        except APIStatusError as e:
-            # On success, this API responds with a 302
-            if e.status_code != 302:
-                raise e
-
-            location = e.response.headers.get("Location")
-            if location is None:
-                raise e
-
-            expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
+        response = None
+        for retry in range(max_retries):
             try:
-                if expires_header := e.response.headers.get("Expires"):
-                    expires = datetime.datetime.strptime(
-                        expires_header, "%a, %d %b %Y %H:%M:%S GMT"
-                    )
-            except ValueError:
-                pass
+                response = await self._get(
+                    f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
+                    cast_to=APIResponse,
+                    options=options,
+                )
+            except APIStatusError as e:
+                if e.status_code == 503 and retry < max_retries - 1:
+                    await asyncio.sleep(30)
+                    continue
 
-            return CheckpointArchiveUrlResponse(
-                url=location,
-                expires=expires,
-            )
+                # On success, this API responds with a 302
+                if e.status_code != 302:
+                    raise e
+
+                location = e.response.headers.get("Location")
+                if location is None:
+                    raise e
+
+                expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
+                try:
+                    if expires_header := e.response.headers.get("Expires"):
+                        expires = datetime.datetime.strptime(
+                            expires_header, "%a, %d %b %Y %H:%M:%S GMT"
+                        )
+                except ValueError:
+                    pass
+
+                return CheckpointArchiveUrlResponse(
+                    url=location,
+                    expires=expires,
+                )
 
         # If we did not get an exception we should have gotten a redirect...
         raise RuntimeError("Expected a redirect response, got: " + str(response))
