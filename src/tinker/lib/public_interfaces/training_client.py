@@ -644,6 +644,8 @@ class TrainingClient(TelemetryProvider):
                     ttl_seconds=ttl_seconds,
                 )
             else:
+                # Training client can never be created from a shadow holder, so we can safely assert
+                assert self.holder._sampling_client_counter is not None
                 sampling_session_seq_id = self.holder._sampling_client_counter
                 self.holder._sampling_client_counter += 1
                 request = types.SaveWeightsForSamplerRequest(

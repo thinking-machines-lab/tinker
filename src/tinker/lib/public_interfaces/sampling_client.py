@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import time
 from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import tinker
 from tinker import types
@@ -56,6 +57,14 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
     result = future.result()
     ```
+
+    Multi-processing support:
+    This class is picklable, so it can be passed to a separate process/worker to sample. It is also
+    safe to pass the same instance of SamplingClient to multiple processes/workers.
+
+    If you are using Tinker SDK with more than one process you should always create SamplingClient from
+    the main process and then pass it to the other processes/workers.
+    ServiceClient and TrainingClient should always be managed from the main process.
     """
 
     def __init__(
@@ -63,6 +72,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         holder: InternalClientHolder,
         *,
         sampling_session_id: str,
+        shadow: bool = False,
         retry_config: RetryConfig | None = None,
     ):
         self.holder = holder
@@ -81,6 +91,10 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         self._sampling_session_id: str = sampling_session_id
 
         self._request_id_counter: int = 0
+        if shadow:
+            # Start request_id_counter at a random high value to avoid collisions
+            # with the original client or other unpickled copies
+            self._request_id_counter = 1_000_000_000 * random.randint(1, 1_000_000)
 
     @staticmethod
     async def _create_impl(
@@ -323,6 +337,21 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
+    def __reduce__(self) -> tuple[Any, tuple[str, str, dict[str, Any]]]:
+        """Enable pickling of SamplingClient for subprocess use.
+
+        Stores the sampling_session_id and holder constructor kwargs.
+        On unpickle, creates a shadow holder and reconstructs the client.
+        """
+        return (
+            _unpickle_sampling_client,
+            (
+                self.holder.get_session_id(),
+                self._sampling_session_id,
+                self.holder._constructor_kwargs,
+            ),
+        )
+
     def on_queue_state_change(
         self, queue_state: QueueState, queue_state_reason: str | None
     ) -> None:
@@ -343,6 +372,23 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         logger.warning(
             f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {queue_state_reason}"
         )
+
+
+def _unpickle_sampling_client(
+    session_id: str,
+    sampling_session_id: str,
+    constructor_kwargs: dict[str, Any],
+) -> SamplingClient:
+    """Reconstruct a SamplingClient from pickled data.
+
+    Creates a shadow InternalClientHolder and builds a new SamplingClient.
+    The request_id_counter starts at a random high value to avoid collisions.
+    """
+    from ..internal_client_holder import InternalClientHolder
+
+    holder = InternalClientHolder.get_shadow_holder(session_id, constructor_kwargs)
+    client = SamplingClient(holder, sampling_session_id=sampling_session_id, shadow=True)
+    return client
 
 
 @lru_cache(maxsize=100)
