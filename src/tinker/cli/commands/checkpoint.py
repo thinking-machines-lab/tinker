@@ -335,7 +335,6 @@ def _export_checkpoint_to_hub(
     create_pr: bool,
     exist_ok: bool,
     allow_patterns: list[str] | None,
-    ignore_patterns: list[str] | None,
     add_model_card: bool,
 ) -> str:
     # Lazy imports to keep CLI startup fast
@@ -495,6 +494,19 @@ def _export_checkpoint_to_hub(
 
         api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
 
+        # Create the revision/branch if specified and it doesn't exist
+        if revision:
+            try:
+                refs = api.list_repo_refs(repo_id=repo_id)
+                branch_exists = any(ref.name == revision for ref in refs.branches)
+                if not branch_exists:
+                    api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
+            except Exception as e:
+                raise TinkerCliError(
+                    f"Failed to create branch {revision} in repo {repo_id}",
+                    f"Error: {e}",
+                ) from e
+
         def _readme_tinker_path() -> str | None:
             try:
                 readme_file = hf_hub_download(
@@ -519,10 +531,10 @@ def _export_checkpoint_to_hub(
                 f"Found {existing_tinker_path}, expected {tinker_path}.",
             )
 
+        # Remove checkpoint_complete file before upload if no allow_patterns specified
         if allow_patterns is None:
-            ignore_patterns = list(ignore_patterns) if ignore_patterns else []
-            if "checkpoint_complete" not in ignore_patterns:
-                ignore_patterns.append("checkpoint_complete")
+            checkpoint_complete_file = extract_dir / "checkpoint_complete"
+            checkpoint_complete_file.unlink(missing_ok=True)
 
         api.upload_folder(
             folder_path=os.fspath(extract_dir),
@@ -532,7 +544,6 @@ def _export_checkpoint_to_hub(
             commit_message=commit_message,
             create_pr=create_pr,
             allow_patterns=list(allow_patterns) if allow_patterns else None,
-            ignore_patterns=list(ignore_patterns) if ignore_patterns else None,
         )
 
     return repo_id
@@ -1004,12 +1015,6 @@ def download(
     help="Only upload files matching this pattern (can be repeated).",
 )
 @click.option(
-    "--ignore-pattern",
-    "ignore_patterns",
-    multiple=True,
-    help="Skip files matching this pattern (can be repeated).",
-)
-@click.option(
     "--no-model-card",
     is_flag=True,
     help="Do not create a README.md model card if one is missing.",
@@ -1025,7 +1030,6 @@ def push_hf(
     commit_message: str | None,
     create_pr: bool,
     allow_patterns: tuple[str, ...],
-    ignore_patterns: tuple[str, ...],
     no_model_card: bool,
 ) -> None:
     """Upload a checkpoint to the Hugging Face Hub as a PEFT adapter.
@@ -1050,7 +1054,6 @@ def push_hf(
         create_pr=create_pr,
         exist_ok=True,
         allow_patterns=list(allow_patterns) if allow_patterns else None,
-        ignore_patterns=list(ignore_patterns) if ignore_patterns else None,
         add_model_card=not no_model_card,
     )
 
