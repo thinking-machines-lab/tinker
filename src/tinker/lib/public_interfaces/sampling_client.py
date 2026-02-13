@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import random
 import time
+import uuid
 from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar, cast
@@ -94,7 +94,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         if shadow:
             # Start request_id_counter at a random high value to avoid collisions
             # with the original client or other unpickled copies
-            self._request_id_counter = 1_000_000_000 * random.randint(1, 1_000_000)
+            self._request_id_counter = 1_000_000_000 * (int(uuid.uuid4()) % 1_000_000_000_000 + 1)
 
     @staticmethod
     async def _create_impl(
