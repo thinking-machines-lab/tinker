@@ -39,6 +39,7 @@ class RestClient(TelemetryProvider):
     - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
     - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
+    - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
 
     Args:
     - `holder`: Internal client managing HTTP connections and async operations
@@ -527,6 +528,68 @@ class RestClient(TelemetryProvider):
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         await self._unpublish_checkpoint_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+        )
+
+    def _set_checkpoint_ttl_submit(
+        self, training_run_id: types.ModelID, checkpoint_id: str, ttl_seconds: int | None
+    ) -> AwaitableConcurrentFuture[None]:
+        """Internal method to submit set checkpoint TTL request."""
+
+        async def _set_checkpoint_ttl_async() -> None:
+            async def _send_request() -> None:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    await client.put(
+                        f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/ttl",
+                        body={"ttl_seconds": ttl_seconds},
+                        cast_to=NoneType,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_set_checkpoint_ttl_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def set_checkpoint_ttl_from_tinker_path(
+        self, tinker_path: str, ttl_seconds: int | None
+    ) -> ConcurrentFuture[None]:
+        """Set or remove the TTL on a checkpoint referenced by a tinker path.
+
+        If ttl_seconds is provided, the checkpoint will expire after that many seconds from now.
+        If ttl_seconds is None, any existing expiration will be removed.
+
+        Args:
+        - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
+        - `ttl_seconds`: Number of seconds until expiration, or None to remove TTL
+
+        Returns:
+        - A `Future` that completes when the TTL is set
+
+        Raises:
+            HTTPException: 400 if checkpoint identifier is invalid or ttl_seconds <= 0
+            HTTPException: 404 if checkpoint not found or user doesn't own the training run
+            HTTPException: 500 if there's an error setting the TTL
+
+        Example:
+        ```python
+        future = rest_client.set_checkpoint_ttl_from_tinker_path("tinker://run-id/weights/0001", 86400)
+        future.result()  # Wait for completion
+        print("Checkpoint TTL set successfully")
+        ```
+        """
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        return self._set_checkpoint_ttl_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id, ttl_seconds
+        ).future()
+
+    @capture_exceptions(fatal=True)
+    async def set_checkpoint_ttl_from_tinker_path_async(
+        self, tinker_path: str, ttl_seconds: int | None
+    ) -> None:
+        """Async version of set_checkpoint_ttl_from_tinker_path."""
+        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+        await self._set_checkpoint_ttl_submit(
+            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id, ttl_seconds
         )
 
     def _list_user_checkpoints_submit(

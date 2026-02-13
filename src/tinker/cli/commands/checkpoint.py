@@ -800,6 +800,44 @@ def unpublish(cli_context: CLIContext, checkpoint_path: str) -> None:
     client.unpublish_checkpoint_from_tinker_path(checkpoint_path).result()
 
 
+@cli.command(name="set-ttl")
+@click.argument("checkpoint_path")
+@click.option("--ttl", type=int, default=None, help="TTL in seconds (positive integer)")
+@click.option("--remove", is_flag=True, help="Remove the expiration from the checkpoint")
+@click.pass_obj
+@handle_api_errors
+def set_ttl(cli_context: CLIContext, checkpoint_path: str, ttl: int | None, remove: bool) -> None:
+    """Set or remove the TTL (time-to-live) on a checkpoint.
+
+    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/weights/0001).
+    Only the owner of the training run can modify checkpoint TTL.
+
+    Use --ttl to set an expiration (in seconds from now), or --remove to clear it.
+    """
+    if not checkpoint_path.startswith("tinker://"):
+        raise TinkerCliError(
+            f"Invalid checkpoint path: {checkpoint_path}",
+            "Checkpoint path must be in the format: tinker://run-id/weights/0001",
+        )
+
+    if ttl is None and not remove:
+        raise TinkerCliError(
+            "Must specify either --ttl <seconds> or --remove",
+            "Use --ttl to set an expiration or --remove to clear it",
+        )
+
+    if ttl is not None and remove:
+        raise TinkerCliError(
+            "Cannot specify both --ttl and --remove",
+            "Use --ttl to set an expiration or --remove to clear it",
+        )
+
+    ttl_seconds: int | None = None if remove else ttl
+
+    client = create_rest_client()
+    client.set_checkpoint_ttl_from_tinker_path(checkpoint_path, ttl_seconds).result()
+
+
 @cli.command()
 @click.argument("checkpoint_paths", nargs=-1, required=True)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
