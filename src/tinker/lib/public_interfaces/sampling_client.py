@@ -94,7 +94,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         if shadow:
             # Start request_id_counter at a random high value to avoid collisions
             # with the original client or other unpickled copies
-            self._request_id_counter = 1_000_000_000 * (int(uuid.uuid4()) % 1_000_000_000_000 + 1)
+            # We use 1B as the base and mod for uuid because the maximum int value is 2^63-1 and 1B*1B is less than 2^63-1.
+            self._request_id_counter = 1_000_000_000 * (int(uuid.uuid4()) % 1_000_000_000 + 1)
 
     @staticmethod
     async def _create_impl(
