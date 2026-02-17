@@ -492,7 +492,13 @@ def _export_checkpoint_to_hub(
             model_card.append("")
             readme_path.write_text("\n".join(model_card), encoding="utf-8")
 
-        api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
+        if api.repo_exists(repo_id=repo_id):
+            repo_was_created = False
+            if not exist_ok:
+                raise TinkerCliError(f"Repository {repo_id} already exists")
+        else:
+            api.create_repo(repo_id=repo_id, private=private, exist_ok=False)
+            repo_was_created = True
 
         def _get_branch_names() -> set[str]:
             try:
@@ -542,7 +548,7 @@ def _export_checkpoint_to_hub(
             checkpoint_complete.unlink(missing_ok=True)
 
         if not uploaded_to_target:
-            if not overwrite and target_revision in branch_names:
+            if not repo_was_created and not overwrite and target_revision in branch_names:
                 raise TinkerCliError(
                     f"Branch '{target_revision}' already exists in repo {repo_id}",
                     "Use --overwrite to add a new commit to the existing branch, "
