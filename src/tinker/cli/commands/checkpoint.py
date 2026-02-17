@@ -507,6 +507,12 @@ def _export_checkpoint_to_hub(
             uploaded_to_target = False
 
             if "main" not in branch_names:
+                if create_pr:
+                    click.echo(
+                        "Warning: --create-pr was requested, but this upload is creating a new repository. "
+                        "Uploading content to 'main' without a PR.",
+                        err=True,
+                    )
                 api.upload_folder(
                     folder_path=os.fspath(extract_dir),
                     repo_id=repo_id,
@@ -539,7 +545,8 @@ def _export_checkpoint_to_hub(
             if not overwrite and target_revision in branch_names:
                 raise TinkerCliError(
                     f"Branch '{target_revision}' already exists in repo {repo_id}",
-                    "Use --overwrite to replace the existing branch, or specify a different --revision",
+                    "Use --overwrite to add a new commit to the existing branch, "
+                    "or specify a different --revision",
                 )
             api.upload_folder(
                 folder_path=os.fspath(extract_dir),
@@ -1027,7 +1034,7 @@ def download(
 @click.option(
     "--overwrite",
     is_flag=True,
-    help="Allow overwriting an existing branch (default: False).",
+    help="Allow uploading a new commit to an existing branch (default: False).",
 )
 @click.pass_obj
 @handle_api_errors
@@ -1046,6 +1053,8 @@ def push_hf(
     """Upload a checkpoint to the Hugging Face Hub as a PEFT adapter.
 
     CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/sampler_weights/0001).
+    If --overwrite is set and the target branch exists, this command uploads a new commit
+    to that branch (it does not replace branch history).
     """
     # Validate it's a tinker path
     if not checkpoint_path.startswith("tinker://"):
