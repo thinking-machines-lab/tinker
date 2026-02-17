@@ -336,10 +336,11 @@ def _export_checkpoint_to_hub(
     exist_ok: bool,
     allow_patterns: list[str] | None,
     add_model_card: bool,
+    overwrite: bool,
 ) -> str:
     # Lazy imports to keep CLI startup fast
     try:
-        from huggingface_hub import HfApi, hf_hub_download
+        from huggingface_hub import HfApi
     except ImportError as exc:
         raise TinkerCliError(
             "huggingface_hub is required for this command.",
@@ -348,7 +349,6 @@ def _export_checkpoint_to_hub(
 
     import json
     import os
-    import re
     import tempfile
     from pathlib import Path
 
@@ -494,57 +494,75 @@ def _export_checkpoint_to_hub(
 
         api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
 
-        # Create the revision/branch if specified and it doesn't exist
-        if revision:
+        # Helper function to get branch names
+        def _get_branch_names() -> set[str]:
             try:
                 refs = api.list_repo_refs(repo_id=repo_id)
-                branch_exists = any(ref.name == revision for ref in refs.branches)
-                if not branch_exists:
-                    api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
-            except Exception as e:
-                raise TinkerCliError(
-                    f"Failed to create branch {revision} in repo {repo_id}",
-                    f"Error: {e}",
-                ) from e
+                return {ref.name for ref in refs.branches}
+            except Exception:
+                return set()
 
-        def _readme_tinker_path() -> str | None:
-            try:
-                readme_file = hf_hub_download(
+        # Create the revision/branch if specified and it doesn't exist
+        try:
+            branch_names = _get_branch_names()
+            target_revision = revision or "main"
+            uploaded_to_target = False
+
+            # Ensure main branch has content if it doesn't exist
+            # Upload the actual checkpoint instead of a minimal README
+            if "main" not in branch_names:
+                api.upload_folder(
+                    folder_path=os.fspath(extract_dir),
                     repo_id=repo_id,
-                    filename="README.md",
-                    revision=revision,
-                    token=None,
+                    path_in_repo="",
+                    revision="main",
+                    commit_message=commit_message or "Upload checkpoint from Tinker",
+                    create_pr=False,
+                    allow_patterns=list(allow_patterns) if allow_patterns else None,
                 )
-            except Exception:
-                return None
-            try:
-                text = Path(readme_file).read_text(encoding="utf-8", errors="ignore")
-            except Exception:
-                return None
-            match = re.search(r"tinker://[^\s`]+", text)
-            return match.group(0) if match else None
+                branch_names = _get_branch_names()
 
-        existing_tinker_path = _readme_tinker_path()
-        if existing_tinker_path and existing_tinker_path != tinker_path:
+                if target_revision == "main":
+                    # We've uploaded to the target already
+                    uploaded_to_target = True
+                else:
+                    # Create the target revision branch from main (which now has content)
+                    # This avoids uploading the same content twice
+                    if target_revision not in branch_names:
+                        api.create_branch(repo_id=repo_id, branch=target_revision, exist_ok=True)
+                    uploaded_to_target = True
+            else:
+                # Main exists, so we need to create the target branch if needed
+                if target_revision != "main" and target_revision not in branch_names:
+                    api.create_branch(repo_id=repo_id, branch=target_revision, exist_ok=True)
+        except Exception as e:
             raise TinkerCliError(
-                "Repo ID appears to contain a different Tinker checkpoint.",
-                f"Found {existing_tinker_path}, expected {tinker_path}.",
-            )
+                f"Failed to prepare revision {revision or 'main'} in repo {repo_id}",
+                f"Error: {e}",
+            ) from e
 
         # Remove checkpoint_complete file before upload if no allow_patterns specified
         if allow_patterns is None:
             checkpoint_complete_file = extract_dir / "checkpoint_complete"
             checkpoint_complete_file.unlink(missing_ok=True)
 
-        api.upload_folder(
-            folder_path=os.fspath(extract_dir),
-            repo_id=repo_id,
-            path_in_repo="",
-            revision=revision,
-            commit_message=commit_message,
-            create_pr=create_pr,
-            allow_patterns=list(allow_patterns) if allow_patterns else None,
-        )
+        # Upload to target revision if we haven't already
+        if not uploaded_to_target:
+            # Check if we would be overwriting an existing branch
+            if not overwrite and target_revision in branch_names:
+                raise TinkerCliError(
+                    f"Branch '{target_revision}' already exists in repo {repo_id}",
+                    "Use --overwrite to replace the existing branch, or specify a different --revision",
+                )
+            api.upload_folder(
+                folder_path=os.fspath(extract_dir),
+                repo_id=repo_id,
+                path_in_repo="",
+                revision=target_revision,
+                commit_message=commit_message,
+                create_pr=create_pr,
+                allow_patterns=list(allow_patterns) if allow_patterns else None,
+            )
 
     return repo_id
 
@@ -1019,6 +1037,11 @@ def download(
     is_flag=True,
     help="Do not create a README.md model card if one is missing.",
 )
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Allow overwriting an existing branch (default: False).",
+)
 @click.pass_obj
 @handle_api_errors
 def push_hf(
@@ -1031,6 +1054,7 @@ def push_hf(
     create_pr: bool,
     allow_patterns: tuple[str, ...],
     no_model_card: bool,
+    overwrite: bool,
 ) -> None:
     """Upload a checkpoint to the Hugging Face Hub as a PEFT adapter.
 
@@ -1055,6 +1079,7 @@ def push_hf(
         exist_ok=True,
         allow_patterns=list(allow_patterns) if allow_patterns else None,
         add_model_card=not no_model_card,
+        overwrite=overwrite,
     )
 
     output_obj = CheckpointHubUploadOutput(
