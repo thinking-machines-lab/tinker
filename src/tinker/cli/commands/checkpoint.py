@@ -543,8 +543,7 @@ def _export_checkpoint_to_hub(
 
         # Remove checkpoint_complete file before upload if no allow_patterns specified
         if allow_patterns is None:
-            checkpoint_complete_file = extract_dir / "checkpoint_complete"
-            checkpoint_complete_file.unlink(missing_ok=True)
+            checkpoint_complete.unlink(missing_ok=True)
 
         # Upload to target revision if we haven't already
         if not uploaded_to_target:
