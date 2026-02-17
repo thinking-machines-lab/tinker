@@ -494,7 +494,6 @@ def _export_checkpoint_to_hub(
 
         api.create_repo(repo_id=repo_id, private=private, exist_ok=exist_ok)
 
-        # Helper function to get branch names
         def _get_branch_names() -> set[str]:
             try:
                 refs = api.list_repo_refs(repo_id=repo_id)
@@ -502,14 +501,11 @@ def _export_checkpoint_to_hub(
             except Exception:
                 return set()
 
-        # Create the revision/branch if specified and it doesn't exist
         try:
             branch_names = _get_branch_names()
             target_revision = revision or "main"
             uploaded_to_target = False
 
-            # Ensure main branch has content if it doesn't exist
-            # Upload the actual checkpoint instead of a minimal README
             if "main" not in branch_names:
                 api.upload_folder(
                     folder_path=os.fspath(extract_dir),
@@ -523,31 +519,23 @@ def _export_checkpoint_to_hub(
                 branch_names = _get_branch_names()
 
                 if target_revision == "main":
-                    # We've uploaded to the target already
                     uploaded_to_target = True
                 else:
-                    # Create the target revision branch from main (which now has content)
-                    # This avoids uploading the same content twice
                     if target_revision not in branch_names:
                         api.create_branch(repo_id=repo_id, branch=target_revision, exist_ok=True)
                     uploaded_to_target = True
-            else:
-                # Main exists, so we need to create the target branch if needed
-                if target_revision != "main" and target_revision not in branch_names:
-                    api.create_branch(repo_id=repo_id, branch=target_revision, exist_ok=True)
-        except Exception as e:
+            elif target_revision != "main" and target_revision not in branch_names:
+                api.create_branch(repo_id=repo_id, branch=target_revision, exist_ok=True)
+        except Exception as exc:
             raise TinkerCliError(
                 f"Failed to prepare revision {revision or 'main'} in repo {repo_id}",
-                f"Error: {e}",
-            ) from e
+                f"Error: {exc}",
+            ) from exc
 
-        # Remove checkpoint_complete file before upload if no allow_patterns specified
         if allow_patterns is None:
             checkpoint_complete.unlink(missing_ok=True)
 
-        # Upload to target revision if we haven't already
         if not uploaded_to_target:
-            # Check if we would be overwriting an existing branch
             if not overwrite and target_revision in branch_names:
                 raise TinkerCliError(
                     f"Branch '{target_revision}' already exists in repo {repo_id}",
