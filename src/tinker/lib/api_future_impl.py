@@ -85,186 +85,200 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         start_time = time.time()
         iteration = -1
         connection_error_retries = 0
+        allow_metadata_only = True
 
-        while True:
-            iteration += 1
+        async with contextlib.AsyncExitStack() as stack:
+            while True:
+                iteration += 1
 
-            if timeout is not None and time.time() - start_time > timeout:
-                if telemetry := self.get_telemetry():
-                    current_time = time.time()
-                    telemetry.log(
-                        "APIFuture.result_async.timeout",
-                        event_data={
-                            "request_id": self.request_id,
-                            "request_type": self.request_type,
-                            "timeout": timeout,
-                            "iteration": iteration,
-                            "elapsed_time": current_time - start_time,
-                        },
-                        severity="ERROR",
-                    )
-                raise TimeoutError(
-                    f"Timeout of {timeout} seconds reached while waiting for result of {self.request_id=}"
-                )
-
-            # Headers for telemetry
-            headers = {
-                "X-Tinker-Request-Iteration": str(iteration),
-                "X-Tinker-Request-Type": self.request_type,
-            }
-            if iteration == 0:
-                headers["X-Tinker-Create-Promise-Roundtrip-Time"] = str(
-                    self.request_queue_roundtrip_time
-                )
-
-            # Function hasn't been called yet, execute it now
-            try:
-                with self.holder.aclient(ClientConnectionPoolType.RETRIEVE_PROMISE) as client:
-                    response = await client.futures.with_raw_response.retrieve(
-                        request=FutureRetrieveRequest(request_id=self.request_id),
-                        timeout=45,
-                        extra_headers=headers,
-                        max_retries=0,
-                    )
-            except tinker.APIStatusError as e:
-                connection_error_retries = 0
-                should_retry = e.status_code == 408 or e.status_code in range(500, 600)
-                user_error = is_user_error(e)
-                if telemetry := self.get_telemetry():
-                    current_time = time.time()
-                    telemetry.log(
-                        "APIFuture.result_async.api_status_error",
-                        event_data={
-                            "request_id": self.request_id,
-                            "request_type": self.request_type,
-                            "status_code": e.status_code,
-                            "exception": str(e),
-                            "should_retry": should_retry,
-                            "is_user_error": user_error,
-                            "iteration": iteration,
-                            "elapsed_time": current_time - start_time,
-                        },
-                        severity="WARNING" if should_retry or user_error else "ERROR",
+                if timeout is not None and time.time() - start_time > timeout:
+                    if telemetry := self.get_telemetry():
+                        current_time = time.time()
+                        telemetry.log(
+                            "APIFuture.result_async.timeout",
+                            event_data={
+                                "request_id": self.request_id,
+                                "request_type": self.request_type,
+                                "timeout": timeout,
+                                "iteration": iteration,
+                                "elapsed_time": current_time - start_time,
+                            },
+                            severity="ERROR",
+                        )
+                    raise TimeoutError(
+                        f"Timeout of {timeout} seconds reached while waiting for result of {self.request_id=}"
                     )
 
-                # Retry 408s until we time out
-                if e.status_code == 408:
-                    if self._queue_state_observer is not None:
-                        with contextlib.suppress(Exception):
-                            response = e.response.json()
-                            if queue_state_str := response.get("queue_state", None):
-                                queue_state_reason = response.get("queue_state_reason", None)
-                                if queue_state_str == "active":
-                                    queue_state = QueueState.ACTIVE
-                                elif queue_state_str == "paused_rate_limit":
-                                    queue_state = QueueState.PAUSED_RATE_LIMIT
-                                elif queue_state_str == "paused_capacity":
-                                    queue_state = QueueState.PAUSED_CAPACITY
-                                else:
-                                    queue_state = QueueState.UNKNOWN
-                                self._queue_state_observer.on_queue_state_change(
-                                    queue_state, queue_state_reason
-                                )
-                    continue
-                if e.status_code == 410:
-                    raise RetryableException(
-                        message=f"Promise expired/broken for request {self.untyped_future.request_id}"
+                headers = {
+                    "X-Tinker-Request-Iteration": str(iteration),
+                    "X-Tinker-Request-Type": self.request_type,
+                }
+                if iteration == 0:
+                    headers["X-Tinker-Create-Promise-Roundtrip-Time"] = str(
+                        self.request_queue_roundtrip_time
+                    )
+
+                try:
+                    with self.holder.aclient(ClientConnectionPoolType.RETRIEVE_PROMISE) as client:
+                        response = await client.futures.with_raw_response.retrieve(
+                            request=FutureRetrieveRequest(
+                                request_id=self.request_id,
+                                allow_metadata_only=allow_metadata_only,
+                            ),
+                            timeout=45,
+                            extra_headers=headers,
+                            max_retries=0,
+                        )
+                except tinker.APIStatusError as e:
+                    connection_error_retries = 0
+                    should_retry = e.status_code == 408 or e.status_code in range(500, 600)
+                    user_error = is_user_error(e)
+                    if telemetry := self.get_telemetry():
+                        current_time = time.time()
+                        telemetry.log(
+                            "APIFuture.result_async.api_status_error",
+                            event_data={
+                                "request_id": self.request_id,
+                                "request_type": self.request_type,
+                                "status_code": e.status_code,
+                                "exception": str(e),
+                                "should_retry": should_retry,
+                                "is_user_error": user_error,
+                                "iteration": iteration,
+                                "elapsed_time": current_time - start_time,
+                            },
+                            severity="WARNING" if should_retry or user_error else "ERROR",
+                        )
+
+                    # Retry 408s until we time out
+                    if e.status_code == 408:
+                        if self._queue_state_observer is not None:
+                            with contextlib.suppress(Exception):
+                                response = e.response.json()
+                                if queue_state_str := response.get("queue_state", None):
+                                    queue_state_reason = response.get("queue_state_reason", None)
+                                    if queue_state_str == "active":
+                                        queue_state = QueueState.ACTIVE
+                                    elif queue_state_str == "paused_rate_limit":
+                                        queue_state = QueueState.PAUSED_RATE_LIMIT
+                                    elif queue_state_str == "paused_capacity":
+                                        queue_state = QueueState.PAUSED_CAPACITY
+                                    else:
+                                        queue_state = QueueState.UNKNOWN
+                                    self._queue_state_observer.on_queue_state_change(
+                                        queue_state, queue_state_reason
+                                    )
+                        continue
+                    if e.status_code == 410:
+                        raise RetryableException(
+                            message=f"Promise expired/broken for request {self.untyped_future.request_id}"
+                        ) from e
+                    if e.status_code in range(500, 600):
+                        continue
+                    raise ValueError(
+                        f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}"
                     ) from e
-                if e.status_code in range(500, 600):
+                except tinker.APIConnectionError as e:
+                    if telemetry := self.get_telemetry():
+                        current_time = time.time()
+                        telemetry.log(
+                            "APIFuture.result_async.connection_error",
+                            event_data={
+                                "request_id": self.request_id,
+                                "request_type": self.request_type,
+                                "exception": str(e),
+                                "connection_error_retries": connection_error_retries,
+                                "iteration": iteration,
+                                "elapsed_time": current_time - start_time,
+                            },
+                            severity="WARNING",
+                        )
+
+                    # Retry all connection errors with exponential backoff
+                    await asyncio.sleep(min(2**connection_error_retries, 30))
+                    connection_error_retries += 1
                     continue
-                raise ValueError(
-                    f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}"
-                ) from e
-            except tinker.APIConnectionError as e:
-                if telemetry := self.get_telemetry():
-                    current_time = time.time()
-                    telemetry.log(
-                        "APIFuture.result_async.connection_error",
-                        event_data={
-                            "request_id": self.request_id,
-                            "request_type": self.request_type,
-                            "exception": str(e),
-                            "connection_error_retries": connection_error_retries,
-                            "iteration": iteration,
-                            "elapsed_time": current_time - start_time,
-                        },
-                        severity="WARNING",
+
+                result_dict: Any = await response.json()
+
+                if "type" in result_dict and result_dict["type"] == "try_again":
+                    logger.warning(f"Retrying request {self.request_id=} because of try_again")
+                    continue
+
+                if result_dict.get("status") == "complete_metadata":
+                    # metadata only response should be returned only once
+                    assert allow_metadata_only
+                    allow_metadata_only = False
+
+                    response_payload_size = result_dict.get("response_payload_size", 0)
+                    assert response_payload_size is not None
+                    await stack.enter_async_context(
+                        self.holder._inflight_response_bytes_semaphore.acquire(
+                            response_payload_size
+                        )
+                    )
+                    continue
+
+                if "error" in result_dict:
+                    error_category = RequestErrorCategory.Unknown
+                    with contextlib.suppress(Exception):
+                        error_category = RequestErrorCategory(result_dict.get("category"))
+
+                    user_error = error_category is RequestErrorCategory.User
+                    if telemetry := self.get_telemetry():
+                        current_time = time.time()
+                        telemetry.log(
+                            "APIFuture.result_async.application_error",
+                            event_data={
+                                "request_id": self.request_id,
+                                "request_type": self.request_type,
+                                "error": result_dict["error"],
+                                "error_category": error_category.name,
+                                "is_user_error": user_error,
+                                "iteration": iteration,
+                                "elapsed_time": current_time - start_time,
+                            },
+                            severity="WARNING" if user_error else "ERROR",
+                        )
+
+                    error_message = result_dict["error"]
+                    raise RequestFailedError(
+                        f"Request failed: {error_message} for {self.request_id=} and expected type {self.model_cls=}",
+                        request_id=self.request_id,
+                        category=error_category,
                     )
 
-                # Retry all connection errors with exponential backoff
-                await asyncio.sleep(min(2**connection_error_retries, 30))
-                connection_error_retries += 1
-                continue
+                try:
+                    if inspect.isclass(self.model_cls) and issubclass(self.model_cls, BaseModel):
+                        self._cached_result = self.model_cls.model_validate(result_dict)
+                    else:
+                        self._cached_result = result_dict
+                    return cast(T, self._cached_result)
+                except Exception as e:
+                    if telemetry := self.get_telemetry():
+                        current_time = time.time()
+                        telemetry.log(
+                            "APIFuture.result_async.validation_error",
+                            event_data={
+                                "request_id": self.request_id,
+                                "request_type": self.request_type,
+                                "exception": str(e),
+                                "exception_type": type(e).__name__,
+                                "exception_stack": "".join(
+                                    traceback.format_exception(type(e), e, e.__traceback__)
+                                )
+                                if e.__traceback__
+                                else None,
+                                "model_cls": str(self.model_cls),
+                                "iteration": iteration,
+                                "elapsed_time": current_time - start_time,
+                            },
+                            severity="ERROR",
+                        )
 
-            # Function hasn't been called yet, execute it now
-            result_dict: Any = await response.json()
-
-            if "type" in result_dict and result_dict["type"] == "try_again":
-                logger.warning(f"Retrying request {self.request_id=} because of try_again")
-                continue
-
-            if "error" in result_dict:
-                error_category = RequestErrorCategory.Unknown
-                with contextlib.suppress(Exception):
-                    error_category = RequestErrorCategory(result_dict.get("category"))
-
-                user_error = error_category is RequestErrorCategory.User
-                if telemetry := self.get_telemetry():
-                    current_time = time.time()
-                    telemetry.log(
-                        "APIFuture.result_async.application_error",
-                        event_data={
-                            "request_id": self.request_id,
-                            "request_type": self.request_type,
-                            "error": result_dict["error"],
-                            "error_category": error_category.name,
-                            "is_user_error": user_error,
-                            "iteration": iteration,
-                            "elapsed_time": current_time - start_time,
-                        },
-                        severity="WARNING" if user_error else "ERROR",
-                    )
-
-                error_message = result_dict["error"]
-                raise RequestFailedError(
-                    f"Request failed: {error_message} for {self.request_id=} and expected type {self.model_cls=}",
-                    request_id=self.request_id,
-                    category=error_category,
-                )
-
-            try:
-                # Check if model_cls is a BaseModel subclass before calling model_validate
-                if inspect.isclass(self.model_cls) and issubclass(self.model_cls, BaseModel):
-                    self._cached_result = self.model_cls.model_validate(result_dict)
-                else:
-                    # For non-BaseModel types, just return the result directly
-                    self._cached_result = result_dict
-                return cast(T, self._cached_result)
-            except Exception as e:
-                if telemetry := self.get_telemetry():
-                    current_time = time.time()
-                    telemetry.log(
-                        "APIFuture.result_async.validation_error",
-                        event_data={
-                            "request_id": self.request_id,
-                            "request_type": self.request_type,
-                            "exception": str(e),
-                            "exception_type": type(e).__name__,
-                            "exception_stack": "".join(
-                                traceback.format_exception(type(e), e, e.__traceback__)
-                            )
-                            if e.__traceback__
-                            else None,
-                            "model_cls": str(self.model_cls),
-                            "iteration": iteration,
-                            "elapsed_time": current_time - start_time,
-                        },
-                        severity="ERROR",
-                    )
-
-                raise ValueError(
-                    f"Error retrieving result: {e} for {self.request_id=} and expected type {self.model_cls=}"
-                ) from e
+                    raise ValueError(
+                        f"Error retrieving result: {e} for {self.request_id=} and expected type {self.model_cls=}"
+                    ) from e
 
     @property
     def request_id(self) -> str:

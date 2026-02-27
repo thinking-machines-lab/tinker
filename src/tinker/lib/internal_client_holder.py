@@ -162,6 +162,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
         self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
+        self._inflight_response_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
         self._training_client_lock: threading.Lock = threading.Lock()
 
         if session_id is not None:
@@ -336,7 +337,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
     def close(self):
         self.run_coroutine_threadsafe(self._async_cleanup())
-        if telemetry := self._telemetry:
+        if telemetry := getattr(self, "_telemetry", None):
             telemetry.stop()
 
     def __del__(self):
