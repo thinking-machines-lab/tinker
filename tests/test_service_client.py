@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -12,6 +13,20 @@ import tinker
 from tinker import types
 
 base_url = os.environ.get("TEST_API_BASE_URL", "http://127.0.0.1:4010")
+
+
+@pytest.mark.respx(base_url=base_url)
+def test_service_client_passes_project_id_on_session_create(respx_mock: MockRouter) -> None:
+    create_session_route = respx_mock.post("/api/v1/create_session").mock(
+        return_value=httpx.Response(200, json={"session_id": "test-session-id"})
+    )
+
+    service_client = tinker.ServiceClient(base_url=base_url, project_id="project-123")
+    service_client.holder.close()
+
+    assert create_session_route.called
+    sent_payload = json.loads(create_session_route.calls[0].request.content.decode())
+    assert sent_payload["project_id"] == "project-123"
 
 
 @pytest.mark.respx(base_url=base_url)

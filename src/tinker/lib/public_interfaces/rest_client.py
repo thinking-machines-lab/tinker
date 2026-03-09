@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from concurrent.futures import Future as ConcurrentFuture
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from tinker import types
 from tinker._types import NoneType
@@ -60,7 +60,9 @@ class RestClient(TelemetryProvider):
         self.holder = holder
 
     def _get_training_run_submit(
-        self, training_run_id: types.ModelID
+        self,
+        training_run_id: types.ModelID,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> AwaitableConcurrentFuture[types.TrainingRun]:
         """Internal method to submit get model request."""
 
@@ -69,6 +71,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/training_runs/{training_run_id}",
+                        options={"params": {"access_scope": access_scope}},
                         cast_to=types.TrainingRun,
                     )
 
@@ -79,7 +82,9 @@ class RestClient(TelemetryProvider):
     @sync_only
     @capture_exceptions(fatal=True)
     def get_training_run(
-        self, training_run_id: types.ModelID
+        self,
+        training_run_id: types.ModelID,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> ConcurrentFuture[types.TrainingRun]:
         """Get training run info.
 
@@ -96,17 +101,19 @@ class RestClient(TelemetryProvider):
         print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         ```
         """
-        return self._get_training_run_submit(training_run_id).future()
+        return self._get_training_run_submit(training_run_id, access_scope=access_scope).future()
 
     @capture_exceptions(fatal=True)
-    async def get_training_run_async(self, training_run_id: types.ModelID) -> types.TrainingRun:
+    async def get_training_run_async(
+        self, training_run_id: types.ModelID, access_scope: Literal["owned", "accessible"] = "owned"
+    ) -> types.TrainingRun:
         """Async version of get_training_run."""
-        return await self._get_training_run_submit(training_run_id)
+        return await self._get_training_run_submit(training_run_id, access_scope=access_scope)
 
     @sync_only
     @capture_exceptions(fatal=True)
     def get_training_run_by_tinker_path(
-        self, tinker_path: str
+        self, tinker_path: str, access_scope: Literal["owned", "accessible"] = "owned"
     ) -> ConcurrentFuture[types.TrainingRun]:
         """Get training run info.
 
@@ -126,15 +133,23 @@ class RestClient(TelemetryProvider):
         parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
             tinker_path
         )
-        return self.get_training_run(parsed_checkpoint_tinker_path.training_run_id)
+        return self.get_training_run(
+            parsed_checkpoint_tinker_path.training_run_id,
+            access_scope=access_scope,
+        )
 
     @capture_exceptions(fatal=True)
-    async def get_training_run_by_tinker_path_async(self, tinker_path: str) -> types.TrainingRun:
+    async def get_training_run_by_tinker_path_async(
+        self, tinker_path: str, access_scope: Literal["owned", "accessible"] = "owned"
+    ) -> types.TrainingRun:
         """Async version of get_training_run_by_tinker_path."""
         parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
             tinker_path
         )
-        return await self.get_training_run_async(parsed_checkpoint_tinker_path.training_run_id)
+        return await self.get_training_run_async(
+            parsed_checkpoint_tinker_path.training_run_id,
+            access_scope=access_scope,
+        )
 
     @capture_exceptions(fatal=True)
     def get_weights_info_by_tinker_path(
@@ -170,14 +185,21 @@ class RestClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_get_weights_info_async())
 
     def _list_training_runs_submit(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> AwaitableConcurrentFuture[types.TrainingRunsResponse]:
         """Internal method to submit list training runs request."""
 
         async def _list_training_runs_async() -> types.TrainingRunsResponse:
             async def _send_request() -> types.TrainingRunsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    params: dict[str, object] = {"limit": limit, "offset": offset}
+                    params: dict[str, object] = {
+                        "limit": limit,
+                        "offset": offset,
+                        "access_scope": access_scope,
+                    }
 
                     return await client.get(
                         "/api/v1/training_runs",
@@ -192,7 +214,10 @@ class RestClient(TelemetryProvider):
     @sync_only
     @capture_exceptions(fatal=True)
     def list_training_runs(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> ConcurrentFuture[types.TrainingRunsResponse]:
         """List training runs with pagination support.
 
@@ -213,14 +238,25 @@ class RestClient(TelemetryProvider):
         next_page = rest_client.list_training_runs(limit=50, offset=50)
         ```
         """
-        return self._list_training_runs_submit(limit, offset).future()
+        return self._list_training_runs_submit(
+            limit,
+            offset,
+            access_scope=access_scope,
+        ).future()
 
     @capture_exceptions(fatal=True)
     async def list_training_runs_async(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> types.TrainingRunsResponse:
         """Async version of list_training_runs."""
-        return await self._list_training_runs_submit(limit, offset)
+        return await self._list_training_runs_submit(
+            limit,
+            offset,
+            access_scope=access_scope,
+        )
 
     def _list_checkpoints_submit(
         self, training_run_id: types.ModelID
@@ -653,7 +689,9 @@ class RestClient(TelemetryProvider):
         return await self._list_user_checkpoints_submit(limit, offset)
 
     def _get_session_submit(
-        self, session_id: str
+        self,
+        session_id: str,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> AwaitableConcurrentFuture[types.GetSessionResponse]:
         """Internal method to submit get session request."""
 
@@ -662,6 +700,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/sessions/{session_id}",
+                        options={"params": {"access_scope": access_scope}},
                         cast_to=types.GetSessionResponse,
                     )
 
@@ -671,7 +710,9 @@ class RestClient(TelemetryProvider):
 
     @sync_only
     @capture_exceptions(fatal=True)
-    def get_session(self, session_id: str) -> ConcurrentFuture[types.GetSessionResponse]:
+    def get_session(
+        self, session_id: str, access_scope: Literal["owned", "accessible"] = "owned"
+    ) -> ConcurrentFuture[types.GetSessionResponse]:
         """Get session information including all training runs and samplers.
 
         Args:
@@ -688,22 +729,31 @@ class RestClient(TelemetryProvider):
         print(f"Samplers: {len(response.sampler_ids)}")
         ```
         """
-        return self._get_session_submit(session_id).future()
+        return self._get_session_submit(session_id, access_scope=access_scope).future()
 
     @capture_exceptions(fatal=True)
-    async def get_session_async(self, session_id: str) -> types.GetSessionResponse:
+    async def get_session_async(
+        self, session_id: str, access_scope: Literal["owned", "accessible"] = "owned"
+    ) -> types.GetSessionResponse:
         """Async version of get_session."""
-        return await self._get_session_submit(session_id)
+        return await self._get_session_submit(session_id, access_scope=access_scope)
 
     def _list_sessions_submit(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> AwaitableConcurrentFuture[types.ListSessionsResponse]:
         """Internal method to submit list sessions request."""
 
         async def _list_sessions_async() -> types.ListSessionsResponse:
             async def _send_request() -> types.ListSessionsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    params: dict[str, object] = {"limit": limit, "offset": offset}
+                    params: dict[str, object] = {
+                        "limit": limit,
+                        "offset": offset,
+                        "access_scope": access_scope,
+                    }
 
                     return await client.get(
                         "/api/v1/sessions",
@@ -718,7 +768,10 @@ class RestClient(TelemetryProvider):
     @sync_only
     @capture_exceptions(fatal=True)
     def list_sessions(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> ConcurrentFuture[types.ListSessionsResponse]:
         """List sessions with pagination support.
 
@@ -738,14 +791,25 @@ class RestClient(TelemetryProvider):
         next_page = rest_client.list_sessions(limit=50, offset=50)
         ```
         """
-        return self._list_sessions_submit(limit, offset).future()
+        return self._list_sessions_submit(
+            limit,
+            offset,
+            access_scope=access_scope,
+        ).future()
 
     @capture_exceptions(fatal=True)
     async def list_sessions_async(
-        self, limit: int = 20, offset: int = 0
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
     ) -> types.ListSessionsResponse:
         """Async version of list_sessions."""
-        return await self._list_sessions_submit(limit, offset)
+        return await self._list_sessions_submit(
+            limit,
+            offset,
+            access_scope=access_scope,
+        )
 
     @capture_exceptions(fatal=True)
     def get_sampler(self, sampler_id: str) -> APIFuture[types.GetSamplerResponse]:

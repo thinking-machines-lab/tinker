@@ -37,6 +37,8 @@ class ServiceClient(TelemetryProvider):
     - Generate RestClient instances for REST API operations like listing weights
 
     Args:
+        user_metadata: Optional metadata attached to the created session.
+        project_id: Optional project ID to attach to the created session.
         **kwargs: advanced options passed to the underlying HTTP client,
                  including API keys, headers, and connection settings.
 
@@ -56,10 +58,16 @@ class ServiceClient(TelemetryProvider):
     ```
     """
 
-    def __init__(self, user_metadata: dict[str, str] | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        user_metadata: dict[str, str] | None = None,
+        project_id: str | None = None,
+        **kwargs: Any,
+    ):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
         self.holder = InternalClientHolder(
             user_metadata=user_metadata,
+            project_id=project_id,
             **kwargs,
             default_headers=default_headers,
             _strict_response_validation=True,

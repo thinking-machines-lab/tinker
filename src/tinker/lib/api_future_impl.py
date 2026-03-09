@@ -85,6 +85,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         start_time = time.time()
         iteration = -1
         connection_error_retries = 0
+        bad_request_retries = 0
+        MAX_BAD_REQUEST_RETRIES = 3
         allow_metadata_only = True
 
         async with contextlib.AsyncExitStack() as stack:
@@ -135,23 +137,29 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     user_error = is_user_error(e)
                     if telemetry := self.get_telemetry():
                         current_time = time.time()
+                        event_data: dict[str, object] = {
+                            "request_id": self.request_id,
+                            "request_type": self.request_type,
+                            "status_code": e.status_code,
+                            "exception": str(e),
+                            "should_retry": should_retry,
+                            "is_user_error": user_error,
+                            "iteration": iteration,
+                            "elapsed_time": current_time - start_time,
+                        }
+                        if not should_retry:
+                            event_data["response_headers"] = dict(e.response.headers)
+                            event_data["response_body"] = e.body
+                            event_data["bad_request_retries"] = bad_request_retries
                         telemetry.log(
                             "APIFuture.result_async.api_status_error",
-                            event_data={
-                                "request_id": self.request_id,
-                                "request_type": self.request_type,
-                                "status_code": e.status_code,
-                                "exception": str(e),
-                                "should_retry": should_retry,
-                                "is_user_error": user_error,
-                                "iteration": iteration,
-                                "elapsed_time": current_time - start_time,
-                            },
+                            event_data=event_data,
                             severity="WARNING" if should_retry or user_error else "ERROR",
                         )
 
                     # Retry 408s until we time out
                     if e.status_code == 408:
+                        bad_request_retries = 0
                         if self._queue_state_observer is not None:
                             with contextlib.suppress(Exception):
                                 response = e.response.json()
@@ -174,6 +182,11 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                             message=f"Promise expired/broken for request {self.untyped_future.request_id}"
                         ) from e
                     if e.status_code in range(500, 600):
+                        continue
+                    # Retry 400s a few times — a bare 400 with no body may come from
+                    # a load balancer indicating a bad connection rather than the API.
+                    if e.status_code == 400 and bad_request_retries < MAX_BAD_REQUEST_RETRIES:
+                        bad_request_retries += 1
                         continue
                     raise ValueError(
                         f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}"
@@ -289,7 +302,11 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         return self._future.result(timeout)
 
     async def result_async(self, timeout: float | None = None) -> T:
-        return await asyncio.wait_for(self._future, timeout)
+        try:
+            return await asyncio.wait_for(self._future, timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            self._future.future().cancel()
+            raise
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

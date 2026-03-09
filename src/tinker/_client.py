@@ -89,7 +89,7 @@ class AsyncTinker(AsyncAPIClient):
 
         if base_url is None:
             base_url = os.environ.get("TINKER_BASE_URL")
-        if base_url is None:
+        if base_url is None or base_url == "":
             base_url = "https://tinker.thinkingmachines.dev/services/tinker-prod"
 
         super().__init__(

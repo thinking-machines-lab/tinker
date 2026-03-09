@@ -14,6 +14,7 @@ class CreateSessionRequest(StrictBase):
     tags: list[str]
     user_metadata: dict[str, Any] | None
     sdk_version: str
+    project_id: str | None = None
 
     type: Literal["create_session"] = "create_session"
 

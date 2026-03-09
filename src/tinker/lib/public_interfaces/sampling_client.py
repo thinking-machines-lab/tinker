@@ -314,16 +314,9 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         """Async version of compute_logprobs."""
         return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
 
-    @capture_exceptions(fatal=True)
-    def get_tokenizer(self) -> PreTrainedTokenizer:
-        """Get the tokenizer for the current model.
-
-        Returns:
-        - `PreTrainedTokenizer` compatible with the model
-        """
-
-        async def _get_sampler_async():
-            async def _send_request():
+    def _get_sampler_submit(self) -> AwaitableConcurrentFuture[types.GetSamplerResponse]:
+        async def _get_sampler_async() -> types.GetSamplerResponse:
+            async def _send_request() -> types.GetSamplerResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/samplers/{self._sampling_session_id}",
@@ -332,8 +325,26 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
             return await self.holder.execute_with_retries(_send_request)
 
-        sampler_info = self.holder.run_coroutine_threadsafe(_get_sampler_async()).result()
+        return self.holder.run_coroutine_threadsafe(_get_sampler_async())
+
+    @capture_exceptions(fatal=True)
+    def get_tokenizer(self) -> PreTrainedTokenizer:
+        """Get the tokenizer for the current model.
+
+        Returns:
+        - `PreTrainedTokenizer` compatible with the model
+        """
+        sampler_info = self._get_sampler_submit().result()
         return _load_tokenizer_from_model_info(sampler_info.base_model)
+
+    @capture_exceptions(fatal=True)
+    def get_base_model(self) -> str:
+        """Get the base model name for the current sampling session."""
+        return self._get_sampler_submit().result().base_model
+
+    async def get_base_model_async(self) -> str:
+        """Async version of get_base_model."""
+        return (await self._get_sampler_submit()).base_model
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

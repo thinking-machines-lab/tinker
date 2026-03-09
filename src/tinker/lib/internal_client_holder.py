@@ -90,6 +90,19 @@ class InternalClientHolderThreadSingleton:
         assert self._loop is not None, "Loop must not be None"
         self._loop.run_forever()
 
+    def _set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Inject an external event loop (e.g. the sidecar subprocess loop).
+
+        Must be called before any InternalClientHolder is created.
+        Prevents _ensure_started from spawning a background thread — the
+        caller's loop is used directly.
+        """
+        with self._lifecycle_lock:
+            if self._started:
+                raise RuntimeError("Cannot set_loop after singleton has started")
+            self._loop = loop
+            self._started = True  # prevent _ensure_started from creating a thread
+
     def get_loop(self) -> asyncio.AbstractEventLoop:
         self._ensure_started()
         assert self._loop is not None, "Loop must not be None"
@@ -151,6 +164,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def __init__(
         self,
         user_metadata: dict[str, str] | None = None,
+        project_id: str | None = None,
         *,
         session_id: str | None = None,
         **kwargs: Any,
@@ -171,16 +185,31 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._training_client_counter: int | None = None
             self._sampling_client_counter: int | None = None
         else:
-            # Normal mode: create new session
+            # Normal mode: create new session.
+            # This blocks on .result() — must NOT be called from the event
+            # loop thread (e.g. inside the sidecar subprocess).  Shadow
+            # holders (session_id is not None) skip this path.
+            if self._loop.is_running() and _current_loop() is self._loop:
+                raise RuntimeError(
+                    "Cannot create a new session from the event loop thread. "
+                    "Use session_id= to create a shadow holder instead."
+                )
             self._session_id = self.run_coroutine_threadsafe(
-                self._create_session(user_metadata)
+                self._create_session(user_metadata=user_metadata, project_id=project_id)
             ).result()
             self._training_client_counter = 0
             self._sampling_client_counter = 0
 
-        self._session_heartbeat_task: asyncio.Task[None] = self.run_coroutine_threadsafe(
-            self._start_heartbeat()
-        ).result()
+        if self._loop.is_running() and _current_loop() is self._loop:
+            # Already on the event loop thread — .result() would deadlock.
+            # Create the heartbeat task directly instead of via run_coroutine_threadsafe.
+            self._session_heartbeat_task: asyncio.Task[None] = asyncio.create_task(
+                self._session_heartbeat(self._session_id)
+            )
+        else:
+            self._session_heartbeat_task = self.run_coroutine_threadsafe(
+                self._start_heartbeat()
+            ).result()
         self._telemetry: Telemetry | None = init_telemetry(self, session_id=self._session_id)
 
     @classmethod
@@ -274,14 +303,21 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         """Start the session heartbeat task."""
         return asyncio.create_task(self._session_heartbeat(self._session_id))
 
-    async def _create_session(self, user_metadata: dict[str, str] | None = None) -> str:
+    async def _create_session(
+        self,
+        user_metadata: dict[str, str] | None = None,
+        project_id: str | None = None,
+    ) -> str:
         if (tags_str := os.environ.get("TINKER_TAGS")) is not None:
             tags: set[str] = set(tags_str.split(","))
         else:
             tags = set()
         with self.aclient(ClientConnectionPoolType.SESSION) as client:
             request = types.CreateSessionRequest(
-                tags=list(tags), user_metadata=user_metadata or {}, sdk_version=tinker_sdk_version
+                tags=list(tags),
+                user_metadata=user_metadata or {},
+                sdk_version=tinker_sdk_version,
+                project_id=project_id,
             )
             result = await client.service.create_session(request=request)
         if result.info_message:
