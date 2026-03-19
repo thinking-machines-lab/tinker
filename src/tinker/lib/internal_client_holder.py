@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 MAX_REQUESTS_PER_HTTPX_CLIENT = 50
+MAX_CONNECTION_ERROR_RETRIES = 16
 
 
 class ClientConnectionPool:
@@ -46,6 +47,7 @@ class ClientConnectionPool:
         self._constructor_kwargs = constructor_kwargs
         self._clients: list[AsyncTinker] = []
         self._client_active_refcount: list[int] = []
+        self._connection_error_retries_remaining: int = MAX_CONNECTION_ERROR_RETRIES
 
     @contextmanager
     def aclient(self) -> Generator[AsyncTinker, None, None]:
@@ -63,6 +65,17 @@ class ClientConnectionPool:
         self._client_active_refcount[client_idx] += 1
         try:
             yield self._clients[client_idx]
+            if self._connection_error_retries_remaining < MAX_CONNECTION_ERROR_RETRIES:
+                self._connection_error_retries_remaining += 1
+        except APIStatusError as e:
+            # This indicates request rejected by Cloudflare. Reset the connection and retry
+            if e.status_code == 400 and e.response.headers.get("content-length", "0") == "0":
+                # Ensure a new connection gets opened
+                self._clients[client_idx] = AsyncTinker(**self._constructor_kwargs)
+                if self._connection_error_retries_remaining > 0:
+                    self._connection_error_retries_remaining -= 1
+                    raise APIConnectionError(request=e.request) from e
+            raise e
         finally:
             self._client_active_refcount[client_idx] -= 1
 

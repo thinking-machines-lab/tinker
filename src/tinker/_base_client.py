@@ -731,7 +731,7 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
 
         # Retry internal errors.
         if response.status_code >= 500:
-            log.warning(
+            log.debug(
                 "Retrying due to status code %i. text=%s", response.status_code, response.text
             )
             return True

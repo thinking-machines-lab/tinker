@@ -149,6 +149,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                         }
                         if not should_retry:
                             event_data["response_headers"] = dict(e.response.headers)
+                            event_data["request_headers"] = dict(e.request.headers)
                             event_data["response_body"] = e.body
                             event_data["bad_request_retries"] = bad_request_retries
                         telemetry.log(
