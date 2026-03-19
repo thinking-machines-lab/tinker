@@ -10,6 +10,7 @@
 import ast
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -95,8 +96,42 @@ class DocumentationGenerator:
     def run_pydoc_markdown(self, modules: List[str], output_file: Path) -> bool:
         """Run pydoc-markdown for specific modules."""
         try:
-            # Build the command
-            cmd = ["pydoc-markdown", "pydoc-markdown.yml", "-I", "src"]
+            # Invoke pydoc-markdown via uvx/uv tool run so the required
+            # doc-generation dependencies are resolved consistently.
+            uvx_path = shutil.which("uvx")
+            if uvx_path:
+                cmd = [
+                    uvx_path,
+                    "--from",
+                    "pydoc-markdown>=4.8.0",
+                    "--with",
+                    "pyyaml>=6.0",
+                    "--with",
+                    "setuptools",
+                    "pydoc-markdown",
+                    "pydoc-markdown.yml",
+                    "-I",
+                    "src",
+                ]
+            else:
+                uv_path = shutil.which("uv")
+                if uv_path is None:
+                    raise FileNotFoundError("Could not find `uvx` or `uv` on PATH")
+                cmd = [
+                    uv_path,
+                    "tool",
+                    "run",
+                    "--from",
+                    "pydoc-markdown>=4.8.0",
+                    "--with",
+                    "pyyaml>=6.0",
+                    "--with",
+                    "setuptools",
+                    "pydoc-markdown",
+                    "pydoc-markdown.yml",
+                    "-I",
+                    "src",
+                ]
 
             # Add modules
             for module in modules:

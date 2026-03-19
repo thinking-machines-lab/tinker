@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Tuple
 
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
@@ -48,6 +48,11 @@ MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initi
 # Type alias for custom loss functions.
 # Args: (data: List[Datum], model_outputs: List[Any]) -> (loss: Any, metrics: Dict[str, float])
 CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
+
+_SUPPORTED_CUSTOM_BACKEND_LOSS_FNS = frozenset({"cross_entropy"})
+_CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE: dict[Literal["logprobs"], types.LossFnType] = {
+    "logprobs": "cross_entropy",
+}
 
 
 class TrainingClient(TelemetryProvider):
@@ -331,7 +336,11 @@ class TrainingClient(TelemetryProvider):
     @sync_only
     @capture_exceptions(fatal=True)
     def forward_backward_custom(
-        self, data: List[types.Datum], loss_fn: CustomLossFnV1
+        self,
+        data: List[types.Datum],
+        loss_fn: CustomLossFnV1,
+        *,
+        loss_type_input: Literal["logprobs"] = "logprobs",
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Compute forward/backward with a custom loss function.
 
@@ -341,6 +350,7 @@ class TrainingClient(TelemetryProvider):
         Args:
         - `data`: List of training data samples
         - `loss_fn`: Custom loss function that takes (data, logprobs) and returns (loss, metrics)
+        - `loss_type_input`: Input space for `loss_fn`. Currently the only supported value is `"logprobs"`.
 
         Returns:
         - `APIFuture` containing the forward/backward outputs with custom loss
@@ -360,23 +370,49 @@ class TrainingClient(TelemetryProvider):
         ```
         """
         return self.holder.run_coroutine_threadsafe(
-            self.forward_backward_custom_async(data, loss_fn)
+            self.forward_backward_custom_async(
+                data,
+                loss_fn,
+                loss_type_input=loss_type_input,
+            )
         ).result()
 
     @capture_exceptions(fatal=True)
     async def forward_backward_custom_async(
-        self, data: List[types.Datum], loss_fn: CustomLossFnV1
+        self,
+        data: List[types.Datum],
+        loss_fn: CustomLossFnV1,
+        *,
+        loss_type_input: Literal["logprobs"] = "logprobs",
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward_backward_custom."""
         if torch is None:
             raise ImportError("PyTorch is not installed. Cannot run custom forward_backward.")
 
+        if loss_type_input not in _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE:
+            supported = ", ".join(sorted(_CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE))
+            raise ValueError(
+                f"Unsupported loss_type_input={loss_type_input!r}. "
+                f"Supported values are: {supported}"
+            )
+
+        surrogate_loss_fn = _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE[loss_type_input]
+
+        forward_data = self._get_custom_loss_forward_data(data, surrogate_loss_fn)
+
         # First do a forward pass and get logprobs
-        forward_future = await self.forward_async(data, "cross_entropy")
+        forward_future = await self.forward_async(
+            forward_data,
+            surrogate_loss_fn,
+            None,
+        )
         forward_result = await forward_future.result_async()
         logprobs_list = []
         for out in forward_result.loss_fn_outputs:
-            logprob = torch.tensor(out["logprobs"].data).clone().detach().requires_grad_(True)
+            logprob = torch.tensor(out["logprobs"].data)
+            if out["logprobs"].shape is not None:
+                logprob = logprob.reshape(out["logprobs"].shape)
+            logprob = logprob.clone().detach().requires_grad_(True)
             logprobs_list.append(logprob)
 
         # Now apply user-provided function
@@ -392,7 +428,9 @@ class TrainingClient(TelemetryProvider):
         for datum, grad in zip(data, grads, strict=True):
             loss_fn_inputs: Any = {
                 "target_tokens": datum.loss_fn_inputs["target_tokens"],
-                "weights": -grad,  # Pass PyTorch tensor directly (will be converted to TensorData)
+                # Backend CE is L = sum(-logprobs * weights), so to backpropagate a
+                # client-side custom loss C(logprobs) we must send weights = -dC/dlogprobs.
+                "weights": -grad,
             }
             linear_loss_data.append(
                 types.Datum(
@@ -402,7 +440,11 @@ class TrainingClient(TelemetryProvider):
             )
 
         # Do the backward pass with the gradients
-        backward_future = await self.forward_backward_async(linear_loss_data, "cross_entropy")
+        backward_future = await self.forward_backward_async(
+            linear_loss_data,
+            surrogate_loss_fn,
+            None,
+        )
 
         # We need to slightly modify the future to add the custom metrics, so we use _CombinedAPIFuture
         # to transform the future.
@@ -414,6 +456,49 @@ class TrainingClient(TelemetryProvider):
             return result
 
         return _CombinedAPIFuture([backward_future], add_custom_metrics, self.holder)
+
+    def _get_custom_loss_forward_data(
+        self,
+        data: List[types.Datum],
+        surrogate_loss_fn: types.LossFnType,
+    ) -> List[types.Datum]:
+        assert surrogate_loss_fn in _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS, (
+            "forward_backward_custom_async should validate surrogate_loss_fn before "
+            "_get_custom_loss_forward_data is called"
+        )
+
+        forward_data = []
+        for datum in data:
+            target_tokens = datum.loss_fn_inputs.get("target_tokens")
+            if target_tokens is None:
+                raise ValueError("target_tokens must be provided when using cross_entropy")
+
+            unexpected_keys = sorted(set(datum.loss_fn_inputs) - {"target_tokens", "weights"})
+            if unexpected_keys:
+                raise ValueError(
+                    "forward_backward_custom only supports loss_fn_inputs keys "
+                    "{'target_tokens', 'weights'}; "
+                    f"found unexpected keys: {unexpected_keys}"
+                )
+
+            if "weights" in datum.loss_fn_inputs:
+                forward_data.append(datum)
+                continue
+
+            forward_loss_fn_inputs = dict(datum.loss_fn_inputs)
+            forward_loss_fn_inputs["weights"] = types.TensorData(
+                data=[0.0] * len(target_tokens.data),
+                dtype="float32",
+                shape=target_tokens.shape,
+            )
+            forward_data.append(
+                types.Datum(
+                    model_input=datum.model_input,
+                    loss_fn_inputs=forward_loss_fn_inputs,
+                )
+            )
+
+        return forward_data
 
     @capture_exceptions(fatal=True)
     def optim_step(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:

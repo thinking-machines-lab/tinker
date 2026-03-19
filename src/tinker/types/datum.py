@@ -44,13 +44,30 @@ class Datum(StrictBase):
 
     @classmethod
     def _maybe_convert_array(cls, key: str, value: Any) -> Any:
-        """Convert torch.Tensor, numpy array, or 1-D list to TensorData if needed."""
+        """Convert torch.Tensor, numpy array, or numeric lists to TensorData if needed."""
         if _HAVE_TORCH and isinstance(value, torch.Tensor):
             return TensorData.from_torch(value)
         elif isinstance(value, np.ndarray):
             return TensorData.from_numpy(value)
         elif isinstance(value, list):
-            # assume it's 1d and infer the dtype from the key
+            try:
+                array = np.asarray(value)
+            except ValueError as exc:
+                if any(isinstance(item, list) for item in value):
+                    raise ValueError(
+                        f"{key} must be a rectangular numeric array; ragged nested lists are not supported"
+                    ) from exc
+                raise
+            if array.dtype.kind in ("f", "i", "u"):
+                if _key_to_type[key] == "int64":
+                    array = array.astype(np.int64)
+                else:
+                    array = array.astype(np.float32)
+                return TensorData.from_numpy(array)
+            if any(isinstance(item, list) for item in value):
+                raise ValueError(
+                    f"{key} must be a rectangular numeric array; ragged nested lists are not supported"
+                )
             return TensorData(data=value, dtype=_key_to_type[key], shape=[len(value)])
         else:
             return value

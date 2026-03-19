@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, Dict, List
 import click
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from tinker.lib.public_interfaces.rest_client import RestClient
     from tinker.types import Checkpoint, TrainingRun
 
@@ -838,53 +840,249 @@ def set_ttl(cli_context: CLIContext, checkpoint_path: str, ttl: int | None, remo
     client.set_checkpoint_ttl_from_tinker_path(checkpoint_path, ttl_seconds).result()
 
 
+def _parse_date(value: str) -> "datetime":
+    """Parse an ISO 8601 date or datetime string to a timezone-aware datetime.
+
+    Accepts: 2024-01-01, 2024-01-01T12:00:00, 2024-01-01T12:00:00Z,
+    2024-01-01T12:00:00+00:00. Date-only values are treated as midnight UTC.
+    """
+    from datetime import UTC, datetime
+
+    value = value.strip()
+    # Python < 3.11 doesn't handle trailing 'Z' in fromisoformat
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        raise TinkerCliError(
+            f"Invalid date: {value}",
+            "Use ISO 8601 format: 2024-01-01, 2024-01-01T12:00:00Z",
+        )
+    # Assume UTC if no timezone provided
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
+_CHECKPOINT_TYPE_MAP = {
+    "weights": "training",
+    "sampler_weights": "sampler",
+    "training": "training",
+    "sampler": "sampler",
+}
+
+
+def _filter_checkpoints(
+    checkpoints: "List[Checkpoint]",
+    checkpoint_type: str | None,
+    before: "datetime | None",
+    after: "datetime | None",
+) -> "List[Checkpoint]":
+    """Filter checkpoints by type, before date, and/or after date."""
+    filtered = checkpoints
+    if checkpoint_type:
+        mapped_type = _CHECKPOINT_TYPE_MAP.get(checkpoint_type)
+        if mapped_type is None:
+            raise TinkerCliError(
+                f"Invalid checkpoint type: {checkpoint_type}",
+                "Valid types: weights, sampler_weights",
+            )
+        filtered = [c for c in filtered if c.checkpoint_type == mapped_type]
+    if before is not None:
+        filtered = [c for c in filtered if c.time < before]
+    if after is not None:
+        filtered = [c for c in filtered if c.time > after]
+    return filtered
+
+
+def _confirm_deletion(paths: "List[str]", checkpoints: "List[Checkpoint] | None" = None) -> bool:
+    """Show deletion summary and prompt for confirmation. Returns True if confirmed."""
+    count = len(paths)
+    if checkpoints is not None:
+        total_size = sum(c.size_bytes or 0 for c in checkpoints)
+        click.echo(f"Will delete {count} checkpoint(s):")
+        for ckpt in checkpoints:
+            size_str = format_size(ckpt.size_bytes) if ckpt.size_bytes is not None else "N/A"
+            time_str = format_timestamp(ckpt.time)
+            click.echo(f"  - {ckpt.tinker_path} ({size_str}, created {time_str})")
+        click.echo(f"\nTotal size: {format_size(total_size)}")
+    else:
+        click.echo(f"Will delete {count} checkpoint(s):")
+        for path in paths:
+            click.echo(f"  - {path}")
+        click.echo()
+    click.echo("WARNING: This action is permanent and cannot be undone.")
+    return click.confirm(f"Are you sure you want to delete {count} checkpoint(s)?")
+
+
+_DELETE_CONCURRENCY = 32
+
+
+def _delete_one(client: "RestClient", path: str) -> "tuple[str, str] | None":
+    """Delete a single checkpoint. Returns (path, error) on failure, None on success."""
+    try:
+        client.delete_checkpoint_from_tinker_path(path).result()
+        return None
+    except Exception as e:
+        return (path, str(e))
+
+
+def _delete_paths(
+    client: "RestClient",
+    paths: "List[str]",
+    format: str,
+) -> None:
+    """Delete a list of tinker paths concurrently and print results."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    deleted_count = 0
+    failed: "List[tuple[str, str]]" = []
+    with (
+        ThreadPoolExecutor(max_workers=_DELETE_CONCURRENCY) as pool,
+        click.progressbar(
+            length=len(paths),
+            label="Deleting checkpoints",
+            show_percent=True,
+            show_pos=True,
+            hidden=format != "table",
+        ) as bar,
+    ):
+        futures = {pool.submit(_delete_one, client, p): p for p in paths}
+        for future in as_completed(futures):
+            result = future.result()
+            if result is None:
+                deleted_count += 1
+            else:
+                failed.append(result)
+            bar.update(1)
+
+    if format == "json":
+        import json
+
+        click.echo(
+            json.dumps(
+                {
+                    "deleted_count": deleted_count,
+                    "failed": [{"tinker_path": p, "error": e} for p, e in failed],
+                }
+            )
+        )
+    else:
+        click.echo(f"Deleted {deleted_count} checkpoint(s)")
+        if failed:
+            click.echo(f"Failed to delete {len(failed)} checkpoint(s):")
+            for path, error in failed:
+                click.echo(f"  - {path}: {error}")
+
+
 @cli.command()
-@click.argument("checkpoint_paths", nargs=-1, required=True)
+@click.argument("checkpoint_paths", nargs=-1, required=False)
+@click.option("--run-id", default=None, help="Delete all checkpoints for a training run")
+@click.option(
+    "--type", "checkpoint_type", default=None, help="Filter by type: weights or sampler_weights"
+)
+@click.option(
+    "--before",
+    default=None,
+    help="Filter: created before date in UTC (ISO 8601, e.g. 2024-01-01, 2024-01-01T08:00:00Z)",
+)
+@click.option(
+    "--after",
+    default=None,
+    help="Filter: created after date in UTC (ISO 8601, e.g. 2024-01-01, 2024-01-01T08:00:00Z)",
+)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.pass_obj
 @handle_api_errors
-def delete(cli_context: CLIContext, checkpoint_paths: tuple[str, ...], yes: bool) -> None:
+def delete(
+    cli_context: CLIContext,
+    checkpoint_paths: tuple[str, ...],
+    run_id: str | None,
+    checkpoint_type: str | None,
+    before: str | None,
+    after: str | None,
+    yes: bool,
+) -> None:
     """Delete one or more checkpoints permanently.
 
-    CHECKPOINT_PATHS must be tinker paths (e.g., tinker://run-id/weights/0001).
+    Delete by explicit paths:
+
+        tinker checkpoint delete tinker://run-id/weights/0001 tinker://run-id/weights/0002
+
+    Delete all checkpoints for a training run:
+
+        tinker checkpoint delete --run-id <run-id>
+
+    Delete with filters:
+
+        tinker checkpoint delete --run-id <run-id> --type weights --before 2024-06-01
+
+    Delete checkpoints in a date range:
+
+        tinker checkpoint delete --run-id <run-id> --after 2024-01-01 --before 2024-02-01
+
+    Dates are interpreted as UTC. Use full ISO 8601 datetime for precision:
+
+        tinker checkpoint delete --run-id <run-id> --before 2024-06-01T08:00:00Z
+
     Only the owner of the training run can delete checkpoints.
 
     WARNING: This action is permanent and cannot be undone.
     """
-    # Validate all paths upfront
-    for path in checkpoint_paths:
-        if not path.startswith("tinker://"):
-            raise TinkerCliError(
-                f"Invalid checkpoint path: {path}",
-                "Checkpoint path must be in the format: tinker://run-id/weights/0001",
-            )
+    if not checkpoint_paths and not run_id:
+        raise TinkerCliError(
+            "Must specify checkpoint paths or --run-id",
+            "Examples:\n"
+            "  tinker checkpoint delete tinker://run-id/weights/0001\n"
+            "  tinker checkpoint delete --run-id <run-id>\n"
+            "  tinker checkpoint delete --run-id <run-id> --type weights --before 2024-06-01",
+        )
 
-    # If not using --yes, show checkpoint list and prompt for confirmation
-    if not yes:
-        count = len(checkpoint_paths)
-        click.echo(f"Will delete {count} checkpoint(s):")
+    if checkpoint_paths and run_id:
+        raise TinkerCliError(
+            "Cannot specify both checkpoint paths and --run-id",
+            "Use either explicit paths or --run-id with optional filters",
+        )
+
+    has_filters = checkpoint_type or before or after
+    if has_filters and not run_id:
+        raise TinkerCliError(
+            "--type, --before, and --after require --run-id",
+            "Example: tinker checkpoint delete --run-id <run-id> --type weights --before 2024-06-01",
+        )
+
+    client = create_rest_client()
+
+    if run_id:
+        before_dt = _parse_date(before) if before else None
+        after_dt = _parse_date(after) if after else None
+        response = client.list_checkpoints(run_id).result()
+        checkpoints = _filter_checkpoints(
+            response.checkpoints, checkpoint_type, before_dt, after_dt
+        )
+
+        if not checkpoints:
+            click.echo(f"No checkpoints found for run {run_id} matching filters")
+            return
+
+        paths_to_delete = [c.tinker_path for c in checkpoints]
+        if not yes and not _confirm_deletion(paths_to_delete, checkpoints):
+            click.echo("Deletion cancelled.")
+            return
+    else:
         for path in checkpoint_paths:
-            click.echo(f"  - {path}")
-        click.echo()
-
-        # Confirmation prompt
-        click.echo("WARNING: This action is permanent and cannot be undone.")
-        if not click.confirm(f"Are you sure you want to delete {count} checkpoint(s)?"):
+            if not path.startswith("tinker://"):
+                raise TinkerCliError(
+                    f"Invalid checkpoint path: {path}",
+                    "Checkpoint path must be in the format: tinker://run-id/weights/0001",
+                )
+        paths_to_delete = list(checkpoint_paths)
+        if not yes and not _confirm_deletion(paths_to_delete):
             click.echo("Deletion cancelled.")
             return
 
-    # Create client and delete with progress bar
-    client = create_rest_client()
-
-    with click.progressbar(
-        checkpoint_paths,
-        label="Deleting checkpoints",
-        show_percent=True,
-        show_pos=True,
-        hidden=cli_context.format != "table",
-    ) as bar:
-        for path in bar:
-            client.delete_checkpoint_from_tinker_path(path).result()
+    _delete_paths(client, paths_to_delete, cli_context.format)
 
 
 @cli.command()
