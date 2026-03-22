@@ -400,7 +400,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:
-        return status_code in (408, 409, 429) or (500 <= status_code < 600)
+        return status_code in (408, 429) or (500 <= status_code < 600)
 
     @staticmethod
     def _is_retryable_exception(exception: Exception) -> bool:

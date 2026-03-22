@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Tuple
 
 from tinker import types
+from tinker._exceptions import ConflictError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
@@ -53,6 +54,30 @@ _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS = frozenset({"cross_entropy"})
 _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE: dict[Literal["logprobs"], types.LossFnType] = {
     "logprobs": "cross_entropy",
 }
+
+
+def _matching_checkpoint_ids(
+    checkpoint_name: str, checkpoint_type: Literal["training", "sampler"]
+) -> set[str]:
+    prefix = "weights" if checkpoint_type == "training" else "sampler_weights"
+    return {
+        checkpoint_name,
+        f"{prefix}/{checkpoint_name}",
+    }
+
+
+def _find_matching_checkpoint_path(
+    checkpoints: list[types.Checkpoint],
+    checkpoint_name: str,
+    checkpoint_type: Literal["training", "sampler"],
+) -> str | None:
+    matching_ids = _matching_checkpoint_ids(checkpoint_name, checkpoint_type)
+    for checkpoint in checkpoints:
+        if checkpoint.checkpoint_type != checkpoint_type:
+            continue
+        if checkpoint.checkpoint_id in matching_ids:
+            return checkpoint.tinker_path
+    return None
 
 
 class TrainingClient(TelemetryProvider):
@@ -609,7 +634,20 @@ class TrainingClient(TelemetryProvider):
                     )
 
             async with self._take_turn(request_id):
-                future = await self.holder.execute_with_retries(_send_request)
+                try:
+                    future = await self.holder.execute_with_retries(_send_request)
+                except ConflictError:
+                    recovered_path = await self._recover_checkpoint_path_from_conflict(
+                        checkpoint_name=name,
+                        checkpoint_type="training",
+                    )
+                    if recovered_path is None:
+                        raise
+                    logger.warning(
+                        "Recovered from save_state 409 conflict by reusing checkpoint path for '%s'",
+                        name,
+                    )
+                    return types.SaveWeightsResponse(path=recovered_path)
             return await _APIFuture(
                 types.SaveWeightsResponse,
                 self.holder,
@@ -654,6 +692,24 @@ class TrainingClient(TelemetryProvider):
             request_start_time=start_time,
             request_type="LoadWeights",
             queue_state_observer=self._queue_state_logger,
+        )
+
+    async def _recover_checkpoint_path_from_conflict(
+        self,
+        checkpoint_name: str,
+        checkpoint_type: Literal["training", "sampler"],
+    ) -> str | None:
+        """Resolve an existing checkpoint path after a save-name conflict."""
+
+        async def _send_request():
+            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                return await client.weights.list(model_id=self._guaranteed_model_id())
+
+        checkpoints_response = await self.holder.execute_with_retries(_send_request)
+        return _find_matching_checkpoint_path(
+            checkpoints_response.checkpoints,
+            checkpoint_name=checkpoint_name,
+            checkpoint_type=checkpoint_type,
         )
 
     @capture_exceptions(fatal=True)
@@ -745,7 +801,22 @@ class TrainingClient(TelemetryProvider):
                 )
 
         async with self._take_turn(request_id):
-            future = await self.holder.execute_with_retries(_send_request)
+            try:
+                future = await self.holder.execute_with_retries(_send_request)
+            except ConflictError:
+                if name is None:
+                    raise
+                recovered_path = await self._recover_checkpoint_path_from_conflict(
+                    checkpoint_name=name,
+                    checkpoint_type="sampler",
+                )
+                if recovered_path is None:
+                    raise
+                logger.warning(
+                    "Recovered from save_weights_for_sampler 409 conflict by reusing checkpoint path for '%s'",
+                    name,
+                )
+                return types.SaveWeightsForSamplerResponseInternal(path=recovered_path)
         return await _APIFuture(
             types.SaveWeightsForSamplerResponseInternal,
             self.holder,
