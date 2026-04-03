@@ -33,6 +33,7 @@ T = TypeVar("T")
 
 MAX_REQUESTS_PER_HTTPX_CLIENT = 50
 MAX_CONNECTION_ERROR_RETRIES = 16
+DEFAULT_RETRIEVE_POLL_TIMEOUT = 45
 
 
 class ClientConnectionPool:
@@ -180,6 +181,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         project_id: str | None = None,
         *,
         session_id: str | None = None,
+        retrieve_poll_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         self._constructor_kwargs = kwargs
@@ -191,6 +193,16 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
         self._inflight_response_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
         self._training_client_lock: threading.Lock = threading.Lock()
+
+        # Retrieve poll timeout: constructor arg > env var > default
+        if retrieve_poll_timeout is not None:
+            self._retrieve_poll_timeout = retrieve_poll_timeout
+        else:
+            env_val = os.environ.get("TINKER_RETRIEVE_POLL_TIMEOUT")
+            if env_val is not None:
+                self._retrieve_poll_timeout = float(env_val)
+            else:
+                self._retrieve_poll_timeout = float(DEFAULT_RETRIEVE_POLL_TIMEOUT)
 
         if session_id is not None:
             # Shadow mode: reuse existing session, can't create new clients

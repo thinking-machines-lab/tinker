@@ -62,12 +62,14 @@ class ServiceClient(TelemetryProvider):
         self,
         user_metadata: dict[str, str] | None = None,
         project_id: str | None = None,
+        retrieve_poll_timeout: float | None = None,
         **kwargs: Any,
     ):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
         self.holder = InternalClientHolder(
             user_metadata=user_metadata,
             project_id=project_id,
+            retrieve_poll_timeout=retrieve_poll_timeout,
             **kwargs,
             default_headers=default_headers,
             _strict_response_validation=True,

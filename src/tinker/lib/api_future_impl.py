@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, List, Type, TypeVar, cast
 
 import tinker
 from tinker import types
-from tinker._exceptions import RequestFailedError
+from tinker._exceptions import APITimeoutError, RequestFailedError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture
 from tinker.lib.telemetry import Telemetry, is_user_error
@@ -127,7 +127,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                                 request_id=self.request_id,
                                 allow_metadata_only=allow_metadata_only,
                             ),
-                            timeout=45,
+                            timeout=self.holder._retrieve_poll_timeout,
                             extra_headers=headers,
                             max_retries=0,
                         )
@@ -192,6 +192,11 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     raise ValueError(
                         f"Error retrieving result: {e} with status code {e.status_code=} for {self.request_id=} and expected type {self.model_cls=}"
                     ) from e
+                except APITimeoutError:
+                    # Poll timeouts are expected during long-running computations.
+                    # Retry immediately without backoff — the server simply hadn't
+                    # finished processing within the poll window.
+                    continue
                 except tinker.APIConnectionError as e:
                     if telemetry := self.get_telemetry():
                         current_time = time.time()
@@ -208,7 +213,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                             severity="WARNING",
                         )
 
-                    # Retry all connection errors with exponential backoff
+                    # Retry real connection errors with exponential backoff
                     await asyncio.sleep(min(2**connection_error_retries, 30))
                     connection_error_retries += 1
                     continue
