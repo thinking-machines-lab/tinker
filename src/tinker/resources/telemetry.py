@@ -67,7 +67,7 @@ class AsyncTelemetryResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/telemetry",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=TelemetryResponse,
         )

@@ -136,6 +136,7 @@ def model_dump(
     exclude: IncEx | None = None,
     exclude_unset: bool = False,
     exclude_defaults: bool = False,
+    exclude_none: bool = False,
     warnings: bool = True,
     mode: Literal["json", "python"] = "python",
 ) -> dict[str, Any]:
@@ -145,6 +146,7 @@ def model_dump(
             exclude=exclude,
             exclude_unset=exclude_unset,
             exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
             # warnings are not supported in Pydantic v1
             warnings=warnings if PYDANTIC_V2 else True,
         )
@@ -154,6 +156,7 @@ def model_dump(
             exclude=exclude,
             exclude_unset=exclude_unset,
             exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
         ),
     )
 

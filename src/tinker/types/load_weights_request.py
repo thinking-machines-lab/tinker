@@ -20,6 +20,9 @@ class LoadWeightsRequest(StrictBase):
 
     seq_id: Optional[int] = None
 
+    weights_access_token: Optional[str] = None
+    """Optional access token for loading checkpoints under a different account."""
+
     type: Literal["load_weights"] = "load_weights"
 
     if PYDANTIC_V2:

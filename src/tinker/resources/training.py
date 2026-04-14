@@ -56,7 +56,7 @@ class AsyncTrainingResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/forward",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )
@@ -102,7 +102,7 @@ class AsyncTrainingResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/forward_backward",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )
@@ -148,7 +148,7 @@ class AsyncTrainingResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/optim_step",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )

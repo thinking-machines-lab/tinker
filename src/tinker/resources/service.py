@@ -6,6 +6,9 @@ from .._base_client import make_request_options
 from .._compat import model_dump
 from .._resource import AsyncAPIResource
 from .._types import NOT_GIVEN, Body, Headers, NotGiven, Query
+from ..types.auth_token_response import AuthTokenResponse
+from ..types.client_config_request import ClientConfigRequest
+from ..types.client_config_response import ClientConfigResponse
 from ..types.create_sampling_session_request import CreateSamplingSessionRequest
 from ..types.create_sampling_session_response import CreateSamplingSessionResponse
 from ..types.create_session_request import CreateSessionRequest
@@ -63,6 +66,54 @@ class AsyncServiceResource(AsyncAPIResource):
             cast_to=HealthResponse,
         )
 
+    async def auth_token(
+        self,
+        *,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_retries: int | NotGiven = NOT_GIVEN,
+    ) -> AuthTokenResponse:
+        """Exchange the current credential for a short-lived JWT."""
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+        )
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
+        return await self._post(
+            "/api/v1/auth/token",
+            body={},
+            options=options,
+            cast_to=AuthTokenResponse,
+        )
+
+    async def client_config(
+        self,
+        *,
+        request: ClientConfigRequest,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+    ) -> ClientConfigResponse:
+        """Fetch server-side feature flags for this client."""
+        return await self._post(
+            "/api/v1/client/config",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            options=make_request_options(
+                extra_headers=extra_headers,
+                extra_query=extra_query,
+                extra_body=extra_body,
+                timeout=timeout,
+            ),
+            cast_to=ClientConfigResponse,
+        )
+
     async def create_session(
         self,
         *,
@@ -104,7 +155,7 @@ class AsyncServiceResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/create_session",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=CreateSessionResponse,
         )
@@ -148,7 +199,7 @@ class AsyncServiceResource(AsyncAPIResource):
         request = SessionHeartbeatRequest(session_id=session_id)
         return await self._post(
             "/api/v1/session_heartbeat",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=SessionHeartbeatResponse,
         )
@@ -190,7 +241,7 @@ class AsyncServiceResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/create_sampling_session",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=CreateSamplingSessionResponse,
         )

@@ -61,7 +61,7 @@ class AsyncWeightsResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/load_weights",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )
@@ -107,7 +107,7 @@ class AsyncWeightsResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/save_weights",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )
@@ -153,7 +153,7 @@ class AsyncWeightsResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/save_weights_for_sampler",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )

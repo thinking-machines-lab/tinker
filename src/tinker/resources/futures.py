@@ -73,7 +73,7 @@ class AsyncFuturesResource(AsyncAPIResource):
             FutureRetrieveResponse,
             await self._post(
                 "/api/v1/retrieve_future",
-                body=model_dump(request, exclude_unset=True, mode="json"),
+                body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
                 options=options,
                 cast_to=cast(
                     Any, FutureRetrieveResponse

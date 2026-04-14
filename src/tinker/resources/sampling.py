@@ -56,7 +56,7 @@ class AsyncSamplingResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/asample",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )

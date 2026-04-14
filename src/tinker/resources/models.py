@@ -60,7 +60,7 @@ class AsyncModelsResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/create_model",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )
@@ -106,7 +106,7 @@ class AsyncModelsResource(AsyncAPIResource):
 
         result = await self._post(
             "/api/v1/get_info",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=GetInfoResponse,
         )
@@ -159,7 +159,7 @@ class AsyncModelsResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/unload_model",
-            body=model_dump(request, exclude_unset=True, mode="json"),
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             options=options,
             cast_to=UntypedAPIFuture,
         )

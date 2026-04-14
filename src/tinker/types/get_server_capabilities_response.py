@@ -11,6 +11,9 @@ class SupportedModel(BaseModel):
     model_name: Optional[str] = None
     """The name of the supported model."""
 
+    max_context_length: Optional[int] = None
+    """The maximum context length (in tokens) supported by this model."""
+
 
 class GetServerCapabilitiesResponse(BaseModel):
     """Response containing the server's supported models and capabilities."""

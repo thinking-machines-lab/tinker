@@ -46,6 +46,9 @@ class Datum(StrictBase):
     def _maybe_convert_array(cls, key: str, value: Any) -> Any:
         """Convert torch.Tensor, numpy array, or numeric lists to TensorData if needed."""
         if _HAVE_TORCH and isinstance(value, torch.Tensor):
+            # Auto-sparsify 2-D target_tokens and weights to reduce wire payload
+            if key in _sparse_eligible_keys and value.ndim == 2:
+                return TensorData.from_torch_sparse(value)
             return TensorData.from_torch(value)
         elif isinstance(value, np.ndarray):
             return TensorData.from_numpy(value)
@@ -81,3 +84,5 @@ _key_to_type = {
     "clip_low_threshold": "float32",
     "clip_high_threshold": "float32",
 }
+
+_sparse_eligible_keys = {"target_tokens", "weights"}

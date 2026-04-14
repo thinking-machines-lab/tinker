@@ -21,6 +21,12 @@ from tinker import types
 from tinker._client import AsyncTinker
 from tinker._exceptions import APIConnectionError, APIStatusError
 from tinker._version import __version__ as tinker_sdk_version
+from tinker.lib._auth_token_provider import (
+    ApiKeyAuthProvider,
+    AuthTokenProvider,
+    resolve_auth_provider,
+)
+from tinker.lib._jwt_auth import JwtAuthProvider
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
@@ -180,17 +186,63 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         project_id: str | None = None,
         *,
         session_id: str | None = None,
+        api_key: str | None = None,
+        _client_config: dict[str, str | int | bool] | None = None,
+        _jwt_auth_seed: str | None = None,
         **kwargs: Any,
     ) -> None:
-        self._constructor_kwargs = kwargs
+        self._api_key = api_key
+        self._constructor_kwargs = dict(kwargs)
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
-        self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
-        self._inflight_response_bytes_semaphore: BytesSemaphore = BytesSemaphore(5 * 1024 * 1024)
         self._training_client_lock: threading.Lock = threading.Lock()
+        self._telemetry: Telemetry | None = None
+
+        # Fetch server-side client config before any server contact so that
+        # flags are available for subsequent setup steps.  Shadow holders
+        # receive the config via kwargs to avoid a redundant fetch (and
+        # potential deadlock on the event loop thread).
+        if _client_config is not None:
+            self._client_config = types.ClientConfigResponse.model_validate(_client_config)
+        else:
+            self._assert_not_on_event_loop("fetch client config")
+            config_auth = resolve_auth_provider(api_key, enforce_cmd=False)
+            self._client_config = self.run_coroutine_threadsafe(
+                self._fetch_client_config(config_auth)
+            ).result()
+
+        self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(
+            self._client_config.sample_dispatch_bytes_semaphore_size
+        )
+        self._inflight_response_bytes_semaphore: BytesSemaphore = BytesSemaphore(
+            self._client_config.inflight_response_bytes_semaphore_size
+        )
+
+        if not self._client_config.pjwt_auth_enabled:
+            # Without JWT exchange, only API keys are accepted by the server.
+            # Replace any cmd-based provider with a plain API key provider.
+            self._default_auth = ApiKeyAuthProvider(api_key=api_key)
+        else:
+            # Create a dedicated pool for JWT exchange with the appropriate
+            # credential provider.  The lambda captures the pool so it stays alive.
+            use_cmd = self._client_config.credential_default_source == "credential_cmd"
+            auth_pool_auth = resolve_auth_provider(self._api_key, use_cmd)
+            auth_kwargs = {**self._constructor_kwargs, "_auth": auth_pool_auth}
+            auth_pool = ClientConnectionPool(self.get_loop(), 1, auth_kwargs)
+            auth_aclient = lambda: auth_pool.aclient()  # noqa: E731
+            self._default_auth = JwtAuthProvider(auth_aclient, seed_token=_jwt_auth_seed)
+            if _jwt_auth_seed:
+                # Shadow holder: start refresh in background, don't block.
+                self.run_coroutine_threadsafe(self._default_auth.init())
+            else:
+                # Primary holder: must have a valid JWT before proceeding.
+                self._assert_not_on_event_loop("exchange JWT")
+                self.run_coroutine_threadsafe(
+                    self.execute_with_retries(self._default_auth.init)
+                ).result()
 
         if session_id is not None:
             # Shadow mode: reuse existing session, can't create new clients
@@ -199,14 +251,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._sampling_client_counter: int | None = None
         else:
             # Normal mode: create new session.
-            # This blocks on .result() — must NOT be called from the event
-            # loop thread (e.g. inside the sidecar subprocess).  Shadow
-            # holders (session_id is not None) skip this path.
-            if self._loop.is_running() and _current_loop() is self._loop:
-                raise RuntimeError(
-                    "Cannot create a new session from the event loop thread. "
-                    "Use session_id= to create a shadow holder instead."
-                )
+            self._assert_not_on_event_loop("create a new session")
             self._session_id = self.run_coroutine_threadsafe(
                 self._create_session(user_metadata=user_metadata, project_id=project_id)
             ).result()
@@ -229,6 +274,26 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def get_shadow_holder(cls, session_id: str, kwargs: dict[str, Any]) -> InternalClientHolder:
         """Get or create a shadow holder from the singleton cache."""
         return _shadow_holder_singleton.get_or_create(session_id, kwargs)
+
+    def _assert_not_on_event_loop(self, action: str) -> None:
+        """Raise if called from the event loop thread (would deadlock on .result())."""
+        if self._loop.is_running() and _current_loop() is self._loop:
+            raise RuntimeError(
+                f"Cannot {action} from the event loop thread. "
+                "Use session_id= to create a shadow holder instead."
+            )
+
+    @property
+    def shadow_kwargs(self) -> dict[str, Any]:
+        """Constructor kwargs for shadow holders, including cached server config and JWT seed."""
+        result = {
+            **self._constructor_kwargs,
+            "api_key": self._api_key,
+            "_client_config": self._client_config.model_dump(),
+        }
+        if isinstance(self._default_auth, JwtAuthProvider):
+            result["_jwt_auth_seed"] = self._default_auth._token
+        return result
 
     @asynccontextmanager
     async def _sample_dispatch_count_rate_limit(self):
@@ -316,6 +381,23 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         """Start the session heartbeat task."""
         return asyncio.create_task(self._session_heartbeat(self._session_id))
 
+    async def _fetch_client_config(self, auth: AuthTokenProvider) -> types.ClientConfigResponse:
+        """Call /api/v1/client/config and return server feature flags.
+
+        Creates a one-off connection pool with the given auth.  Retries
+        transient failures via execute_with_retries.
+        """
+        kwargs = {**self._constructor_kwargs, "_auth": auth}
+        pool = ClientConnectionPool(self.get_loop(), 1, kwargs)
+
+        async def _once() -> types.ClientConfigResponse:
+            with pool.aclient() as client:
+                return await client.service.client_config(
+                    request=types.ClientConfigRequest(sdk_version=tinker_sdk_version)
+                )
+
+        return await self.execute_with_retries(_once)
+
     async def _create_session(
         self,
         user_metadata: dict[str, str] | None = None,
@@ -350,8 +432,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 if client_pool_type == ClientConnectionPoolType.TRAIN
                 else MAX_REQUESTS_PER_HTTPX_CLIENT
             )
+            kwargs = {**self._constructor_kwargs, "_auth": self._default_auth}
             self._client_pools[client_pool_type] = ClientConnectionPool(
-                self.get_loop(), max_requests_per_client, self._constructor_kwargs
+                self.get_loop(), max_requests_per_client, kwargs
             )
         return self._client_pools[client_pool_type]
 

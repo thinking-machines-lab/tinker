@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .auth_token_response import AuthTokenResponse as AuthTokenResponse
 from .checkpoint import (
     Checkpoint as Checkpoint,
 )
@@ -13,6 +14,8 @@ from .checkpoint_archive_url_response import (
     CheckpointArchiveUrlResponse as CheckpointArchiveUrlResponse,
 )
 from .checkpoints_list_response import CheckpointsListResponse as CheckpointsListResponse
+from .client_config_request import ClientConfigRequest as ClientConfigRequest
+from .client_config_response import ClientConfigResponse as ClientConfigResponse
 from .create_model_request import CreateModelRequest as CreateModelRequest
 from .create_model_response import CreateModelResponse as CreateModelResponse
 from .create_sampling_session_request import (

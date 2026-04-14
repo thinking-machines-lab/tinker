@@ -451,7 +451,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 _SamplingClientPickleState(
                     session_id=self.holder.get_session_id(),
                     sampling_session_id=self._sampling_session_id,
-                    constructor_kwargs=self.holder._constructor_kwargs,
+                    constructor_kwargs=self.holder.shadow_kwargs,
                     subprocess_sampling=self._sampling_client_sidecar_handle is not None,
                 ),
             ),

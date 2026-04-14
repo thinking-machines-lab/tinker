@@ -12,7 +12,7 @@ from ._base_client import (
     AsyncAPIClient,
 )
 from ._compat import cached_property
-from ._exceptions import APIStatusError, TinkerError
+from ._exceptions import APIStatusError
 from ._qs import Querystring
 from ._streaming import AsyncStream as AsyncStream
 from ._types import (
@@ -26,6 +26,7 @@ from ._types import (
 )
 from ._utils import get_async_library, is_given
 from ._version import __version__
+from .lib._auth_token_provider import ApiKeyAuthProvider, AuthTokenProvider
 
 if TYPE_CHECKING:
     from .resources import futures, telemetry
@@ -47,9 +48,6 @@ __all__ = [
 
 
 class AsyncTinker(AsyncAPIClient):
-    # client options
-    api_key: str
-
     def __init__(
         self,
         *,
@@ -72,20 +70,16 @@ class AsyncTinker(AsyncAPIClient):
         # outlining your use-case to help us decide if it should be
         # part of our public interface in the future.
         _strict_response_validation: bool = False,
+        _auth: AuthTokenProvider | None = None,
     ) -> None:
         """Construct a new async AsyncTinker client instance.
 
         This automatically infers the `api_key` argument from the `TINKER_API_KEY` environment variable if it is not provided.
         """
-        if api_key is None:
-            api_key = os.environ.get("TINKER_API_KEY")
-        if api_key is None:
-            raise TinkerError(
-                "The api_key client option must be set either by passing api_key to the client or by setting the TINKER_API_KEY environment variable"
-            )
-        if not api_key.startswith("tml-"):
-            raise TinkerError("The api_key must start with the 'tml-' prefix")
-        self.api_key = api_key
+        if _auth is not None:
+            self._auth = _auth
+        else:
+            self._auth = ApiKeyAuthProvider(api_key=api_key)
 
         if base_url is None:
             base_url = os.environ.get("TINKER_BASE_URL")
@@ -158,9 +152,8 @@ class AsyncTinker(AsyncAPIClient):
 
     @property
     @override
-    def auth_headers(self) -> dict[str, str]:
-        api_key = self.api_key
-        return {"X-API-Key": api_key}
+    def custom_auth(self) -> AuthTokenProvider:
+        return self._auth
 
     @property
     @override
@@ -174,7 +167,6 @@ class AsyncTinker(AsyncAPIClient):
     def copy(
         self,
         *,
-        api_key: str | None = None,
         base_url: str | httpx.URL | None = None,
         timeout: float | Timeout | None | NotGiven = NOT_GIVEN,
         http_client: httpx.AsyncClient | None = None,
@@ -212,7 +204,7 @@ class AsyncTinker(AsyncAPIClient):
 
         http_client = http_client or self._client
         return self.__class__(
-            api_key=api_key or self.api_key,
+            _auth=self._auth,
             base_url=base_url or self.base_url,
             timeout=self.timeout if isinstance(timeout, NotGiven) else timeout,
             http_client=http_client,

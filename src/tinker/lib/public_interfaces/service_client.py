@@ -230,10 +230,26 @@ class ServiceClient(TelemetryProvider):
             user_metadata,
         ).result_async()
 
+    def _get_rest_client_for_weights(self, weights_access_token: str | None = None) -> RestClient:
+        """Get a rest client for weights info lookups.
+
+        If weights_access_token is provided, creates a separate ServiceClient
+        authenticated with that token.
+        """
+        if weights_access_token is not None:
+            token_client = ServiceClient(
+                api_key=weights_access_token, **self.holder._constructor_kwargs
+            )
+            return token_client.create_rest_client()
+        return self.create_rest_client()
+
     @sync_only
     @capture_exceptions(fatal=True)
     def create_training_client_from_state(
-        self, path: str, user_metadata: dict[str, str] | None = None
+        self,
+        path: str,
+        user_metadata: dict[str, str] | None = None,
+        weights_access_token: str | None = None,
     ) -> TrainingClient:
         """Create a TrainingClient from saved model weights.
 
@@ -243,6 +259,7 @@ class ServiceClient(TelemetryProvider):
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
         - `user_metadata`: Optional metadata to attach to the new training run
+        - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
         Returns:
         - `TrainingClient` loaded with the specified weights
@@ -256,7 +273,7 @@ class ServiceClient(TelemetryProvider):
         # Continue training from the loaded state
         ```
         """
-        rest_client = self.create_rest_client()
+        rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
 
@@ -271,15 +288,18 @@ class ServiceClient(TelemetryProvider):
             user_metadata=user_metadata,
         )
 
-        training_client.load_state(path).result()
+        training_client.load_state(path, weights_access_token=weights_access_token).result()
         return training_client
 
     @capture_exceptions(fatal=True)
     async def create_training_client_from_state_async(
-        self, path: str, user_metadata: dict[str, str] | None = None
+        self,
+        path: str,
+        user_metadata: dict[str, str] | None = None,
+        weights_access_token: str | None = None,
     ) -> TrainingClient:
         """Async version of create_training_client_from_state."""
-        rest_client = self.create_rest_client()
+        rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = await rest_client.get_weights_info_by_tinker_path(path)
 
@@ -297,14 +317,19 @@ class ServiceClient(TelemetryProvider):
             user_metadata=user_metadata,
         )
 
-        load_future = await training_client.load_state_async(path)
+        load_future = await training_client.load_state_async(
+            path, weights_access_token=weights_access_token
+        )
         await load_future.result_async()
         return training_client
 
     @sync_only
     @capture_exceptions(fatal=True)
     def create_training_client_from_state_with_optimizer(
-        self, path: str, user_metadata: dict[str, str] | None = None
+        self,
+        path: str,
+        user_metadata: dict[str, str] | None = None,
+        weights_access_token: str | None = None,
     ) -> TrainingClient:
         """Create a TrainingClient from saved model weights and optimizer state.
 
@@ -315,6 +340,7 @@ class ServiceClient(TelemetryProvider):
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
         - `user_metadata`: Optional metadata to attach to the new training run
+        - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
         Returns:
         - `TrainingClient` loaded with the specified weights and optimizer state
@@ -328,7 +354,7 @@ class ServiceClient(TelemetryProvider):
         # Continue training with restored optimizer momentum
         ```
         """
-        rest_client = self.create_rest_client()
+        rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
 
@@ -343,15 +369,20 @@ class ServiceClient(TelemetryProvider):
             user_metadata=user_metadata,
         )
 
-        training_client.load_state_with_optimizer(path).result()
+        training_client.load_state_with_optimizer(
+            path, weights_access_token=weights_access_token
+        ).result()
         return training_client
 
     @capture_exceptions(fatal=True)
     async def create_training_client_from_state_with_optimizer_async(
-        self, path: str, user_metadata: dict[str, str] | None = None
+        self,
+        path: str,
+        user_metadata: dict[str, str] | None = None,
+        weights_access_token: str | None = None,
     ) -> TrainingClient:
         """Async version of create_training_client_from_state_with_optimizer."""
-        rest_client = self.create_rest_client()
+        rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = await rest_client.get_weights_info_by_tinker_path(path)
 
@@ -369,7 +400,9 @@ class ServiceClient(TelemetryProvider):
             user_metadata=user_metadata,
         )
 
-        load_future = await training_client.load_state_with_optimizer_async(path)
+        load_future = await training_client.load_state_with_optimizer_async(
+            path, weights_access_token=weights_access_token
+        )
         await load_future.result_async()
         return training_client
 

@@ -6,10 +6,12 @@ import asyncio
 import logging
 import threading
 import time
+import warnings
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Tuple
 
 from tinker import types
+from tinker._exceptions import ConflictError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
 # pyright: reportPrivateImportUsage=false
 
 logger = logging.getLogger(__name__)
+
 
 # FwdBwdChunkSize
 MAX_CHUNK_LEN = 1024
@@ -603,13 +606,44 @@ class TrainingClient(TelemetryProvider):
                     seq_id=request_id + 1,
                     ttl_seconds=ttl_seconds,
                 )
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.weights.save(
-                        request=request,
+                try:
+                    with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                        return await client.weights.save(
+                            request=request,
+                            max_retries=0,
+                        )
+                except ConflictError:
+                    # 409 means a checkpoint with this name already exists.
+                    # This is common when retrying after a transient network
+                    # error — the first attempt saved the checkpoint but the
+                    # response was lost.  Treat as success: the checkpoint IS
+                    # saved, and crashing a long training run is worse than
+                    # returning a synthetic response.
+                    logger.info(
+                        "Checkpoint '%s' already exists (409 Conflict); "
+                        "treating as success — the checkpoint is saved.",
+                        name,
                     )
+                    if telemetry := self.holder.get_telemetry():
+                        telemetry.log(
+                            "training_client.save_state.conflict_resolved",
+                            event_data={
+                                "checkpoint_name": name,
+                                "model_id": self._guaranteed_model_id(),
+                            },
+                            severity="INFO",
+                        )
+                    return None
 
             async with self._take_turn(request_id):
                 future = await self.holder.execute_with_retries(_send_request)
+
+            # _send_request returns None on 409 conflict (checkpoint already
+            # saved), or an UntypedAPIFuture on success.
+            if future is None:
+                model_id = self._guaranteed_model_id()
+                return types.SaveWeightsResponse(path=f"tinker://{model_id}/weights/{name}")
+
             return await _APIFuture(
                 types.SaveWeightsResponse,
                 self.holder,
@@ -629,7 +663,11 @@ class TrainingClient(TelemetryProvider):
 
     @capture_exceptions(fatal=True)
     async def _load_state_impl(
-        self, request_id: int, path: str, optimizer: bool
+        self,
+        request_id: int,
+        path: str,
+        optimizer: bool,
+        weights_access_token: str | None = None,
     ) -> types.LoadWeightsResponse:
         start_time = time.time()
 
@@ -639,6 +677,7 @@ class TrainingClient(TelemetryProvider):
                 path=path,
                 seq_id=request_id + 1,
                 optimizer=optimizer,
+                weights_access_token=weights_access_token,
             )
             with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                 return await client.weights.load(
@@ -657,7 +696,9 @@ class TrainingClient(TelemetryProvider):
         )
 
     @capture_exceptions(fatal=True)
-    def load_state(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+    def load_state(
+        self, path: str, weights_access_token: str | None = None
+    ) -> APIFuture[types.LoadWeightsResponse]:
         """Load model weights from a saved checkpoint.
 
         This loads only the model weights, not optimizer state (e.g., Adam momentum).
@@ -665,6 +706,7 @@ class TrainingClient(TelemetryProvider):
 
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+        - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
         Returns:
         - `APIFuture` containing the load response
@@ -678,18 +720,27 @@ class TrainingClient(TelemetryProvider):
         ```
         """
         request_id = self._get_request_id()
-        return self.holder.run_coroutine_threadsafe(self._load_state_impl(request_id, path, False))
+        return self.holder.run_coroutine_threadsafe(
+            self._load_state_impl(
+                request_id, path, False, weights_access_token=weights_access_token
+            )
+        )
 
-    async def load_state_async(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+    async def load_state_async(
+        self, path: str, weights_access_token: str | None = None
+    ) -> APIFuture[types.LoadWeightsResponse]:
         """Async version of load_state."""
-        return self.load_state(path)
+        return self.load_state(path, weights_access_token=weights_access_token)
 
     @capture_exceptions(fatal=True)
-    def load_state_with_optimizer(self, path: str) -> APIFuture[types.LoadWeightsResponse]:
+    def load_state_with_optimizer(
+        self, path: str, weights_access_token: str | None = None
+    ) -> APIFuture[types.LoadWeightsResponse]:
         """Load model weights and optimizer state from a checkpoint.
 
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+        - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
         Returns:
         - `APIFuture` containing the load response
@@ -705,13 +756,15 @@ class TrainingClient(TelemetryProvider):
         ```
         """
         request_id = self._get_request_id()
-        return self.holder.run_coroutine_threadsafe(self._load_state_impl(request_id, path, True))
+        return self.holder.run_coroutine_threadsafe(
+            self._load_state_impl(request_id, path, True, weights_access_token=weights_access_token)
+        )
 
     async def load_state_with_optimizer_async(
-        self, path: str
+        self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
         """Async version of load_state_with_optimizer."""
-        return self.load_state_with_optimizer(path)
+        return self.load_state_with_optimizer(path, weights_access_token=weights_access_token)
 
     @capture_exceptions(fatal=True)
     async def _save_weights_for_sampler_impl(
@@ -739,13 +792,46 @@ class TrainingClient(TelemetryProvider):
                     sampling_session_seq_id=sampling_session_seq_id,
                     ttl_seconds=ttl_seconds,
                 )
-            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                return await client.weights.save_for_sampler(
-                    request=request,
+            try:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.save_for_sampler(
+                        request=request,
+                        max_retries=0,
+                    )
+            except ConflictError:
+                if name is None:
+                    # Unnamed saves use server-generated unique paths;
+                    # 409 should be impossible. Re-raise as a real error.
+                    raise
+                # See save_state for full rationale on treating 409 as success.
+                logger.info(
+                    "Sampler checkpoint '%s' already exists (409 Conflict); "
+                    "treating as success — the checkpoint is saved.",
+                    name,
                 )
+                if telemetry := self.holder.get_telemetry():
+                    telemetry.log(
+                        "training_client.save_weights_for_sampler.conflict_resolved",
+                        event_data={
+                            "checkpoint_name": name,
+                            "model_id": self._guaranteed_model_id(),
+                        },
+                        severity="INFO",
+                    )
+                return None
 
         async with self._take_turn(request_id):
             future = await self.holder.execute_with_retries(_send_request)
+
+        # _send_request returns None on 409 conflict (checkpoint already
+        # saved), or an UntypedAPIFuture on success.
+        if future is None:
+            assert name is not None
+            model_id = self._guaranteed_model_id()
+            return types.SaveWeightsForSamplerResponseInternal(
+                path=f"tinker://{model_id}/sampler_weights/{name}"
+            )
+
         return await _APIFuture(
             types.SaveWeightsForSamplerResponseInternal,
             self.holder,
@@ -906,7 +992,7 @@ class TrainingClient(TelemetryProvider):
         """Save current weights and create a SamplingClient for inference.
 
         Args:
-        - `name`: Optional name for the saved weights (currently ignored for ephemeral saves)
+        - `name`: Deprecated, has no effect. Will be removed in a future release.
         - `retry_config`: Optional configuration for retrying failed requests
 
         Returns:
@@ -923,8 +1009,17 @@ class TrainingClient(TelemetryProvider):
         result = sampling_client.sample(prompt, 1, params).result()
         ```
         """
-        # Ignore name argument for ephemeral save weights for sampler
-        _ = name
+        if name is not None:
+            warnings.warn(
+                "The 'name' parameter of save_weights_and_get_sampling_client() is deprecated "
+                "and has no effect — checkpoints are always ephemeral. "
+                "This parameter will be removed in a future release. "
+                "Remove the 'name' argument from your call. "
+                "If you need a persistent checkpoint, use "
+                "save_weights_for_sampler(name=...) + create_sampling_client(model_path=...) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self.save_weights_and_get_sampling_client_submit(retry_config).result()
 
     @capture_exceptions(fatal=True)
@@ -932,8 +1027,17 @@ class TrainingClient(TelemetryProvider):
         self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
         """Async version of save_weights_and_get_sampling_client."""
-        # Ignore name argument for ephemeral save weights for sampler
-        _ = name
+        if name is not None:
+            warnings.warn(
+                "The 'name' parameter of save_weights_and_get_sampling_client_async() is deprecated "
+                "and has no effect — checkpoints are always ephemeral. "
+                "This parameter will be removed in a future release. "
+                "Remove the 'name' argument from your call. "
+                "If you need a persistent checkpoint, use "
+                "save_weights_for_sampler(name=...) + create_sampling_client(model_path=...) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return await self.save_weights_and_get_sampling_client_submit(retry_config)
 
     def get_telemetry(self) -> Telemetry | None:

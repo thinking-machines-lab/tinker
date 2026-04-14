@@ -21,6 +21,7 @@ from typing import (
 
 import anyio
 import httpx
+import orjson
 import pydantic
 from typing_extensions import Awaitable, ParamSpec, get_origin, override
 
@@ -351,7 +352,7 @@ class APIResponse(BaseAPIResponse[R]):
     def json(self) -> object:
         """Read and decode the JSON response content."""
         self.read()
-        return self.http_response.json()
+        return orjson.loads(self.http_response.content)
 
     def close(self) -> None:
         """Close the response and release the connection.
@@ -451,7 +452,7 @@ class AsyncAPIResponse(BaseAPIResponse[R]):
     async def json(self) -> object:
         """Read and decode the JSON response content."""
         await self.read()
-        return self.http_response.json()
+        return orjson.loads(self.http_response.content)
 
     async def close(self) -> None:
         """Close the response and release the connection.
