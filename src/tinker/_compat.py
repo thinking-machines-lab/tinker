@@ -220,3 +220,10 @@ else:
     from functools import cached_property as cached_property
 
     typed_cached_property = cached_property
+
+
+# Suppress Pydantic warnings on Python 3.14+ (until Pydantic V3)
+import sys
+if sys.version_info >= (3, 14):
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
