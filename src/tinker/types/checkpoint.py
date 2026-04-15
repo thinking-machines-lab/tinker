@@ -44,6 +44,20 @@ class ParsedCheckpointTinkerPath(BaseModel):
     checkpoint_id: str
     """The checkpoint ID"""
 
+    @property
+    def api_checkpoint_id(self) -> str:
+        """Return the checkpoint ID formatted for API calls.
+        
+        For training checkpoints: returns just the checkpoint number (e.g., '0001').
+        For sampler checkpoints: returns prefixed ID (e.g., 'sampler_weights/0001').
+        """
+        if self.checkpoint_type == "training":
+            # Training checkpoints use just the number
+            return self.checkpoint_id.split("/")[-1]
+        else:
+            # Sampler checkpoints include the prefix
+            return self.checkpoint_id
+
     @classmethod
     def from_tinker_path(cls, tinker_path: str) -> "ParsedCheckpointTinkerPath":
         """Parse a tinker path to an instance of ParsedCheckpointTinkerPath"""

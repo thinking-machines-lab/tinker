@@ -409,7 +409,7 @@ class RestClient(TelemetryProvider):
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._delete_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -418,7 +418,7 @@ class RestClient(TelemetryProvider):
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         await self._delete_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         )
 
     def get_telemetry(self) -> Telemetry | None:
@@ -439,7 +439,7 @@ class RestClient(TelemetryProvider):
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._get_checkpoint_archive_url_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -449,7 +449,7 @@ class RestClient(TelemetryProvider):
         """Async version of get_checkpoint_archive_url_from_tinker_path."""
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return await self._get_checkpoint_archive_url_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         )
 
     def _publish_checkpoint_submit(
@@ -498,7 +498,7 @@ class RestClient(TelemetryProvider):
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._publish_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -506,7 +506,7 @@ class RestClient(TelemetryProvider):
         """Async version of publish_checkpoint_from_tinker_path."""
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         await self._publish_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         )
 
     def _unpublish_checkpoint_submit(
@@ -555,7 +555,7 @@ class RestClient(TelemetryProvider):
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._unpublish_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -563,7 +563,7 @@ class RestClient(TelemetryProvider):
         """Async version of unpublish_checkpoint_from_tinker_path."""
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         await self._unpublish_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id
         )
 
     def _set_checkpoint_ttl_submit(
@@ -615,7 +615,7 @@ class RestClient(TelemetryProvider):
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._set_checkpoint_ttl_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id, ttl_seconds
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id, ttl_seconds
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -625,7 +625,7 @@ class RestClient(TelemetryProvider):
         """Async version of set_checkpoint_ttl_from_tinker_path."""
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         await self._set_checkpoint_ttl_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id, ttl_seconds
+            parsed_tinker_path.training_run_id, parsed_tinker_path.api_checkpoint_id, ttl_seconds
         )
 
     def _list_user_checkpoints_submit(
