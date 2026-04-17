@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.18.0"
+version = "0.18.1"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -16,6 +16,7 @@ dependencies = [
     "distro>=1.7.0, <2",
     "sniffio",
     "numpy",
+    "protobuf>=4.21",
     "transformers",
     "rich>=13.0.0",
     "click>=8.0.0",

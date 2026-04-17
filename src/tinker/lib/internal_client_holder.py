@@ -191,7 +191,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         _jwt_auth_seed: str | None = None,
         **kwargs: Any,
     ) -> None:
-        self._api_key = api_key
+        # Resolve from env now so shadow_kwargs carries the actual credential
+        # across pickle boundaries (workers may not have the env var set).
+        self._api_key = api_key or os.environ.get("TINKER_API_KEY")
         self._constructor_kwargs = dict(kwargs)
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
@@ -224,7 +226,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         if not self._client_config.pjwt_auth_enabled:
             # Without JWT exchange, only API keys are accepted by the server.
             # Replace any cmd-based provider with a plain API key provider.
-            self._default_auth = ApiKeyAuthProvider(api_key=api_key)
+            self._default_auth = ApiKeyAuthProvider(api_key=self._api_key)
         else:
             # Create a dedicated pool for JWT exchange with the appropriate
             # credential provider.  The lambda captures the pool so it stays alive.

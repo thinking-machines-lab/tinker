@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tinker.lib._auth_token_provider import AuthTokenProvider
+from tinker.lib._auth_token_provider import ApiKeyAuthProvider, AuthTokenProvider
 from tinker.lib.internal_client_holder import ClientConnectionPool, InternalClientHolder
 from tinker.types.client_config_response import ClientConfigResponse as _ClientConfigResponse
 
@@ -94,3 +94,65 @@ async def test_fetch_client_config_passes_sdk_version(
 
     call_kwargs = holder._cm.__enter__.return_value.service.client_config.call_args
     assert call_kwargs.kwargs["request"].sdk_version == tinker_sdk_version
+
+
+# ---------------------------------------------------------------------------
+# Pickle round-trip: ambient TINKER_API_KEY must travel with the pickle
+# ---------------------------------------------------------------------------
+
+
+def _make_holder(api_key: str | None = None) -> InternalClientHolder:
+    """Build a primary InternalClientHolder with server calls stubbed out."""
+    with (
+        patch.object(
+            InternalClientHolder,
+            "_fetch_client_config",
+            new_callable=AsyncMock,
+            # pjwt_auth_enabled=False → plain API-key auth path
+            return_value=_ClientConfigResponse(pjwt_auth_enabled=False),
+        ),
+        patch.object(
+            InternalClientHolder,
+            "_create_session",
+            new_callable=AsyncMock,
+            return_value="sess-pickle-test",
+        ),
+        patch.object(
+            InternalClientHolder,
+            "_start_heartbeat",
+            new_callable=AsyncMock,
+        ),
+    ):
+        holder = InternalClientHolder(api_key=api_key)
+        holder._session_heartbeat_task = MagicMock()
+        return holder
+
+
+def test_sampling_client_pickle_roundtrip_without_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pickle a SamplingClient created with ambient TINKER_API_KEY, then
+    unpickle it in an environment without the env var (simulating a worker
+    process). The credential must travel inside the pickle payload."""
+    import pickle
+
+    from tinker.lib.public_interfaces.sampling_client import SamplingClient
+
+    monkeypatch.setenv("TINKER_API_KEY", "tml-key-from-env")
+    holder = _make_holder(api_key=None)
+    client = SamplingClient(holder, sampling_session_id="samp-1")
+
+    payload = pickle.dumps(client)
+
+    # Simulate the worker: no TINKER_API_KEY available.
+    monkeypatch.delenv("TINKER_API_KEY")
+
+    with patch.object(
+        InternalClientHolder,
+        "_start_heartbeat",
+        new_callable=AsyncMock,
+    ):
+        restored = pickle.loads(payload)
+
+    assert isinstance(restored.holder._default_auth, ApiKeyAuthProvider)
+    assert restored.holder._default_auth._token == "tml-key-from-env"

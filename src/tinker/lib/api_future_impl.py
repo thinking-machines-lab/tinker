@@ -26,6 +26,8 @@ from .sync_only import sync_only
 if TYPE_CHECKING:
     from tinker.lib.internal_client_holder import InternalClientHolder
 
+from tinker.proto.response_conv import PROTO_SUPPORTED_TYPES, deserialize_proto_response
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -115,6 +117,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     "X-Tinker-Request-Iteration": str(iteration),
                     "X-Tinker-Request-Type": self.request_type,
                 }
+                if self.model_cls in PROTO_SUPPORTED_TYPES:
+                    headers["Accept"] = "application/x-protobuf, application/json"
                 if iteration == 0:
                     headers["X-Tinker-Create-Promise-Roundtrip-Time"] = str(
                         self.request_queue_roundtrip_time
@@ -213,6 +217,37 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     connection_error_retries += 1
                     continue
 
+                # Proto response path: server returned protobuf bytes
+                content_type = response.headers.get("content-type", "")
+                if "application/x-protobuf" in content_type:
+                    proto_bytes = response.http_response.content
+                    try:
+                        self._cached_result = deserialize_proto_response(
+                            proto_bytes, self.model_cls
+                        )
+                        return cast(T, self._cached_result)
+                    except Exception as e:
+                        if telemetry := self.get_telemetry():
+                            current_time = time.time()
+                            telemetry.log(
+                                "APIFuture.result_async.proto_deserialization_error",
+                                event_data={
+                                    "request_id": self.request_id,
+                                    "request_type": self.request_type,
+                                    "exception": str(e),
+                                    "exception_type": type(e).__name__,
+                                    "proto_bytes_len": len(proto_bytes),
+                                    "model_cls": str(self.model_cls),
+                                    "iteration": iteration,
+                                    "elapsed_time": current_time - start_time,
+                                },
+                                severity="ERROR",
+                            )
+                        raise ValueError(
+                            f"Proto deserialization failed: {e} for {self.request_id=} and expected type {self.model_cls=}"
+                        ) from e
+
+                # JSON response path (existing)
                 result_dict: Any = await response.json()
 
                 if "type" in result_dict and result_dict["type"] == "try_again":

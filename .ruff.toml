@@ -1,5 +1,9 @@
 line-length = 100
 force-exclude = true
+exclude = [
+  # Generated protobuf code
+  "src/tinker/proto",
+]
 
 [lint]
 
