@@ -108,7 +108,7 @@ optim_future = training_client.optim_step(
 )
 
 fwdbwd_result = await fwdbwd_future
-print(f"Loss: {fwdbwd_result.loss}")
+print(f"Loss: {fwdbwd_result.metrics['loss:sum']}")
 ```
 
 #### `forward_backward_async`

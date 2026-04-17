@@ -294,7 +294,7 @@ class TrainingClient(TelemetryProvider):
         )
 
         fwdbwd_result = await fwdbwd_future
-        print(f"Loss: {fwdbwd_result.loss}")
+        print(f"Loss: {fwdbwd_result.metrics['loss:sum']}")
         ```
         """
         requests = self._chunked_requests(data)
