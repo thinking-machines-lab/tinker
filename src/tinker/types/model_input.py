@@ -11,6 +11,10 @@ class ModelInput(StrictBase):
     chunks: List[ModelInputChunk]
     """Sequence of input chunks (formerly TokenSequence)"""
 
+    def __repr__(self) -> str:
+        total = sum(c.length for c in self.chunks)
+        return f"ModelInput(chunks={len(self.chunks)}, total_tokens={total})"
+
     @classmethod
     def from_ints(cls, tokens: List[int]) -> "ModelInput":
         """

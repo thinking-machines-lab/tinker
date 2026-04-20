@@ -13,6 +13,9 @@ class EncodedTextChunk(StrictBase):
 
     type: Literal["encoded_text"] = "encoded_text"
 
+    def __repr__(self) -> str:
+        return f"EncodedTextChunk(tokens=[{len(self.tokens)} tokens])"
+
     @property
     def length(self) -> int:
         return len(self.tokens)
