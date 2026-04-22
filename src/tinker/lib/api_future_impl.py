@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
 import time
 import traceback
@@ -19,7 +18,7 @@ from tinker.lib.telemetry import Telemetry, is_user_error
 from tinker.types import RequestErrorCategory
 from tinker.types.future_retrieve_request import FutureRetrieveRequest
 
-from .._models import BaseModel
+from ._pydantic_conv import deserialize_json_response
 from .retryable_exception import RetryableException
 from .sync_only import sync_only
 
@@ -298,10 +297,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     )
 
                 try:
-                    if inspect.isclass(self.model_cls) and issubclass(self.model_cls, BaseModel):
-                        self._cached_result = self.model_cls.model_validate(result_dict)
-                    else:
-                        self._cached_result = result_dict
+                    self._cached_result = deserialize_json_response(result_dict, self.model_cls)
                     return cast(T, self._cached_result)
                 except Exception as e:
                     if telemetry := self.get_telemetry():

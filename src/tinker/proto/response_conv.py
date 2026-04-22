@@ -1,6 +1,7 @@
-"""Conversion helpers for proto responses to Pydantic models.
+"""Conversion helpers for proto responses to SDK types.
 
-Deserializes proto wire format into SDK Pydantic types (SampleResponse, etc.).
+Deserializes proto wire format into SDK types (SampleResponse, etc.).
+Proto path populates numpy arrays directly — no list conversion.
 """
 
 from __future__ import annotations
@@ -11,12 +12,11 @@ from tinker.proto import tinker_public_pb2 as public_pb
 from tinker.types.sample_response import SampleResponse
 from tinker.types.sampled_sequence import SampledSequence
 from tinker.types.stop_reason import StopReason
+from tinker.types.topk_prompt_logprobs import TopkPromptLogprobs
 
 # Set of model classes that support proto deserialization.
 # Used by api_future_impl to decide whether to send Accept: application/x-protobuf.
 PROTO_SUPPORTED_TYPES: set[type] = {SampleResponse}
-
-MASK_LOGPROB = -99999.0
 
 # Proto enum -> SDK string mapping
 _STOP_REASON_TO_STR: dict[int, StopReason] = {
@@ -26,7 +26,11 @@ _STOP_REASON_TO_STR: dict[int, StopReason] = {
 
 
 def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
-    """Deserialize proto bytes into a Pydantic SampleResponse."""
+    """Deserialize proto bytes into a SampleResponse.
+
+    Populates numpy arrays directly — no list conversion until the user
+    accesses legacy list properties (tokens, logprobs, prompt_logprobs, etc.).
+    """
     proto = public_pb.SampleResponse()
     proto.ParseFromString(proto_bytes)
 
@@ -37,66 +41,37 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
             raise ValueError(
                 f"Unknown stop_reason enum value {seq.stop_reason} in proto SampleResponse"
             )
-        tokens = np.frombuffer(seq.tokens, dtype=np.int32).tolist()
-        logprobs = np.frombuffer(seq.logprobs, dtype=np.float32).tolist() if seq.logprobs else None
+        tokens_np = np.frombuffer(seq.tokens, dtype=np.int32).copy()
+        logprobs_np = (
+            np.frombuffer(seq.logprobs, dtype=np.float32).copy() if seq.logprobs else None
+        )
         sequences.append(
-            SampledSequence.model_construct(
+            SampledSequence(
                 stop_reason=stop_reason,
-                tokens=tokens,
-                logprobs=logprobs,
+                tokens_np=tokens_np,
+                logprobs_np=logprobs_np,
             )
         )
 
-    prompt_logprobs: list[float | None] | None = None
+    prompt_logprobs_np: np.ndarray | None = None
     if proto.prompt_logprobs:
-        arr = np.frombuffer(proto.prompt_logprobs, dtype=np.float32)
-        prompt_logprobs_list: list[float | None] = arr.tolist()
-        for i in np.flatnonzero(np.isnan(arr)):
-            prompt_logprobs_list[i] = None
-        prompt_logprobs = prompt_logprobs_list
+        prompt_logprobs_np = np.frombuffer(proto.prompt_logprobs, dtype=np.float32).copy()
 
-    topk_prompt_logprobs: list[list[tuple[int, float]] | None] | None = None
+    topk_prompt_logprobs_np: TopkPromptLogprobs | None = None
     if proto.HasField("topk_prompt_logprobs"):
-        topk_prompt_logprobs = _topk_from_proto(proto.topk_prompt_logprobs)
+        topk = proto.topk_prompt_logprobs
+        n, k = topk.prompt_length, topk.k
+        if n > 0 and k > 0:
+            topk_prompt_logprobs_np = TopkPromptLogprobs(
+                token_ids=np.ndarray((n, k), dtype=np.int32, buffer=topk.token_ids).copy(),
+                logprobs=np.ndarray((n, k), dtype=np.float32, buffer=topk.logprobs).copy(),
+            )
 
-    return SampleResponse.model_construct(
+    return SampleResponse(
         sequences=sequences,
-        prompt_logprobs=prompt_logprobs,
-        topk_prompt_logprobs=topk_prompt_logprobs,
+        prompt_logprobs_np=prompt_logprobs_np,
+        topk_prompt_logprobs_np=topk_prompt_logprobs_np,
     )
-
-
-def _topk_from_proto(
-    topk: public_pb.TopkPromptLogprobs,
-) -> list[list[tuple[int, float]] | None]:
-    """Convert dense N×K TopkPromptLogprobs to Python list format."""
-    n = topk.prompt_length
-    k = topk.k
-
-    if n == 0 or k == 0:
-        return []
-
-    token_ids = np.ndarray((n, k), dtype=np.int32, buffer=topk.token_ids)
-    logprobs = np.ndarray((n, k), dtype=np.float32, buffer=topk.logprobs)
-
-    # Single flat zip (faster than 32K per-row zips), then slice per row
-    tid_flat = token_ids.ravel().tolist()
-    lp_flat = logprobs.ravel().tolist()
-    all_tuples = list(zip(tid_flat, lp_flat))
-
-    mask_lp = MASK_LOGPROB
-    result: list[list[tuple[int, float]] | None] = []
-    for i in range(n):
-        start = i * k
-        # First-element sentinel check: if first entry is sentinel, whole row is None
-        if tid_flat[start] == 0 and lp_flat[start] == mask_lp:
-            result.append(None)
-        else:
-            end = start + k
-            while end > start and tid_flat[end - 1] == 0 and lp_flat[end - 1] == mask_lp:
-                end -= 1
-            result.append(all_tuples[start:end])
-    return result
 
 
 def deserialize_proto_response(proto_bytes: bytes, model_cls: type) -> object:

@@ -93,7 +93,8 @@ class TrainingClient(TelemetryProvider):
         self._request_id_counter: int = 0
 
         self._turn_counter: int = 0
-        self._turn_waiters: dict[int, asyncio.Event] = {}
+        # Maps turn id → list of events to wake when _turn_counter reaches that id.
+        self._turn_waiters: dict[int, list[asyncio.Event]] = {}
 
         self._queue_state_logger = QueueStateLogger(str(model_id), "Training")
 
@@ -104,29 +105,44 @@ class TrainingClient(TelemetryProvider):
             self._request_id_counter += 1
             return request_id
 
-    # Waits for the turn for a given request id to be executed.
-    # This has to be used via a with statement so that the turn is released
-    # only after current request was successfully dispatched.
+    # Waits for the turn to be executed.
+    # Counter is advanced on entry (before yield), not on exit.
+    #
+    # With a single turn (max_turn not provided, min == max), this is the
+    # classic sequential turn: wait until _turn_counter == min_turn.
+    #
+    # With a range (min_turn < max_turn), multiple callers sharing the
+    # same [min, max] can proceed as soon as _turn_counter >= min_turn.
+    # Each caller increments the counter on entry, so the counter
+    # advances past max_turn before any subsequent caller can proceed.
+    # This is used for fwdbwd chunks: all chunks in one forward_backward()
+    # call share the same range and fire concurrently once the range is
+    # reached.  To gate this off, just don't pass max_turn and chunks
+    # will take turns sequentially.
     @asynccontextmanager
-    async def _take_turn(self, request_id: int):
-        assert self._turn_counter <= request_id, "Same request id cannot be taken twice"
+    async def _take_turn(self, min_turn: int, max_turn: int | None = None):
+        if max_turn is None:
+            max_turn = min_turn
 
-        if self._turn_counter < request_id:
-            try:
-                event = asyncio.Event()
-                self._turn_waiters[request_id] = event
-                await event.wait()
-            finally:
-                del self._turn_waiters[request_id]
+        assert min_turn <= max_turn
 
-        assert self._turn_counter == request_id
+        # Wait until _turn_counter reaches at least min_turn
+        if self._turn_counter < min_turn:
+            event = asyncio.Event()
+            self._turn_waiters.setdefault(min_turn, []).append(event)
+            await event.wait()
+
+        assert self._turn_counter >= min_turn
+        assert self._turn_counter <= max_turn, (
+            f"Turn counter {self._turn_counter} overshot max {max_turn}"
+        )
 
         try:
             yield
         finally:
             self._turn_counter += 1
-            if self._turn_counter in self._turn_waiters:
-                self._turn_waiters[self._turn_counter].set()
+            for event in self._turn_waiters.pop(self._turn_counter, []):
+                event.set()
 
     def _guaranteed_model_id(self) -> types.ModelID:
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
@@ -298,14 +314,25 @@ class TrainingClient(TelemetryProvider):
         ```
         """
         requests = self._chunked_requests(data)
+        if not requests:
+            raise ValueError("No data provided to forward_backward")
+
+        parallel = self.holder._client_config.parallel_fwdbwd_chunks
+        # When parallel, all chunks share [min, max] range and fire concurrently.
+        # When serial, each chunk takes its own turn sequentially.
+        min_rid = requests[0][0]
+        max_rid = requests[-1][0] if parallel else None
 
         @capture_exceptions(fatal=True)
         async def _forward_backward_async():
-            futures = []
             start_time = time.time()
 
-            for request_id, data in requests:
-                async with self._take_turn(request_id):
+            async def _submit_chunk(
+                request_id: int, data: List[types.Datum]
+            ) -> APIFuture[types.ForwardBackwardOutput]:
+                turn_min = min_rid if parallel else request_id
+                turn_max = max_rid if parallel else None
+                async with self._take_turn(turn_min, turn_max):
                     untyped_future = await self.holder.execute_with_retries(
                         self._send_single_forward_backward_request,
                         request_id,
@@ -313,15 +340,21 @@ class TrainingClient(TelemetryProvider):
                         loss_fn,
                         loss_fn_config,
                     )
-                api_future = _APIFuture(
-                    types.ForwardBackwardOutput,
-                    self.holder,
-                    untyped_future,
-                    request_start_time=start_time,
-                    request_type="ForwardBackward",
-                    queue_state_observer=self._queue_state_logger,
+                    return _APIFuture(
+                        types.ForwardBackwardOutput,
+                        self.holder,
+                        untyped_future,
+                        request_start_time=start_time,
+                        request_type="ForwardBackward",
+                        queue_state_observer=self._queue_state_logger,
+                    )
+
+            # gather is safe even when serial — _take_turn orders execution.
+            futures = list(
+                await asyncio.gather(
+                    *[_submit_chunk(request_id, data) for request_id, data in requests]
                 )
-                futures.append(api_future)
+            )
 
             return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
 
