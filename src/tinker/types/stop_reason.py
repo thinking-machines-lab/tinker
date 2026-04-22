@@ -1,5 +1,3 @@
-from typing_extensions import Literal, TypeAlias
+from ._pydantic_types.stop_reason import StopReason as StopReason
 
 __all__ = ["StopReason"]
-
-StopReason: TypeAlias = Literal["length", "stop"]

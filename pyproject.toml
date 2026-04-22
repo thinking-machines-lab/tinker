@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.18.1"
+version = "0.18.2"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,6 +20,7 @@ dependencies = [
     "transformers",
     "rich>=13.0.0",
     "click>=8.0.0",
+    "orjson>=3.10.0",
 ]
 
 requires-python = ">= 3.11"
@@ -139,3 +140,26 @@ reportOverlappingOverload = false
 
 reportImportCycles = false
 reportPrivateUsage = false
+
+[tool.deptry]
+extend_exclude = [
+    # Generated protobuf files import `google.protobuf` via the `protobuf` package
+    "src/tinker/proto/.*",
+    # Test files colocated with source — they legitimately import pytest (dev dep)
+    ".*_test\\.py",
+]
+known_first_party = ["tinker"]
+
+[tool.deptry.per_rule_ignores]
+# DEP001: module imported but not declared. These are intentional lazy imports
+# with install-on-demand UX, or transitive deps guaranteed by a declared parent.
+DEP001 = [
+    "huggingface_hub",  # lazy import in cli/commands/checkpoint.py, prompts user to install
+    "pydantic_core",    # transitive, guaranteed by pydantic
+    "tml_tokenizers",   # lazy import, internal tooling only
+]
+# DEP002: declared but unused. These are runtime-required transitives not directly imported.
+DEP002 = [
+    "protobuf",  # used via `google.protobuf` in generated code
+    "aiohttp",   # optional [aiohttp] extra
+]

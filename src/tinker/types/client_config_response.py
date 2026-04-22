@@ -16,3 +16,4 @@ class ClientConfigResponse(BaseModel):
     credential_default_source: str = "api_key"
     sample_dispatch_bytes_semaphore_size: int = 10 * 1024 * 1024
     inflight_response_bytes_semaphore_size: int = 50 * 1024 * 1024
+    parallel_fwdbwd_chunks: bool = False

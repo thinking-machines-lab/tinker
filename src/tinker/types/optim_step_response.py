@@ -1,10 +1,3 @@
-from typing import Dict, Optional
-
-from .._models import BaseModel
+from ._pydantic_types.optim_step_response import OptimStepResponse as OptimStepResponse
 
 __all__ = ["OptimStepResponse"]
-
-
-class OptimStepResponse(BaseModel):
-    metrics: Optional[Dict[str, float]] = None
-    """Optimization step metrics as key-value pairs"""
