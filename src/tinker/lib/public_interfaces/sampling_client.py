@@ -22,6 +22,7 @@ from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
 from ..retry_handler import RetryConfig, RetryHandler
+from ..retryable_exception import RetryableException
 
 if TYPE_CHECKING:
     from transformers.tokenization_utils import PreTrainedTokenizer
@@ -389,6 +390,10 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 sampling_params=types.SamplingParams(max_tokens=1),
                 include_prompt_logprobs=True,
             )
+            if sample_res.prompt_logprobs is None:
+                raise RetryableException(
+                    "Sampling response omitted prompt_logprobs for a compute_logprobs request"
+                )
             return cast(list[float | None], sample_res.prompt_logprobs)
 
         @capture_exceptions(fatal=True)
