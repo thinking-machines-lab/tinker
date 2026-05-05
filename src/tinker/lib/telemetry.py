@@ -44,6 +44,8 @@ FLUSH_INTERVAL: float = 10.0
 FLUSH_TIMEOUT: float = 30.0
 MAX_QUEUE_SIZE: int = 10000
 HTTP_TIMEOUT_SECONDS: float = 5.0
+MAX_SEND_ATTEMPTS: int = 3
+SEND_RETRY_DELAY_SECONDS: float = 1.0
 
 
 class Telemetry:
@@ -127,14 +129,24 @@ class Telemetry:
         except (TimeoutError, asyncio.CancelledError):
             return False
 
-    async def _send_batch_with_retry(self, batch: TelemetryBatch) -> TelemetryResponse:
-        while True:
+    async def _send_batch_with_retry(self, batch: TelemetryBatch) -> TelemetryResponse | None:
+        for attempt in range(1, MAX_SEND_ATTEMPTS + 1):
             try:
                 return await self._send_batch(batch)
             except APIError as e:
-                logger.warning("Failed to send telemetry batch", exc_info=e)
-                await asyncio.sleep(1)
-                continue
+                if attempt >= MAX_SEND_ATTEMPTS:
+                    logger.warning(
+                        "Dropping telemetry batch after %d failed send attempts",
+                        attempt,
+                        exc_info=e,
+                    )
+                    return None
+                logger.warning(
+                    "Failed to send telemetry batch; retrying",
+                    exc_info=e,
+                )
+                await asyncio.sleep(SEND_RETRY_DELAY_SECONDS)
+        return None
 
     async def _send_batch(self, batch: TelemetryBatch) -> TelemetryResponse:
         with self._tinker_provider.aclient(ClientConnectionPoolType.TELEMETRY) as client:

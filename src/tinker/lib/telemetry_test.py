@@ -22,6 +22,7 @@ from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import (
     MAX_BATCH_SIZE,
     MAX_QUEUE_SIZE,
+    MAX_SEND_ATTEMPTS,
     Telemetry,
     _is_telemetry_enabled,
     capture_exceptions,
@@ -677,6 +678,36 @@ class TestTelemetryFlush:
         ):
             asyncio.run(self.telemetry._flush())
         assert self.telemetry._flush_counter >= initial_push + 3
+
+    @pytest.mark.asyncio
+    async def test_send_batch_with_retry_drops_after_bounded_api_errors(self):
+        request = httpx.Request("POST", "https://example.com/api/v1/telemetry")
+        response = httpx.Response(500, request=request)
+        error = APIStatusError("server unavailable", response=response, body="no healthy upstream")
+        batch = self.telemetry._batch([self.telemetry._session_end_event()])
+
+        with patch.object(self.telemetry, "_send_batch", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = error
+            with patch("tinker.lib.telemetry.SEND_RETRY_DELAY_SECONDS", 0):
+                result = await self.telemetry._send_batch_with_retry(batch)
+
+        assert result is None
+        assert mock_send.call_count == MAX_SEND_ATTEMPTS
+
+    def test_flush_continues_after_dropped_batch(self):
+        for _ in range(MAX_BATCH_SIZE + 1):
+            _ = self.telemetry._log(self.telemetry._session_end_event())
+
+        with patch.object(
+            self.telemetry,
+            "_send_batch_with_retry",
+            new_callable=AsyncMock,
+            side_effect=[None, TelemetryResponse(status="accepted")],
+        ) as mock_send:
+            asyncio.run(self.telemetry._flush())
+
+        assert len(self.telemetry._queue) == 0
+        assert mock_send.call_count == 2
 
     @pytest.mark.asyncio
     async def test_log_exception_sync_from_event_loop_protection(self):
