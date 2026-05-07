@@ -34,6 +34,27 @@ STOP_REASON_STOP: StopReason.ValueType  # 0
 STOP_REASON_LENGTH: StopReason.ValueType  # 1
 Global___StopReason: typing_extensions.TypeAlias = StopReason
 
+class _DType:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _DTypeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_DType.ValueType], builtins.type):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    DTYPE_UNSPECIFIED: _DType.ValueType  # 0
+    DTYPE_FLOAT32: _DType.ValueType  # 1
+    DTYPE_INT64: _DType.ValueType  # 2
+    DTYPE_INT32: _DType.ValueType  # 3
+    DTYPE_BFLOAT16: _DType.ValueType  # 4
+
+class DType(_DType, metaclass=_DTypeEnumTypeWrapper): ...
+
+DTYPE_UNSPECIFIED: DType.ValueType  # 0
+DTYPE_FLOAT32: DType.ValueType  # 1
+DTYPE_INT64: DType.ValueType  # 2
+DTYPE_INT32: DType.ValueType  # 3
+DTYPE_BFLOAT16: DType.ValueType  # 4
+Global___DType: typing_extensions.TypeAlias = DType
+
 @typing.final
 class SampleResponse(google.protobuf.message.Message):
     """Public SampleResponse returned to SDK clients.
@@ -130,3 +151,300 @@ class TopkPromptLogprobs(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["k", b"k", "logprobs", b"logprobs", "prompt_length", b"prompt_length", "token_ids", b"token_ids"]) -> None: ...
 
 Global___TopkPromptLogprobs: typing_extensions.TypeAlias = TopkPromptLogprobs
+
+@typing.final
+class SparseCsr(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: builtins.int
+    CROW_INDICES_FIELD_NUMBER: builtins.int
+    COL_INDICES_FIELD_NUMBER: builtins.int
+    values: builtins.bytes
+    crow_indices: builtins.bytes
+    col_indices: builtins.bytes
+    def __init__(
+        self,
+        *,
+        values: builtins.bytes = ...,
+        crow_indices: builtins.bytes = ...,
+        col_indices: builtins.bytes = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["col_indices", b"col_indices", "crow_indices", b"crow_indices", "values", b"values"]) -> None: ...
+
+Global___SparseCsr: typing_extensions.TypeAlias = SparseCsr
+
+@typing.final
+class Tensor(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    DENSE_FIELD_NUMBER: builtins.int
+    SPARSE_CSR_FIELD_NUMBER: builtins.int
+    DTYPE_FIELD_NUMBER: builtins.int
+    SHAPE_FIELD_NUMBER: builtins.int
+    dense: builtins.bytes
+    dtype: Global___DType.ValueType
+    @property
+    def sparse_csr(self) -> Global___SparseCsr: ...
+    @property
+    def shape(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    def __init__(
+        self,
+        *,
+        dense: builtins.bytes = ...,
+        sparse_csr: Global___SparseCsr | None = ...,
+        dtype: Global___DType.ValueType = ...,
+        shape: collections.abc.Iterable[builtins.int] | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["dense", b"dense", "encoding", b"encoding", "sparse_csr", b"sparse_csr"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["dense", b"dense", "dtype", b"dtype", "encoding", b"encoding", "shape", b"shape", "sparse_csr", b"sparse_csr"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["encoding", b"encoding"]) -> typing.Literal["dense", "sparse_csr"] | None: ...
+
+Global___Tensor: typing_extensions.TypeAlias = Tensor
+
+@typing.final
+class BatchedTensor(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    DATA_FIELD_NUMBER: builtins.int
+    OFFSETS_FIELD_NUMBER: builtins.int
+    DTYPE_FIELD_NUMBER: builtins.int
+    TRAILING_SHAPE_FIELD_NUMBER: builtins.int
+    data: builtins.bytes
+    offsets: builtins.bytes
+    dtype: Global___DType.ValueType
+    @property
+    def trailing_shape(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    def __init__(
+        self,
+        *,
+        data: builtins.bytes = ...,
+        offsets: builtins.bytes = ...,
+        dtype: Global___DType.ValueType = ...,
+        trailing_shape: collections.abc.Iterable[builtins.int] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["data", b"data", "dtype", b"dtype", "offsets", b"offsets", "trailing_shape", b"trailing_shape"]) -> None: ...
+
+Global___BatchedTensor: typing_extensions.TypeAlias = BatchedTensor
+
+@typing.final
+class ArrayRecord(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    @typing.final
+    class FieldsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> Global___BatchedTensor: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: Global___BatchedTensor | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    TYPE_TAG_FIELD_NUMBER: builtins.int
+    FIELDS_FIELD_NUMBER: builtins.int
+    NUM_DATUMS_FIELD_NUMBER: builtins.int
+    type_tag: builtins.str
+    num_datums: builtins.int
+    @property
+    def fields(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, Global___BatchedTensor]: ...
+    def __init__(
+        self,
+        *,
+        type_tag: builtins.str = ...,
+        fields: collections.abc.Mapping[builtins.str, Global___BatchedTensor] | None = ...,
+        num_datums: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["fields", b"fields", "num_datums", b"num_datums", "type_tag", b"type_tag"]) -> None: ...
+
+Global___ArrayRecord: typing_extensions.TypeAlias = ArrayRecord
+
+@typing.final
+class ForwardBackwardOutput(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    @typing.final
+    class MetricsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        value: builtins.float
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: builtins.float = ...,
+        ) -> None: ...
+        def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    LOSS_FN_OUTPUT_TYPE_FIELD_NUMBER: builtins.int
+    LOSS_FN_OUTPUTS_FIELD_NUMBER: builtins.int
+    METRICS_FIELD_NUMBER: builtins.int
+    loss_fn_output_type: builtins.str
+    @property
+    def loss_fn_outputs(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___ArrayRecord]: ...
+    @property
+    def metrics(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.float]: ...
+    def __init__(
+        self,
+        *,
+        loss_fn_output_type: builtins.str = ...,
+        loss_fn_outputs: collections.abc.Iterable[Global___ArrayRecord] | None = ...,
+        metrics: collections.abc.Mapping[builtins.str, builtins.float] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["loss_fn_output_type", b"loss_fn_output_type", "loss_fn_outputs", b"loss_fn_outputs", "metrics", b"metrics"]) -> None: ...
+
+Global___ForwardBackwardOutput: typing_extensions.TypeAlias = ForwardBackwardOutput
+
+@typing.final
+class ForwardBackwardRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    @typing.final
+    class LossFnConfigEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        value: builtins.float
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: builtins.float = ...,
+        ) -> None: ...
+        def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    MODEL_ID_FIELD_NUMBER: builtins.int
+    SEQ_ID_FIELD_NUMBER: builtins.int
+    DATA_FIELD_NUMBER: builtins.int
+    LOSS_FN_FIELD_NUMBER: builtins.int
+    LOSS_FN_CONFIG_FIELD_NUMBER: builtins.int
+    model_id: builtins.str
+    seq_id: builtins.int
+    loss_fn: builtins.str
+    @property
+    def data(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Datum]: ...
+    @property
+    def loss_fn_config(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.float]: ...
+    def __init__(
+        self,
+        *,
+        model_id: builtins.str = ...,
+        seq_id: builtins.int = ...,
+        data: collections.abc.Iterable[Global___Datum] | None = ...,
+        loss_fn: builtins.str = ...,
+        loss_fn_config: collections.abc.Mapping[builtins.str, builtins.float] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["data", b"data", "loss_fn", b"loss_fn", "loss_fn_config", b"loss_fn_config", "model_id", b"model_id", "seq_id", b"seq_id"]) -> None: ...
+
+Global___ForwardBackwardRequest: typing_extensions.TypeAlias = ForwardBackwardRequest
+
+@typing.final
+class Datum(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    @typing.final
+    class LossFnInputsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> Global___Tensor: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: Global___Tensor | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    MODEL_INPUT_FIELD_NUMBER: builtins.int
+    LOSS_FN_INPUTS_FIELD_NUMBER: builtins.int
+    @property
+    def model_input(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Chunk]: ...
+    @property
+    def loss_fn_inputs(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, Global___Tensor]: ...
+    def __init__(
+        self,
+        *,
+        model_input: collections.abc.Iterable[Global___Chunk] | None = ...,
+        loss_fn_inputs: collections.abc.Mapping[builtins.str, Global___Tensor] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["loss_fn_inputs", b"loss_fn_inputs", "model_input", b"model_input"]) -> None: ...
+
+Global___Datum: typing_extensions.TypeAlias = Datum
+
+@typing.final
+class Chunk(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ENCODED_TEXT_FIELD_NUMBER: builtins.int
+    IMAGE_FIELD_NUMBER: builtins.int
+    @property
+    def encoded_text(self) -> Global___EncodedTextChunk: ...
+    @property
+    def image(self) -> Global___ImageChunk: ...
+    def __init__(
+        self,
+        *,
+        encoded_text: Global___EncodedTextChunk | None = ...,
+        image: Global___ImageChunk | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["chunk", b"chunk", "encoded_text", b"encoded_text", "image", b"image"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["chunk", b"chunk", "encoded_text", b"encoded_text", "image", b"image"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["chunk", b"chunk"]) -> typing.Literal["encoded_text", "image"] | None: ...
+
+Global___Chunk: typing_extensions.TypeAlias = Chunk
+
+@typing.final
+class EncodedTextChunk(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TOKENS_FIELD_NUMBER: builtins.int
+    tokens: builtins.bytes
+    """np.array(tokens, dtype=np.int32).tobytes()"""
+    def __init__(
+        self,
+        *,
+        tokens: builtins.bytes = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["tokens", b"tokens"]) -> None: ...
+
+Global___EncodedTextChunk: typing_extensions.TypeAlias = EncodedTextChunk
+
+@typing.final
+class ImageChunk(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    DATA_FIELD_NUMBER: builtins.int
+    FORMAT_FIELD_NUMBER: builtins.int
+    EXPECTED_TOKENS_FIELD_NUMBER: builtins.int
+    data: builtins.bytes
+    format: builtins.str
+    expected_tokens: builtins.int
+    def __init__(
+        self,
+        *,
+        data: builtins.bytes = ...,
+        format: builtins.str = ...,
+        expected_tokens: builtins.int | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "expected_tokens", b"expected_tokens"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "data", b"data", "expected_tokens", b"expected_tokens", "format", b"format"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_expected_tokens", b"_expected_tokens"]) -> typing.Literal["expected_tokens"] | None: ...
+
+Global___ImageChunk: typing_extensions.TypeAlias = ImageChunk

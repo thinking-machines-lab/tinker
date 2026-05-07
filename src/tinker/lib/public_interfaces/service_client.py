@@ -65,12 +65,12 @@ class ServiceClient(TelemetryProvider):
         **kwargs: Any,
     ):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
+        kwargs["_strict_response_validation"] = True
         self.holder = InternalClientHolder(
             user_metadata=user_metadata,
             project_id=project_id,
             **kwargs,
             default_headers=default_headers,
-            _strict_response_validation=True,
         )
         logger.info(f"ServiceClient initialized for session {self.holder._session_id}")
 

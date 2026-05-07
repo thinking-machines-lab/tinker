@@ -36,6 +36,8 @@ except ImportError:
 if TYPE_CHECKING:
     from transformers.tokenization_utils import PreTrainedTokenizer
 
+    from tinker._client import AsyncTinker
+
     from ..internal_client_holder import InternalClientHolder
 
 # pyright: reportPrivateImportUsage=false
@@ -56,6 +58,36 @@ _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS = frozenset({"cross_entropy"})
 _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE: dict[Literal["logprobs"], types.LossFnType] = {
     "logprobs": "cross_entropy",
 }
+
+
+_PROTO_CONTENT_TYPE = "application/x-protobuf"
+
+
+async def _send_forward_backward_proto(
+    client: AsyncTinker,
+    request: types.ForwardBackwardRequest,
+) -> types.UntypedAPIFuture:
+    """POST a fwd/bwd request as proto bytes (Content-Type: application/x-protobuf).
+
+    Gated by ``ClientConfigResponse.proto_write_fwdbwd``. Bypasses the
+    auto-generated ``client.training.forward_backward`` resource, which
+    only knows how to JSON-serialize, and instead drives ``client.post``
+    directly with a raw bytes body — ``_base_client._build_request`` sends
+    bytes as ``content=`` rather than ``json=`` when the body is bytes.
+    """
+    # Local import to keep the proto modules off the SDK's import-time hot
+    # path; only callers with the dync flag flipped actually load them.
+    from tinker._base_client import make_request_options
+    from tinker.proto.request_conv import forward_backward_request_to_proto
+
+    proto_bytes = forward_backward_request_to_proto(request).SerializeToString()
+    options = make_request_options(extra_headers={"Content-Type": _PROTO_CONTENT_TYPE})
+    return await client.post(
+        "/api/v1/forward_backward",
+        body=proto_bytes,
+        options=options,
+        cast_to=types.UntypedAPIFuture,
+    )
 
 
 class TrainingClient(TelemetryProvider):
@@ -273,6 +305,8 @@ class TrainingClient(TelemetryProvider):
             seq_id=request_id + 1,
         )
         with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+            if self.holder._client_config.proto_write_fwdbwd:
+                return await _send_forward_backward_proto(client, request)
             return await client.training.forward_backward(
                 request=request,
             )
