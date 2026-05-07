@@ -13,19 +13,57 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13tinker_public.proto\x12\rtinker_public\"\xd4\x01\n\x0eSampleResponse\x12\x31\n\tsequences\x18\x01 \x03(\x0b\x32\x1e.tinker_public.SampledSequence\x12\x1c\n\x0fprompt_logprobs\x18\x02 \x01(\x0cH\x00\x88\x01\x01\x12\x44\n\x14topk_prompt_logprobs\x18\x03 \x01(\x0b\x32!.tinker_public.TopkPromptLogprobsH\x01\x88\x01\x01\x42\x12\n\x10_prompt_logprobsB\x17\n\x15_topk_prompt_logprobs\"u\n\x0fSampledSequence\x12.\n\x0bstop_reason\x18\x01 \x01(\x0e\x32\x19.tinker_public.StopReason\x12\x0e\n\x06tokens\x18\x02 \x01(\x0c\x12\x15\n\x08logprobs\x18\x03 \x01(\x0cH\x00\x88\x01\x01\x42\x0b\n\t_logprobs\"[\n\x12TopkPromptLogprobs\x12\x11\n\ttoken_ids\x18\x01 \x01(\x0c\x12\x10\n\x08logprobs\x18\x02 \x01(\x0c\x12\t\n\x01k\x18\x03 \x01(\r\x12\x15\n\rprompt_length\x18\x04 \x01(\r*:\n\nStopReason\x12\x14\n\x10STOP_REASON_STOP\x10\x00\x12\x16\n\x12STOP_REASON_LENGTH\x10\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13tinker_public.proto\x12\rtinker_public\"\xd4\x01\n\x0eSampleResponse\x12\x31\n\tsequences\x18\x01 \x03(\x0b\x32\x1e.tinker_public.SampledSequence\x12\x1c\n\x0fprompt_logprobs\x18\x02 \x01(\x0cH\x00\x88\x01\x01\x12\x44\n\x14topk_prompt_logprobs\x18\x03 \x01(\x0b\x32!.tinker_public.TopkPromptLogprobsH\x01\x88\x01\x01\x42\x12\n\x10_prompt_logprobsB\x17\n\x15_topk_prompt_logprobs\"u\n\x0fSampledSequence\x12.\n\x0bstop_reason\x18\x01 \x01(\x0e\x32\x19.tinker_public.StopReason\x12\x0e\n\x06tokens\x18\x02 \x01(\x0c\x12\x15\n\x08logprobs\x18\x03 \x01(\x0cH\x00\x88\x01\x01\x42\x0b\n\t_logprobs\"[\n\x12TopkPromptLogprobs\x12\x11\n\ttoken_ids\x18\x01 \x01(\x0c\x12\x10\n\x08logprobs\x18\x02 \x01(\x0c\x12\t\n\x01k\x18\x03 \x01(\r\x12\x15\n\rprompt_length\x18\x04 \x01(\r\"F\n\tSparseCsr\x12\x0e\n\x06values\x18\x01 \x01(\x0c\x12\x14\n\x0c\x63row_indices\x18\x02 \x01(\x0c\x12\x13\n\x0b\x63ol_indices\x18\x03 \x01(\x0c\"\x89\x01\n\x06Tensor\x12\x0f\n\x05\x64\x65nse\x18\x01 \x01(\x0cH\x00\x12.\n\nsparse_csr\x18\x02 \x01(\x0b\x32\x18.tinker_public.SparseCsrH\x00\x12#\n\x05\x64type\x18\x03 \x01(\x0e\x32\x14.tinker_public.DType\x12\r\n\x05shape\x18\x04 \x03(\x03\x42\n\n\x08\x65ncoding\"k\n\rBatchedTensor\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x0f\n\x07offsets\x18\x02 \x01(\x0c\x12#\n\x05\x64type\x18\x03 \x01(\x0e\x32\x14.tinker_public.DType\x12\x16\n\x0etrailing_shape\x18\x04 \x03(\x03\"\xb8\x01\n\x0b\x41rrayRecord\x12\x10\n\x08type_tag\x18\x01 \x01(\t\x12\x36\n\x06\x66ields\x18\x02 \x03(\x0b\x32&.tinker_public.ArrayRecord.FieldsEntry\x12\x12\n\nnum_datums\x18\x03 \x01(\x03\x1aK\n\x0b\x46ieldsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12+\n\x05value\x18\x02 \x01(\x0b\x32\x1c.tinker_public.BatchedTensor:\x02\x38\x01\"\xdd\x01\n\x15\x46orwardBackwardOutput\x12\x1b\n\x13loss_fn_output_type\x18\x01 \x01(\t\x12\x33\n\x0floss_fn_outputs\x18\x02 \x03(\x0b\x32\x1a.tinker_public.ArrayRecord\x12\x42\n\x07metrics\x18\x03 \x03(\x0b\x32\x31.tinker_public.ForwardBackwardOutput.MetricsEntry\x1a.\n\x0cMetricsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\"\xf5\x01\n\x16\x46orwardBackwardRequest\x12\x10\n\x08model_id\x18\x01 \x01(\t\x12\x0e\n\x06seq_id\x18\x02 \x01(\x05\x12\"\n\x04\x64\x61ta\x18\x03 \x03(\x0b\x32\x14.tinker_public.Datum\x12\x0f\n\x07loss_fn\x18\x04 \x01(\t\x12O\n\x0eloss_fn_config\x18\x05 \x03(\x0b\x32\x37.tinker_public.ForwardBackwardRequest.LossFnConfigEntry\x1a\x33\n\x11LossFnConfigEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\"\xbe\x01\n\x05\x44\x61tum\x12)\n\x0bmodel_input\x18\x01 \x03(\x0b\x32\x14.tinker_public.Chunk\x12>\n\x0eloss_fn_inputs\x18\x02 \x03(\x0b\x32&.tinker_public.Datum.LossFnInputsEntry\x1aJ\n\x11LossFnInputsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12$\n\x05value\x18\x02 \x01(\x0b\x32\x15.tinker_public.Tensor:\x02\x38\x01\"u\n\x05\x43hunk\x12\x37\n\x0c\x65ncoded_text\x18\x01 \x01(\x0b\x32\x1f.tinker_public.EncodedTextChunkH\x00\x12*\n\x05image\x18\x02 \x01(\x0b\x32\x19.tinker_public.ImageChunkH\x00\x42\x07\n\x05\x63hunk\"\"\n\x10\x45ncodedTextChunk\x12\x0e\n\x06tokens\x18\x01 \x01(\x0c\"\\\n\nImageChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x0e\n\x06\x66ormat\x18\x02 \x01(\t\x12\x1c\n\x0f\x65xpected_tokens\x18\x03 \x01(\x05H\x00\x88\x01\x01\x42\x12\n\x10_expected_tokens*:\n\nStopReason\x12\x14\n\x10STOP_REASON_STOP\x10\x00\x12\x16\n\x12STOP_REASON_LENGTH\x10\x01*g\n\x05\x44Type\x12\x15\n\x11\x44TYPE_UNSPECIFIED\x10\x00\x12\x11\n\rDTYPE_FLOAT32\x10\x01\x12\x0f\n\x0b\x44TYPE_INT64\x10\x02\x12\x0f\n\x0b\x44TYPE_INT32\x10\x03\x12\x12\n\x0e\x44TYPE_BFLOAT16\x10\x04\x62\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'tinker_public_pb2', globals())
 if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
-  _STOPREASON._serialized_start=465
-  _STOPREASON._serialized_end=523
+  _ARRAYRECORD_FIELDSENTRY._options = None
+  _ARRAYRECORD_FIELDSENTRY._serialized_options = b'8\001'
+  _FORWARDBACKWARDOUTPUT_METRICSENTRY._options = None
+  _FORWARDBACKWARDOUTPUT_METRICSENTRY._serialized_options = b'8\001'
+  _FORWARDBACKWARDREQUEST_LOSSFNCONFIGENTRY._options = None
+  _FORWARDBACKWARDREQUEST_LOSSFNCONFIGENTRY._serialized_options = b'8\001'
+  _DATUM_LOSSFNINPUTSENTRY._options = None
+  _DATUM_LOSSFNINPUTSENTRY._serialized_options = b'8\001'
+  _STOPREASON._serialized_start=1887
+  _STOPREASON._serialized_end=1945
+  _DTYPE._serialized_start=1947
+  _DTYPE._serialized_end=2050
   _SAMPLERESPONSE._serialized_start=39
   _SAMPLERESPONSE._serialized_end=251
   _SAMPLEDSEQUENCE._serialized_start=253
   _SAMPLEDSEQUENCE._serialized_end=370
   _TOPKPROMPTLOGPROBS._serialized_start=372
   _TOPKPROMPTLOGPROBS._serialized_end=463
+  _SPARSECSR._serialized_start=465
+  _SPARSECSR._serialized_end=535
+  _TENSOR._serialized_start=538
+  _TENSOR._serialized_end=675
+  _BATCHEDTENSOR._serialized_start=677
+  _BATCHEDTENSOR._serialized_end=784
+  _ARRAYRECORD._serialized_start=787
+  _ARRAYRECORD._serialized_end=971
+  _ARRAYRECORD_FIELDSENTRY._serialized_start=896
+  _ARRAYRECORD_FIELDSENTRY._serialized_end=971
+  _FORWARDBACKWARDOUTPUT._serialized_start=974
+  _FORWARDBACKWARDOUTPUT._serialized_end=1195
+  _FORWARDBACKWARDOUTPUT_METRICSENTRY._serialized_start=1149
+  _FORWARDBACKWARDOUTPUT_METRICSENTRY._serialized_end=1195
+  _FORWARDBACKWARDREQUEST._serialized_start=1198
+  _FORWARDBACKWARDREQUEST._serialized_end=1443
+  _FORWARDBACKWARDREQUEST_LOSSFNCONFIGENTRY._serialized_start=1392
+  _FORWARDBACKWARDREQUEST_LOSSFNCONFIGENTRY._serialized_end=1443
+  _DATUM._serialized_start=1446
+  _DATUM._serialized_end=1636
+  _DATUM_LOSSFNINPUTSENTRY._serialized_start=1562
+  _DATUM_LOSSFNINPUTSENTRY._serialized_end=1636
+  _CHUNK._serialized_start=1638
+  _CHUNK._serialized_end=1755
+  _ENCODEDTEXTCHUNK._serialized_start=1757
+  _ENCODEDTEXTCHUNK._serialized_end=1791
+  _IMAGECHUNK._serialized_start=1793
+  _IMAGECHUNK._serialized_end=1885
 # @@protoc_insertion_point(module_scope)
