@@ -162,13 +162,18 @@ def test_deserialize_recovers_per_datum_shape_and_dtype(
         td = datum["logprobs"]
         assert td.dtype == public_dtype
         assert td.shape == list(orig.shape)
+        # The ``_numpy`` array's dtype must match the public TensorDtype label
+        # — int32 widens to int64, bfloat16 widens to float32 on read so the
+        # in-memory state matches the wire-collapsed dtype.
+        np_dtype = np.int64 if public_dtype == "int64" else np.float32
+        assert td.to_numpy().dtype == np_dtype
         # Compare values; for bfloat16 the SDK widens uint16 bytes to float32
         # via the upper-16-bits trick — bit-exact for finite bf16 values.
         if dtype_enum == public_pb.DTYPE_BFLOAT16:
             expected = (orig.astype(np.uint32) << 16).view(np.float32).reshape(orig.shape)
-            np.testing.assert_array_equal(np.array(td.data).reshape(td.shape), expected)
+            np.testing.assert_array_equal(td.to_numpy(), expected)
         else:
-            np.testing.assert_array_equal(np.array(td.data).reshape(td.shape), orig)
+            np.testing.assert_array_equal(td.to_numpy(), orig)
 
 
 # ---------------------------------------------------------------------------

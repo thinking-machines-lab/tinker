@@ -1,15 +1,10 @@
 """Conversion helpers for proto responses to SDK types.
 
 Deserializes proto wire format into SDK types (SampleResponse,
-ForwardBackwardOutput, etc.). SampleResponse's proto path populates numpy
-arrays directly. ForwardBackwardOutput's proto path reconstructs the same
-Pydantic shape the JSON path produces (wire-speed win, no public API
-change).
+ForwardBackwardOutput, etc.).
 """
 
 from __future__ import annotations
-
-from typing import cast
 
 import numpy as np
 
@@ -54,11 +49,7 @@ _PROTO_DTYPE_TO_TENSOR_DTYPE: dict[int, TensorDtype] = {
 
 
 def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
-    """Deserialize proto bytes into a SampleResponse.
-
-    Populates numpy arrays directly — no list conversion until the user
-    accesses legacy list properties (tokens, logprobs, prompt_logprobs, etc.).
-    """
+    """Deserialize proto bytes into a SampleResponse."""
     proto = public_pb.SampleResponse()
     proto.ParseFromString(proto_bytes)
 
@@ -102,14 +93,23 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
     )
 
 
-def _decode_batched_tensor_to_per_datum_lists(
+def _decode_batched_tensor_to_per_datum_arrays(
     bt: public_pb.BatchedTensor,
-) -> list[list[int] | list[float]]:
-    """Slice a BatchedTensor into per-datum flat lists.
+) -> list[np.ndarray]:
+    """Slice a BatchedTensor into per-datum flat numpy arrays.
 
-    Handles bfloat16 by reinterpreting the uint16 bytes as the upper half of
-    float32 — lossless widening to maintain compatibility with the JSON
-    response shape.
+    Widens to the public ``TensorDtype`` so the resulting numpy dtype
+    matches the ``TensorData.dtype`` label the caller sets:
+
+    - ``DTYPE_BFLOAT16``: uint16 bytes → upper 16 bits of float32 (bit-exact
+      for finite bf16).
+    - ``DTYPE_INT32``: cast to int64 (matches the JSON path's collapse of
+      any non-floating-point dtype to ``"int64"``).
+
+    Both widenings preserve element count, so the per-datum byte offsets
+    (still indexed against the pre-widening itemsize) keep slicing the
+    widened buffer correctly. Returned arrays are flat (1-D); the caller
+    reshapes using the ``trailing_shape`` from the proto.
     """
     np_dtype = _PROTO_DTYPE_TO_NUMPY.get(bt.dtype)
     if np_dtype is None:
@@ -119,22 +119,25 @@ def _decode_batched_tensor_to_per_datum_lists(
     if bt.dtype == public_pb.DTYPE_BFLOAT16:
         # bfloat16 is the upper 16 bits of a float32. Shift into place and view.
         buf = (buf.astype(np.uint32) << 16).view(np.float32)
+    elif bt.dtype == public_pb.DTYPE_INT32:
+        # int32 collapses to int64 on the public wire; widen to match the
+        # declared TensorDtype="int64".
+        buf = buf.astype(np.int64)
 
-    itemsize = np_dtype.itemsize
-    per_datum: list[list[int] | list[float]] = []
+    # Offsets index into the pre-widening byte stream; convert to element
+    # indices on ``buf``. Element count is preserved by both widenings
+    # (1:1 elements), so the same indices apply.
+    src_itemsize = np_dtype.itemsize
+    per_datum: list[np.ndarray] = []
     for i in range(len(offsets) - 1):
-        start = int(offsets[i]) // itemsize
-        end = int(offsets[i + 1]) // itemsize
-        per_datum.append(buf[start:end].tolist())
+        start = int(offsets[i]) // src_itemsize
+        end = int(offsets[i + 1]) // src_itemsize
+        per_datum.append(buf[start:end])
     return per_datum
 
 
 def deserialize_forward_backward_output(proto_bytes: bytes) -> ForwardBackwardOutput:
-    """Deserialize proto bytes into a ForwardBackwardOutput (Pydantic).
-
-    Produces the same shape the JSON path emits so the public SDK API is
-    wire-format-agnostic. Field order within each LossFnOutput follows the
-    proto map iteration order; callers look up fields by name regardless.
+    """Deserialize proto bytes into a ``ForwardBackwardOutput``.
 
     Supports any number of ArrayRecord chunks (v1 emits exactly one batched
     record; future chunked emission is transparent to this path).
@@ -154,41 +157,41 @@ def deserialize_forward_backward_output(proto_bytes: bytes) -> ForwardBackwardOu
     # Bare class name — maintains compatibility with the JSON response shape.
     class_name = proto.loss_fn_output_type.rsplit(":", 1)[-1]
 
-    # Collect per-datum lists + per-field metadata across every chunk. Field
+    # Collect per-datum arrays + per-field metadata across every chunk. Field
     # names and shape/dtype are invariant across chunks (enforced by the
     # writer — same ArrayRecord subclass for all datums in one response).
-    per_field_datum_lists: dict[str, list[list[int] | list[float]]] = {}
+    per_field_datum_arrays: dict[str, list[np.ndarray]] = {}
     per_field_meta: dict[str, tuple[TensorDtype, list[int]]] = {}
     for record in proto.loss_fn_outputs:
         for name, bt in record.fields.items():
             tensor_dtype = _PROTO_DTYPE_TO_TENSOR_DTYPE.get(bt.dtype)
             if tensor_dtype is None:
                 raise ValueError(f"Unsupported proto DType on field {name}: {bt.dtype}")
-            chunk_datums = _decode_batched_tensor_to_per_datum_lists(bt)
-            per_field_datum_lists.setdefault(name, []).extend(chunk_datums)
+            chunk_datums = _decode_batched_tensor_to_per_datum_arrays(bt)
+            per_field_datum_arrays.setdefault(name, []).extend(chunk_datums)
             per_field_meta.setdefault(name, (tensor_dtype, list(bt.trailing_shape)))
 
     # Prefer ArrayRecord.num_datums (authoritative and survives server-side
     # filters like drop_fwdbwd_logprobs that may strip every field). Fall back
     # to the first-field count for encoded messages predating num_datums.
     num_datums = sum(r.num_datums for r in proto.loss_fn_outputs)
-    if num_datums == 0 and per_field_datum_lists:
-        num_datums = len(next(iter(per_field_datum_lists.values())))
+    if num_datums == 0 and per_field_datum_arrays:
+        num_datums = len(next(iter(per_field_datum_arrays.values())))
 
     loss_fn_outputs: list[dict[str, TensorData]] = []
     for i in range(num_datums):
         datum: dict[str, TensorData] = {}
-        for name, per_datum in per_field_datum_lists.items():
+        for name, per_datum in per_field_datum_arrays.items():
             tensor_dtype, trailing_shape = per_field_meta[name]
-            data = per_datum[i]
+            arr = per_datum[i]
             # Leading dim = total elements / product(trailing_shape).
             trailing_elems = 1
             for s in trailing_shape:
                 trailing_elems *= s
-            leading = len(data) // trailing_elems if trailing_elems else 0
+            leading = arr.size // trailing_elems if trailing_elems else 0
             shape = [leading, *trailing_shape]
             datum[name] = TensorData(
-                data=cast("list[int] | list[float]", data),
+                data=arr,
                 dtype=tensor_dtype,
                 shape=shape,
             )

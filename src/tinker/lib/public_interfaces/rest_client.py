@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from concurrent.futures import Future as ConcurrentFuture
+from datetime import date
 from typing import TYPE_CHECKING, Literal
 
 from tinker import types
@@ -420,6 +421,65 @@ class RestClient(TelemetryProvider):
         await self._delete_checkpoint_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
         )
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def get_audit_log(
+        self,
+        event_type: Literal["all", "checkpoints"] = "all",
+        day: date | None = None,
+    ) -> ConcurrentFuture[types.AuditLogResponse]:
+        """Get an audit log of events for the caller's organization.
+
+        Requires the tinker-admin RBAC role (VIEW_AUDIT_LOG capability).
+
+        Args:
+        - `event_type`: Type of events to include. "all" and "checkpoints"
+            are currently equivalent. Defaults to "all".
+        - `day`: The date to query (default: today). The window covers
+            midnight to midnight UTC.
+
+        Returns:
+        - A `Future` containing the `AuditLogResponse` with audit log entries
+
+        Example:
+        ```python
+        from datetime import date
+
+        future = rest_client.get_audit_log()
+        response = future.result()
+        print(f"Found {len(response.entries)} audit entries")
+        for entry in response.entries:
+            print(f"  {entry.timestamp}: {entry.event} ({entry.tinker_path})")
+
+        # Query a specific day
+        future = rest_client.get_audit_log(day=date(2025, 1, 15))
+        ```
+        """
+        return self.holder.run_coroutine_threadsafe(
+            self.get_audit_log_async(event_type, day)
+        ).future()
+
+    @capture_exceptions(fatal=True)
+    async def get_audit_log_async(
+        self,
+        event_type: Literal["all", "checkpoints"] = "all",
+        day: date | None = None,
+    ) -> types.AuditLogResponse:
+        """Async version of get_audit_log."""
+
+        async def _send_request() -> types.AuditLogResponse:
+            params: dict[str, object] = {"event_type": event_type}
+            if day is not None:
+                params["day"] = day.isoformat()
+            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                return await client.get(
+                    "/api/v1/audit",
+                    options={"params": params},
+                    cast_to=types.AuditLogResponse,
+                )
+
+        return await self.holder.execute_with_retries(_send_request)
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

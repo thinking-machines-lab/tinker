@@ -20,6 +20,9 @@ class SaveWeightsRequest(StrictBase):
     ttl_seconds: Optional[int] = None
     """TTL in seconds for this checkpoint (None = never expires)"""
 
+    overwrite: bool = False
+    """If True, overwrite any existing checkpoint with the same name"""
+
     type: Literal["save_weights"] = "save_weights"
 
     if PYDANTIC_V2:

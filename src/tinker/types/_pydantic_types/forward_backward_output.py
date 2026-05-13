@@ -1,7 +1,12 @@
 from typing import Dict, List
 
 from ..._models import BaseModel
-from ..loss_fn_output import LossFnOutput
+from .tensor_data import TensorData
+
+# Pydantic-side alias: must reference the *Pydantic* TensorData so JSON
+# deserialization produces Pydantic inner types. The dataclass alias lives in
+# ``..loss_fn_output``.
+LossFnOutput = Dict[str, TensorData]
 
 
 class ForwardBackwardOutput(BaseModel):

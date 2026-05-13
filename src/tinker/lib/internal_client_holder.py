@@ -40,6 +40,9 @@ T = TypeVar("T")
 MAX_REQUESTS_PER_HTTPX_CLIENT = 50
 MAX_CONNECTION_ERROR_RETRIES = 16
 
+BILLING_EXCEPTION_LOGGING_INTERVAL_SEC = 60
+BILLING_EXCEPTION_RESET_DURATION_SEC = 60 * 5
+
 
 class ClientConnectionPool:
     def __init__(
@@ -271,6 +274,47 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 self._start_heartbeat()
             ).result()
         self._telemetry: Telemetry | None = init_telemetry(self, session_id=self._session_id)
+
+        self._first_billing_exception_time: float | None = None
+        self._last_logged_billing_exception_time: float | None = None
+
+    def _should_pause_on_billing_exception(self, e: Exception) -> bool:
+        if not isinstance(e, APIStatusError) or e.status_code != 402:
+            return False
+
+        now = time.monotonic()
+
+        # If we haven't seen a billing exception in a while, assume this is a new incident
+        if (
+            self._last_logged_billing_exception_time is not None
+            and now - self._last_logged_billing_exception_time
+            > BILLING_EXCEPTION_RESET_DURATION_SEC
+        ):
+            self._first_billing_exception_time = None
+            self._last_logged_billing_exception_time = None
+
+        if (
+            self._first_billing_exception_time
+            and now - self._first_billing_exception_time
+            > self._client_config.billing_exception_max_pause_duration_sec
+        ):
+            logger.error(
+                f"The job was paused due to billing status for {now - self._first_billing_exception_time} seconds. This has been happening for too long. Aborting."
+            )
+            return False
+
+        if (
+            not self._last_logged_billing_exception_time
+            or now - self._last_logged_billing_exception_time
+            > BILLING_EXCEPTION_LOGGING_INTERVAL_SEC
+        ):
+            self._last_logged_billing_exception_time = now
+            logger.warning(f"The job is paused due to billing status. Error: {e.message}")
+
+        if self._first_billing_exception_time is None:
+            self._first_billing_exception_time = now
+
+        return True
 
     @classmethod
     def get_shadow_holder(cls, session_id: str, kwargs: dict[str, Any]) -> InternalClientHolder:
@@ -510,6 +554,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
+                if self._should_pause_on_billing_exception(e):
+                    await asyncio.sleep(5)
+                    continue
                 is_retryable = self._is_retryable_exception(e)
                 user_error = is_user_error(e)
                 current_time = time.time()

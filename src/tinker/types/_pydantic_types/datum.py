@@ -1,11 +1,16 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict
 
+import numpy as np
 from pydantic import model_validator
 
 from ..._models import StrictBase
-from ..loss_fn_inputs import LossFnInputs
 from .model_input import ModelInput
 from .tensor_data import TensorData
+
+# Pydantic-side alias: must reference the *Pydantic* TensorData so
+# ``model_validate`` produces the right inner type. Public dataclass paths use
+# the alias from ``..loss_fn_inputs``.
+LossFnInputs = Dict[str, TensorData]
 
 try:
     import torch  # type: ignore[import-not-found]
@@ -13,8 +18,6 @@ try:
     _HAVE_TORCH = True
 except ImportError:
     _HAVE_TORCH = False
-
-import numpy as np
 
 if TYPE_CHECKING:
     import torch  # noqa: TC004

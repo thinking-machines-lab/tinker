@@ -47,12 +47,13 @@ def _tensor_data_to_proto(td: TensorData) -> public_pb.Tensor:
     if td.shape is not None:
         msg.shape.extend(td.shape)
 
+    arr = td._numpy if td._numpy.dtype == np_dtype else td._numpy.astype(np_dtype)
     if td.sparse_crow_indices is not None:
         if td.sparse_col_indices is None:
             raise ValueError(
                 "sparse_col_indices required with sparse_crow_indices"
             )
-        msg.sparse_csr.values = np.asarray(td.data, dtype=np_dtype).tobytes()
+        msg.sparse_csr.values = arr.tobytes()
         msg.sparse_csr.crow_indices = np.asarray(
             td.sparse_crow_indices, dtype=np.int64
         ).tobytes()
@@ -60,22 +61,16 @@ def _tensor_data_to_proto(td: TensorData) -> public_pb.Tensor:
             td.sparse_col_indices, dtype=np.int64
         ).tobytes()
     else:
-        msg.dense = np.asarray(td.data, dtype=np_dtype).tobytes()
+        msg.dense = arr.tobytes()
 
     return msg
 
 
 def _write_chunk(msg: public_pb.Chunk, chunk: ModelInputChunk) -> None:
-    """Encode a Pydantic ModelInputChunk into ``msg`` (a Chunk oneof).
+    """Encode a ModelInputChunk into ``msg`` (a Chunk oneof) in place.
 
-    EncodedTextChunk: tokens packed as int32 bytes (same format the server's
-    ``_public_chunk_to_token_span`` expects). ImageChunk: raw bytes pass
-    through; the server uploads + computes width/height/tokens.
-
-    Writes in place rather than returning a new message so the caller can
-    use ``repeated.add()`` (constructs in-place) instead of ``.append()``
-    (copies a fully-built sub-message); on the SDK send hot path this
-    avoids one Chunk-message copy per chunk.
+    EncodedTextChunk: tokens packed as int32 bytes. ImageChunk: raw bytes
+    pass through; the server uploads + computes width/height/tokens.
     """
     if isinstance(chunk, EncodedTextChunk):
         msg.encoded_text.tokens = np.asarray(chunk.tokens, dtype=np.int32).tobytes()
@@ -92,13 +87,7 @@ def _write_chunk(msg: public_pb.Chunk, chunk: ModelInputChunk) -> None:
 def forward_backward_request_to_proto(
     request: ForwardBackwardRequest,
 ) -> public_pb.ForwardBackwardRequest:
-    """Encode a Pydantic ``ForwardBackwardRequest`` as the public proto.
-
-    Inverse of ``public_proto_to_fwd_bwd_input`` on the server. Wire
-    payload size win comes mostly from EncodedTextChunk tokens going from
-    JSON-encoded ints to packed int32 bytes, and from TensorData going
-    from JSON list[float] to packed float32/int64 bytes.
-    """
+    """Encode a ``ForwardBackwardRequest`` as the public proto."""
     msg = public_pb.ForwardBackwardRequest()
     msg.model_id = request.model_id
     # seq_id is non-optional on the public proto. The SDK always sets it
