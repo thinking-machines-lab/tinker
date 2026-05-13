@@ -77,6 +77,7 @@ class ServiceClient(TelemetryProvider):
     def _get_server_capabilities_submit(
         self,
     ) -> AwaitableConcurrentFuture[types.GetServerCapabilitiesResponse]:
+        @capture_exceptions(fatal=True)
         async def _get_server_capabilities_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -87,7 +88,6 @@ class ServiceClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_get_server_capabilities_async())
 
     @sync_only
-    @capture_exceptions(fatal=True)
     def get_server_capabilities(self) -> types.GetServerCapabilitiesResponse:
         """Query the server's supported features and capabilities.
 
@@ -103,7 +103,6 @@ class ServiceClient(TelemetryProvider):
         """
         return self._get_server_capabilities_submit().result()
 
-    @capture_exceptions(fatal=True)
     async def get_server_capabilities_async(self) -> types.GetServerCapabilitiesResponse:
         """Async version of get_server_capabilities."""
         return await self._get_server_capabilities_submit()
@@ -131,6 +130,7 @@ class ServiceClient(TelemetryProvider):
             train_unembed=train_unembed,
         )
 
+        @capture_exceptions(fatal=True)
         async def _create_lora_training_client_async():
             start_time = time.time()
             with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -162,7 +162,6 @@ class ServiceClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_create_lora_training_client_async())
 
     @sync_only
-    @capture_exceptions(fatal=True)
     def create_lora_training_client(
         self,
         base_model: str,
@@ -208,7 +207,6 @@ class ServiceClient(TelemetryProvider):
             user_metadata,
         ).result()
 
-    @capture_exceptions(fatal=True)
     async def create_lora_training_client_async(
         self,
         base_model: str,
@@ -244,7 +242,6 @@ class ServiceClient(TelemetryProvider):
         return self.create_rest_client()
 
     @sync_only
-    @capture_exceptions(fatal=True)
     def create_training_client_from_state(
         self,
         path: str,
@@ -291,7 +288,6 @@ class ServiceClient(TelemetryProvider):
         training_client.load_state(path, weights_access_token=weights_access_token).result()
         return training_client
 
-    @capture_exceptions(fatal=True)
     async def create_training_client_from_state_async(
         self,
         path: str,
@@ -324,7 +320,6 @@ class ServiceClient(TelemetryProvider):
         return training_client
 
     @sync_only
-    @capture_exceptions(fatal=True)
     def create_training_client_from_state_with_optimizer(
         self,
         path: str,
@@ -374,7 +369,6 @@ class ServiceClient(TelemetryProvider):
         ).result()
         return training_client
 
-    @capture_exceptions(fatal=True)
     async def create_training_client_from_state_with_optimizer_async(
         self,
         path: str,
@@ -406,7 +400,6 @@ class ServiceClient(TelemetryProvider):
         await load_future.result_async()
         return training_client
 
-    @capture_exceptions(fatal=True)
     def create_sampling_client(
         self,
         model_path: str | None = None,
@@ -450,7 +443,6 @@ class ServiceClient(TelemetryProvider):
             retry_config=retry_config,
         ).result()
 
-    @capture_exceptions(fatal=True)
     async def create_sampling_client_async(
         self,
         model_path: str | None = None,
@@ -469,7 +461,6 @@ class ServiceClient(TelemetryProvider):
             retry_config=retry_config,
         )
 
-    @capture_exceptions(fatal=True)
     def create_rest_client(self) -> RestClient:
         """Create a RestClient for REST API operations.
 

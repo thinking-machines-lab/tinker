@@ -135,6 +135,10 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                             max_retries=0,
                         )
                 except tinker.APIStatusError as e:
+                    if self.holder._should_pause_on_billing_exception(e):
+                        await asyncio.sleep(5)
+                        continue
+
                     connection_error_retries = 0
                     should_retry = e.status_code == 408 or e.status_code in range(500, 600)
                     user_error = is_user_error(e)

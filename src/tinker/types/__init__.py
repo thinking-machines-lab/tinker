@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .audit_log_entry import AuditLogEntry as AuditLogEntry
+from .audit_log_response import AuditLogResponse as AuditLogResponse
 from .auth_token_response import AuthTokenResponse as AuthTokenResponse
 from .checkpoint import (
     Checkpoint as Checkpoint,

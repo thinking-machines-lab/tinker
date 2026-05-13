@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Tuple
 
 from tinker import types
-from tinker._exceptions import ConflictError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
@@ -210,26 +209,6 @@ class TrainingClient(TelemetryProvider):
     def _chunked_requests(self, data: List[types.Datum]) -> List[tuple[int, List[types.Datum]]]:
         return [(self._get_request_id(), chunk) for chunk in self._chunked_requests_generator(data)]
 
-    async def _send_single_forward_request(
-        self,
-        request_id: int,
-        data: List[types.Datum],
-        loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None = None,
-    ):
-        request = types.ForwardRequest(
-            forward_input=types.ForwardBackwardInput(
-                data=data, loss_fn=loss_fn, loss_fn_config=loss_fn_config
-            ),
-            model_id=self._guaranteed_model_id(),
-            seq_id=request_id + 1,
-        )
-        with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-            return await client.training.forward(
-                request=request,
-            )
-
-    @capture_exceptions(fatal=True)
     def forward(
         self,
         data: List[types.Datum],
@@ -262,11 +241,25 @@ class TrainingClient(TelemetryProvider):
         @capture_exceptions(fatal=True)
         async def _forward_async():
             start_time = time.time()
+
+            async def _send_request(request_id: int, data: List[types.Datum]):
+                request = types.ForwardRequest(
+                    forward_input=types.ForwardBackwardInput(
+                        data=data, loss_fn=loss_fn, loss_fn_config=loss_fn_config
+                    ),
+                    model_id=self._guaranteed_model_id(),
+                    seq_id=request_id + 1,
+                )
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.training.forward(
+                        request=request,
+                    )
+
             futures = []
             for request_id, data in requests:
                 async with self._take_turn(request_id):
                     untyped_future = await self.holder.execute_with_retries(
-                        self._send_single_forward_request, request_id, data, loss_fn, loss_fn_config
+                        _send_request, request_id, data
                     )
                 api_future = _APIFuture(
                     types.ForwardBackwardOutput,
@@ -290,28 +283,6 @@ class TrainingClient(TelemetryProvider):
         """Async version of forward."""
         return self.forward(data, loss_fn, loss_fn_config)
 
-    async def _send_single_forward_backward_request(
-        self,
-        request_id: int,
-        data: List[types.Datum],
-        loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None = None,
-    ):
-        request = types.ForwardBackwardRequest(
-            forward_backward_input=types.ForwardBackwardInput(
-                data=data, loss_fn=loss_fn, loss_fn_config=loss_fn_config
-            ),
-            model_id=self._guaranteed_model_id(),
-            seq_id=request_id + 1,
-        )
-        with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-            if self.holder._client_config.proto_write_fwdbwd:
-                return await _send_forward_backward_proto(client, request)
-            return await client.training.forward_backward(
-                request=request,
-            )
-
-    @capture_exceptions(fatal=True)
     def forward_backward(
         self,
         data: List[types.Datum],
@@ -361,6 +332,21 @@ class TrainingClient(TelemetryProvider):
         async def _forward_backward_async():
             start_time = time.time()
 
+            async def _send_request(request_id: int, data: List[types.Datum]):
+                request = types.ForwardBackwardRequest(
+                    forward_backward_input=types.ForwardBackwardInput(
+                        data=data, loss_fn=loss_fn, loss_fn_config=loss_fn_config
+                    ),
+                    model_id=self._guaranteed_model_id(),
+                    seq_id=request_id + 1,
+                )
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    if self.holder._client_config.proto_write_fwdbwd:
+                        return await _send_forward_backward_proto(client, request)
+                    return await client.training.forward_backward(
+                        request=request,
+                    )
+
             async def _submit_chunk(
                 request_id: int, data: List[types.Datum]
             ) -> APIFuture[types.ForwardBackwardOutput]:
@@ -368,11 +354,7 @@ class TrainingClient(TelemetryProvider):
                 turn_max = max_rid if parallel else None
                 async with self._take_turn(turn_min, turn_max):
                     untyped_future = await self.holder.execute_with_retries(
-                        self._send_single_forward_backward_request,
-                        request_id,
-                        data,
-                        loss_fn,
-                        loss_fn_config,
+                        _send_request, request_id, data
                     )
                     return _APIFuture(
                         types.ForwardBackwardOutput,
@@ -383,12 +365,25 @@ class TrainingClient(TelemetryProvider):
                         queue_state_observer=self._queue_state_logger,
                     )
 
-            # gather is safe even when serial — _take_turn orders execution.
-            futures = list(
-                await asyncio.gather(
-                    *[_submit_chunk(request_id, data) for request_id, data in requests]
+            if parallel and len(requests) > 1:
+                # Send all chunks in parallel, but submit the first chunk
+                # last.  The server won't process later chunks until the
+                # first one arrives (seq_id ordering), so by the time chunk
+                # 1 lands the rest are already queued and the server can
+                # pick the whole batch together.
+                rest_futures = list(
+                    await asyncio.gather(*[_submit_chunk(rid, d) for rid, d in requests[1:]])
                 )
-            )
+                first_rid, first_data = requests[0]
+                first_future = await _submit_chunk(first_rid, first_data)
+                futures = [first_future] + rest_futures
+            else:
+                # gather is safe even when serial — _take_turn orders execution.
+                futures = list(
+                    await asyncio.gather(
+                        *[_submit_chunk(request_id, data) for request_id, data in requests]
+                    )
+                )
 
             return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
 
@@ -404,7 +399,6 @@ class TrainingClient(TelemetryProvider):
         return self.forward_backward(data, loss_fn, loss_fn_config)
 
     @sync_only
-    @capture_exceptions(fatal=True)
     def forward_backward_custom(
         self,
         data: List[types.Datum],
@@ -447,7 +441,6 @@ class TrainingClient(TelemetryProvider):
             )
         ).result()
 
-    @capture_exceptions(fatal=True)
     async def forward_backward_custom_async(
         self,
         data: List[types.Datum],
@@ -570,7 +563,6 @@ class TrainingClient(TelemetryProvider):
 
         return forward_data
 
-    @capture_exceptions(fatal=True)
     def optim_step(self, adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]:
         """Update model parameters using Adam optimizer.
 
@@ -639,15 +631,15 @@ class TrainingClient(TelemetryProvider):
         """Async version of optim_step."""
         return self.optim_step(adam_params)
 
-    @capture_exceptions(fatal=True)
     def save_state(
-        self, name: str, ttl_seconds: int | None = None
+        self, name: str, ttl_seconds: int | None = None, overwrite: bool = False
     ) -> APIFuture[types.SaveWeightsResponse]:
         """Save model weights to persistent storage.
 
         Args:
         - `name`: Name for the saved checkpoint
         - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+        - `overwrite`: If True, overwrite any existing checkpoint with the same name
 
         Returns:
         - `APIFuture` containing the save response with checkpoint path
@@ -672,44 +664,16 @@ class TrainingClient(TelemetryProvider):
                     path=name,
                     seq_id=request_id + 1,
                     ttl_seconds=ttl_seconds,
+                    overwrite=overwrite,
                 )
-                try:
-                    with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                        return await client.weights.save(
-                            request=request,
-                            max_retries=0,
-                        )
-                except ConflictError:
-                    # 409 means a checkpoint with this name already exists.
-                    # This is common when retrying after a transient network
-                    # error — the first attempt saved the checkpoint but the
-                    # response was lost.  Treat as success: the checkpoint IS
-                    # saved, and crashing a long training run is worse than
-                    # returning a synthetic response.
-                    logger.info(
-                        "Checkpoint '%s' already exists (409 Conflict); "
-                        "treating as success — the checkpoint is saved.",
-                        name,
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.save(
+                        request=request,
+                        max_retries=0,
                     )
-                    if telemetry := self.holder.get_telemetry():
-                        telemetry.log(
-                            "training_client.save_state.conflict_resolved",
-                            event_data={
-                                "checkpoint_name": name,
-                                "model_id": self._guaranteed_model_id(),
-                            },
-                            severity="INFO",
-                        )
-                    return None
 
             async with self._take_turn(request_id):
                 future = await self.holder.execute_with_retries(_send_request)
-
-            # _send_request returns None on 409 conflict (checkpoint already
-            # saved), or an UntypedAPIFuture on success.
-            if future is None:
-                model_id = self._guaranteed_model_id()
-                return types.SaveWeightsResponse(path=f"tinker://{model_id}/weights/{name}")
 
             return await _APIFuture(
                 types.SaveWeightsResponse,
@@ -723,46 +687,46 @@ class TrainingClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_save_state_async())
 
     async def save_state_async(
-        self, name: str, ttl_seconds: int | None = None
+        self, name: str, ttl_seconds: int | None = None, overwrite: bool = False
     ) -> APIFuture[types.SaveWeightsResponse]:
         """Async version of save_state."""
-        return self.save_state(name, ttl_seconds=ttl_seconds)
+        return self.save_state(name, ttl_seconds=ttl_seconds, overwrite=overwrite)
 
-    @capture_exceptions(fatal=True)
-    async def _load_state_impl(
-        self,
-        request_id: int,
-        path: str,
-        optimizer: bool,
-        weights_access_token: str | None = None,
-    ) -> types.LoadWeightsResponse:
-        start_time = time.time()
+    def _load_state_impl(
+        self, path: str, optimizer: bool, weights_access_token: str | None
+    ) -> APIFuture[types.LoadWeightsResponse]:
+        request_id = self._get_request_id()
 
-        async def _send_request():
-            request = types.LoadWeightsRequest(
-                model_id=self._guaranteed_model_id(),
-                path=path,
-                seq_id=request_id + 1,
-                optimizer=optimizer,
-                weights_access_token=weights_access_token,
-            )
-            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                return await client.weights.load(
-                    request=request,
+        @capture_exceptions(fatal=True)
+        async def _load_state_async() -> types.LoadWeightsResponse:
+            start_time = time.time()
+
+            async def _send_request():
+                request = types.LoadWeightsRequest(
+                    model_id=self._guaranteed_model_id(),
+                    path=path,
+                    seq_id=request_id + 1,
+                    optimizer=optimizer,
+                    weights_access_token=weights_access_token,
                 )
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.load(
+                        request=request,
+                    )
 
-        async with self._take_turn(request_id):
-            future = await self.holder.execute_with_retries(_send_request)
-        return await _APIFuture(
-            types.LoadWeightsResponse,
-            self.holder,
-            future,
-            request_start_time=start_time,
-            request_type="LoadWeights",
-            queue_state_observer=self._queue_state_logger,
-        )
+            async with self._take_turn(request_id):
+                future = await self.holder.execute_with_retries(_send_request)
+            return await _APIFuture(
+                types.LoadWeightsResponse,
+                self.holder,
+                future,
+                request_start_time=start_time,
+                request_type="LoadWeights",
+                queue_state_observer=self._queue_state_logger,
+            )
 
-    @capture_exceptions(fatal=True)
+        return self.holder.run_coroutine_threadsafe(_load_state_async())
+
     def load_state(
         self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
@@ -786,11 +750,8 @@ class TrainingClient(TelemetryProvider):
         # Continue training from loaded state
         ```
         """
-        request_id = self._get_request_id()
-        return self.holder.run_coroutine_threadsafe(
-            self._load_state_impl(
-                request_id, path, False, weights_access_token=weights_access_token
-            )
+        return self._load_state_impl(
+            path, optimizer=False, weights_access_token=weights_access_token
         )
 
     async def load_state_async(
@@ -799,7 +760,6 @@ class TrainingClient(TelemetryProvider):
         """Async version of load_state."""
         return self.load_state(path, weights_access_token=weights_access_token)
 
-    @capture_exceptions(fatal=True)
     def load_state_with_optimizer(
         self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
@@ -822,9 +782,8 @@ class TrainingClient(TelemetryProvider):
         # Continue training with restored optimizer momentum
         ```
         """
-        request_id = self._get_request_id()
-        return self.holder.run_coroutine_threadsafe(
-            self._load_state_impl(request_id, path, True, weights_access_token=weights_access_token)
+        return self._load_state_impl(
+            path, optimizer=True, weights_access_token=weights_access_token
         )
 
     async def load_state_with_optimizer_async(
@@ -833,82 +792,60 @@ class TrainingClient(TelemetryProvider):
         """Async version of load_state_with_optimizer."""
         return self.load_state_with_optimizer(path, weights_access_token=weights_access_token)
 
-    @capture_exceptions(fatal=True)
-    async def _save_weights_for_sampler_impl(
-        self, request_id: int, name: str | None, ttl_seconds: int | None = None
-    ) -> types.SaveWeightsForSamplerResponseInternal:
-        assert asyncio.get_event_loop() == self.holder.get_loop()
-        start_time = time.time()
+    def _save_weights_for_sampler_impl(
+        self, name: str | None, ttl_seconds: int | None
+    ) -> APIFuture[types.SaveWeightsForSamplerResponse | str]:
+        request_id = self._get_request_id()
 
-        async def _send_request():
-            if name is not None:
-                request = types.SaveWeightsForSamplerRequest(
-                    model_id=self._guaranteed_model_id(),
-                    path=name,
-                    seq_id=request_id + 1,
-                    ttl_seconds=ttl_seconds,
-                )
-            else:
-                # Training client can never be created from a shadow holder, so we can safely assert
-                assert self.holder._sampling_client_counter is not None
-                sampling_session_seq_id = self.holder._sampling_client_counter
-                self.holder._sampling_client_counter += 1
-                request = types.SaveWeightsForSamplerRequest(
-                    model_id=self._guaranteed_model_id(),
-                    seq_id=request_id + 1,
-                    sampling_session_seq_id=sampling_session_seq_id,
-                    ttl_seconds=ttl_seconds,
-                )
-            try:
+        @capture_exceptions(fatal=True)
+        async def _save_weights_for_sampler_async() -> types.SaveWeightsForSamplerResponse | str:
+            start_time = time.time()
+
+            async def _send_request():
+                if name is not None:
+                    request = types.SaveWeightsForSamplerRequest(
+                        model_id=self._guaranteed_model_id(),
+                        path=name,
+                        seq_id=request_id + 1,
+                        ttl_seconds=ttl_seconds,
+                    )
+                else:
+                    # Training client can never be created from a shadow holder, so we can safely assert
+                    assert self.holder._sampling_client_counter is not None
+                    sampling_session_seq_id = self.holder._sampling_client_counter
+                    self.holder._sampling_client_counter += 1
+                    request = types.SaveWeightsForSamplerRequest(
+                        model_id=self._guaranteed_model_id(),
+                        seq_id=request_id + 1,
+                        sampling_session_seq_id=sampling_session_seq_id,
+                        ttl_seconds=ttl_seconds,
+                    )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.save_for_sampler(
                         request=request,
                         max_retries=0,
                     )
-            except ConflictError:
-                if name is None:
-                    # Unnamed saves use server-generated unique paths;
-                    # 409 should be impossible. Re-raise as a real error.
-                    raise
-                # See save_state for full rationale on treating 409 as success.
-                logger.info(
-                    "Sampler checkpoint '%s' already exists (409 Conflict); "
-                    "treating as success — the checkpoint is saved.",
-                    name,
-                )
-                if telemetry := self.holder.get_telemetry():
-                    telemetry.log(
-                        "training_client.save_weights_for_sampler.conflict_resolved",
-                        event_data={
-                            "checkpoint_name": name,
-                            "model_id": self._guaranteed_model_id(),
-                        },
-                        severity="INFO",
-                    )
-                return None
 
-        async with self._take_turn(request_id):
-            future = await self.holder.execute_with_retries(_send_request)
+            async with self._take_turn(request_id):
+                future = await self.holder.execute_with_retries(_send_request)
 
-        # _send_request returns None on 409 conflict (checkpoint already
-        # saved), or an UntypedAPIFuture on success.
-        if future is None:
-            assert name is not None
-            model_id = self._guaranteed_model_id()
-            return types.SaveWeightsForSamplerResponseInternal(
-                path=f"tinker://{model_id}/sampler_weights/{name}"
+            result = await _APIFuture(
+                types.SaveWeightsForSamplerResponseInternal,
+                self.holder,
+                future,
+                request_start_time=start_time,
+                request_type="SaveWeightsForSampler",
+                queue_state_observer=self._queue_state_logger,
             )
+            if name is not None:
+                assert result.path is not None
+                return types.SaveWeightsForSamplerResponse(path=result.path)
+            else:
+                assert result.sampling_session_id is not None
+                return result.sampling_session_id
 
-        return await _APIFuture(
-            types.SaveWeightsForSamplerResponseInternal,
-            self.holder,
-            future,
-            request_start_time=start_time,
-            request_type="SaveWeightsForSampler",
-            queue_state_observer=self._queue_state_logger,
-        )
+        return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
-    @capture_exceptions(fatal=True)
     def save_weights_for_sampler(
         self, name: str, ttl_seconds: int | None = None
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
@@ -934,12 +871,11 @@ class TrainingClient(TelemetryProvider):
         )
         ```
         """
-        request_id = self._get_request_id()
 
-        async def _save_weights_for_sampler_async():
-            result = await self._save_weights_for_sampler_impl(request_id, name, ttl_seconds)
-            assert result.path is not None
-            return types.SaveWeightsForSamplerResponse(path=result.path)
+        async def _save_weights_for_sampler_async() -> types.SaveWeightsForSamplerResponse:
+            result = await self._save_weights_for_sampler_impl(name, ttl_seconds)
+            assert isinstance(result, types.SaveWeightsForSamplerResponse)
+            return result
 
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
@@ -950,6 +886,7 @@ class TrainingClient(TelemetryProvider):
         return self.save_weights_for_sampler(name, ttl_seconds=ttl_seconds)
 
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
+        @capture_exceptions(fatal=True)
         async def _get_info_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -963,7 +900,6 @@ class TrainingClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_get_info_async())
 
     @sync_only
-    @capture_exceptions(fatal=True)
     def get_info(self) -> types.GetInfoResponse:
         """Get information about the current model.
 
@@ -980,12 +916,10 @@ class TrainingClient(TelemetryProvider):
         """
         return self._get_info_submit().result()
 
-    @capture_exceptions(fatal=True)
     async def get_info_async(self) -> types.GetInfoResponse:
         """Async version of get_info."""
         return await self._get_info_submit()
 
-    @capture_exceptions(fatal=True)
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Get the tokenizer for the current model.
 
@@ -1001,7 +935,6 @@ class TrainingClient(TelemetryProvider):
         """
         return _get_tokenizer(self._guaranteed_model_id(), self.holder)
 
-    @capture_exceptions(fatal=True)
     def create_sampling_client(
         self, model_path: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -1026,7 +959,6 @@ class TrainingClient(TelemetryProvider):
             self.holder, model_path=model_path, retry_config=retry_config
         ).result()
 
-    @capture_exceptions(fatal=True)
     async def create_sampling_client_async(
         self, model_path: str, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -1035,24 +967,6 @@ class TrainingClient(TelemetryProvider):
             self.holder, model_path=model_path, retry_config=retry_config
         )
 
-    def save_weights_and_get_sampling_client_submit(
-        self, retry_config: RetryConfig | None = None
-    ) -> APIFuture[SamplingClient]:
-        request_id = self._get_request_id()
-
-        async def _save_weights_and_get_sampling_client_async():
-            result = await self._save_weights_for_sampler_impl(request_id, None)
-            assert result.path is None
-            assert result.sampling_session_id is not None
-            return await SamplingClient.create(
-                self.holder,
-                sampling_session_id=result.sampling_session_id,
-                retry_config=retry_config,
-            )
-
-        return self.holder.run_coroutine_threadsafe(_save_weights_and_get_sampling_client_async())
-
-    @capture_exceptions(fatal=True)
     def save_weights_and_get_sampling_client(
         self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -1087,9 +1001,14 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        return self.save_weights_and_get_sampling_client_submit(retry_config).result()
+        sampling_session_id = self._save_weights_for_sampler_impl(None, None).result()
+        assert isinstance(sampling_session_id, str)
+        return SamplingClient.create(
+            self.holder,
+            sampling_session_id=sampling_session_id,
+            retry_config=retry_config,
+        ).result()
 
-    @capture_exceptions(fatal=True)
     async def save_weights_and_get_sampling_client_async(
         self, name: str | None = None, retry_config: RetryConfig | None = None
     ) -> SamplingClient:
@@ -1105,7 +1024,13 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        return await self.save_weights_and_get_sampling_client_submit(retry_config)
+        sampling_session_id = self._save_weights_for_sampler_impl(None, None).result()
+        assert isinstance(sampling_session_id, str)
+        return await SamplingClient.create(
+            self.holder,
+            sampling_session_id=sampling_session_id,
+            retry_config=retry_config,
+        )
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()

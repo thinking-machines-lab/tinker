@@ -6,6 +6,7 @@ from .._base_client import make_request_options
 from .._compat import model_dump
 from .._resource import AsyncAPIResource
 from .._types import NOT_GIVEN, Body, Headers, NotGiven, Query
+from ..lib._pydantic_conv import to_pydantic_request
 from ..types.forward_backward_request import ForwardBackwardRequest
 from ..types.forward_request import ForwardRequest
 from ..types.optim_step_request import OptimStepRequest
@@ -56,7 +57,12 @@ class AsyncTrainingResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/forward",
-            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            body=model_dump(
+                to_pydantic_request(request),
+                exclude_unset=False,
+                exclude_none=True,
+                mode="json",
+            ),
             options=options,
             cast_to=UntypedAPIFuture,
         )
@@ -102,7 +108,12 @@ class AsyncTrainingResource(AsyncAPIResource):
 
         return await self._post(
             "/api/v1/forward_backward",
-            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            body=model_dump(
+                to_pydantic_request(request),
+                exclude_unset=False,
+                exclude_none=True,
+                mode="json",
+            ),
             options=options,
             cast_to=UntypedAPIFuture,
         )

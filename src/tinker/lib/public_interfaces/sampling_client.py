@@ -171,6 +171,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 self._sampling_client_sidecar_handle = create_sidecar_handle(self)
 
     @staticmethod
+    @capture_exceptions(fatal=True)
     async def _create_impl(
         holder: InternalClientHolder,
         *,
@@ -233,7 +234,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
                 )
         except tinker.APIStatusError as e:
-            if e.status_code == 429:
+            if e.status_code == 429 or self.holder._should_pause_on_billing_exception(e):
                 return None
             raise e
 
@@ -279,7 +280,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             queue_state_observer=self,
         ).result_async()
 
-    @capture_exceptions(fatal=True)
     def sample(
         self,
         prompt: types.ModelInput,
@@ -356,7 +356,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             )
         )
 
-    @capture_exceptions(fatal=True)
     def compute_logprobs(self, prompt: types.ModelInput) -> ConcurrentFuture[list[float | None]]:
         """Compute log probabilities for prompt tokens.
 
@@ -402,6 +401,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
 
     def _get_sampler_submit(self) -> AwaitableConcurrentFuture[types.GetSamplerResponse]:
+        @capture_exceptions(fatal=True)
         async def _get_sampler_async() -> types.GetSamplerResponse:
             async def _send_request() -> types.GetSamplerResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -414,7 +414,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         return self.holder.run_coroutine_threadsafe(_get_sampler_async())
 
-    @capture_exceptions(fatal=True)
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Get the tokenizer for the current model.
 
@@ -424,7 +423,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampler_info = self._get_sampler_submit().result()
         return _load_tokenizer_from_model_info(sampler_info.base_model)
 
-    @capture_exceptions(fatal=True)
     def get_base_model(self) -> str:
         """Get the base model name for the current sampling session."""
         return self._get_sampler_submit().result().base_model
