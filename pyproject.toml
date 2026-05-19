@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.20.0"
+version = "0.21.0"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -17,6 +17,7 @@ dependencies = [
     "sniffio",
     "numpy",
     "protobuf>=4.21",
+    "grpcio>=1.75.1",
     "transformers",
     "rich>=13.0.0",
     "click>=8.0.0",
@@ -149,6 +150,10 @@ extend_exclude = [
     ".*_test\\.py",
 ]
 known_first_party = ["tinker"]
+
+[tool.deptry.package_module_name_map]
+# `grpcio` distributes the top-level `grpc` module; deptry can't infer this.
+grpcio = "grpc"
 
 [tool.deptry.per_rule_ignores]
 # DEP001: module imported but not declared. These are intentional lazy imports

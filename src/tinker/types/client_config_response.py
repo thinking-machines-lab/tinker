@@ -22,3 +22,11 @@ class ClientConfigResponse(BaseModel):
     POSTs with Content-Type: application/x-protobuf. Falls back to JSON when
     false (default) or when the request can't be encoded in proto."""
     billing_exception_max_pause_duration_sec: int = 60 * 60
+    # gRPC endpoint advertised by the server. Scheme-prefixed URL:
+    # "grpc://host:port" (plaintext) or "grpcs://host:port" (TLS).
+    # None means the SDK stays on REST.
+    grpc_target: str | None = None
+    # Gate for routing retrieve_future through gRPC. Only honored when
+    # grpc_target is also set.
+    enable_grpc_retrieve_future: bool = False
+    sample_no_retries: bool = False
