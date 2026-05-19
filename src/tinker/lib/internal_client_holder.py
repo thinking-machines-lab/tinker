@@ -15,6 +15,8 @@ from collections.abc import Coroutine, Generator
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
 
+import grpc
+import grpc.aio
 import httpx
 
 from tinker import types
@@ -26,12 +28,14 @@ from tinker.lib._auth_token_provider import (
     AuthTokenProvider,
     resolve_auth_provider,
 )
+from tinker.lib._grpc_auth_interceptor import auth_interceptors
 from tinker.lib._jwt_auth import JwtAuthProvider
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
+from tinker.proto import tinker_api_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +204,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._constructor_kwargs = dict(kwargs)
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
+        # Per-pool-type gRPC channels, lazily created by _get_grpc_channel so
+        # the holder stays picklable (grpc.aio channels bind to the current
+        # event loop at construction).
+        self._grpc_channels: dict[ClientConnectionPoolType, "grpc.aio.Channel"] = {}
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
@@ -278,8 +286,14 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._first_billing_exception_time: float | None = None
         self._last_logged_billing_exception_time: float | None = None
 
-    def _should_pause_on_billing_exception(self, e: Exception) -> bool:
-        if not isinstance(e, APIStatusError) or e.status_code != 402:
+    def _should_pause_on_billing(self, status_code: int, detail: str) -> bool:
+        """Return True when status_code is 402 and we're still inside the
+        max-pause window. Caller is expected to `await asyncio.sleep(...)`
+        and retry without emitting telemetry when this returns True.
+        Returns False once the pause window has been exceeded so the caller
+        falls through to the normal fatal-error dispatch.
+        """
+        if status_code != 402:
             return False
 
         now = time.monotonic()
@@ -309,7 +323,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             > BILLING_EXCEPTION_LOGGING_INTERVAL_SEC
         ):
             self._last_logged_billing_exception_time = now
-            logger.warning(f"The job is paused due to billing status. Error: {e.message}")
+            logger.warning(f"The job is paused due to billing status. Error: {detail}")
 
         if self._first_billing_exception_time is None:
             self._first_billing_exception_time = now
@@ -487,6 +501,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def get_session_id(self) -> str:
         return self._session_id
 
+    def get_client_config(self) -> types.ClientConfigResponse:
+        return self._client_config
+
     def get_training_client_id(self) -> int:
         # get_training_client_id can only be called via a ServiceClient.
         # ServiceClient will never have a shadow holder, so we can safely assert.
@@ -500,6 +517,54 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self, client_pool_type: ClientConnectionPoolType
     ) -> AbstractContextManager[AsyncTinker]:
         return self._get_client_connection_pool(client_pool_type).aclient()
+
+    def _parse_grpc_target(self, target: str) -> tuple[bool, str]:
+        """Split a scheme-prefixed grpc target into (secure, host:port).
+
+        Accepts "grpc://host:port" (plaintext) or "grpcs://host:port" (TLS).
+        """
+        if target.startswith("grpcs://"):
+            return True, target.removeprefix("grpcs://")
+        if target.startswith("grpc://"):
+            return False, target.removeprefix("grpc://")
+        # Tolerate a bare host:port for developer convenience.
+        return False, target
+
+    async def _get_grpc_channel(
+        self, pool_type: ClientConnectionPoolType
+    ) -> grpc.aio.Channel | None:
+        """Returns the gRPC channel for this pool type, lazily creating it.
+
+        Returns None if the server hasn't advertised a grpc_target. Must be
+        called on the holder's event loop so the channel binds correctly.
+        """
+        target = self._client_config.grpc_target
+        if not target:
+            return None
+        if pool_type not in self._grpc_channels:
+            secure, addr = self._parse_grpc_target(target)
+            interceptors = auth_interceptors(self._default_auth)
+            if secure:
+                self._grpc_channels[pool_type] = grpc.aio.secure_channel(
+                    addr, grpc.ssl_channel_credentials(), interceptors=interceptors
+                )
+            else:
+                self._grpc_channels[pool_type] = grpc.aio.insecure_channel(
+                    addr, interceptors=interceptors
+                )
+        return self._grpc_channels[pool_type]
+
+    async def get_tinker_api_grpc_stub(
+        self, pool_type: ClientConnectionPoolType
+    ) -> tinker_api_pb2_grpc.TinkerApiStub | None:
+        """Returns a gRPC stub for the TinkerApi service over the channel for
+        this pool type, or None if the server hasn't advertised a gRPC
+        endpoint. Auth is injected by the channel's auth interceptor (see
+        `tinker.lib._grpc_auth_interceptor.auth_interceptors`)."""
+        channel = await self._get_grpc_channel(pool_type)
+        if channel is None:
+            return None
+        return tinker_api_pb2_grpc.TinkerApiStub(channel)
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
         return self._loop
@@ -526,6 +591,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._session_heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._session_heartbeat_task
+        for channel in self._grpc_channels.values():
+            with contextlib.suppress(Exception):
+                await channel.close()
+        self._grpc_channels.clear()
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:
@@ -554,7 +623,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                if self._should_pause_on_billing_exception(e):
+                if isinstance(e, APIStatusError) and self._should_pause_on_billing(
+                    e.status_code, e.message
+                ):
                     await asyncio.sleep(5)
                     continue
                 is_retryable = self._is_retryable_exception(e)

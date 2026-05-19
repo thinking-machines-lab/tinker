@@ -209,6 +209,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
     async def _send_asample_request(
         self,
+        request_id: int,
         num_samples: int,
         prompt: types.ModelInput,
         sampling_params: types.SamplingParams,
@@ -216,8 +217,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_prompt_logprobs: int,
     ):
         try:
-            request_id = self._request_id_counter
-            self._request_id_counter += 1
             request = types.SampleRequest(
                 sampling_session_id=self._sampling_session_id,
                 seq_id=request_id,
@@ -234,7 +233,9 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     extra_headers={"X-Tinker-Sampling-Backpressure": "1"},
                 )
         except tinker.APIStatusError as e:
-            if e.status_code == 429 or self.holder._should_pause_on_billing_exception(e):
+            if e.status_code == 429 or self.holder._should_pause_on_billing(
+                e.status_code, e.message
+            ):
                 return None
             raise e
 
@@ -247,6 +248,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_prompt_logprobs: int = 0,
     ) -> types.SampleResponse:
         estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
+        request_id = self._request_id_counter
+        self._request_id_counter += 1
         async with self.holder.sample_dispatch_rate_limit(estimated_bytes_count):
             while True:
                 if (
@@ -258,6 +261,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
                 untyped_future = await self.holder.execute_with_retries(
                     self._send_asample_request,
+                    request_id,
                     num_samples,
                     prompt,
                     sampling_params,
@@ -334,7 +338,14 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         async def _sample_async_with_retries() -> types.SampleResponse:
             return await self.retry_handler.execute(_sample_async)
 
+        @capture_exceptions(fatal=True)
+        async def _sample_async_without_retries() -> types.SampleResponse:
+            return await _sample_async()
+
         # TODO make max_tokens a required field
+        if self.holder._client_config.sample_no_retries:
+            return self.holder.run_coroutine_threadsafe(_sample_async_without_retries()).future()
+
         return self.holder.run_coroutine_threadsafe(_sample_async_with_retries()).future()
 
     async def sample_async(
@@ -560,7 +571,7 @@ def _load_tokenizer_from_model_info(
         tokenizer_id = "moonshotai/Kimi-K2.6"
         kwargs = {
             "trust_remote_code": True,
-            "revision": "5a49d036ab7472b7d5912ded487150ec1358c11d",
+            "revision": "b5aabbfb20227ed42becbf5541dbffd213942c58",
         }
 
     return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)
