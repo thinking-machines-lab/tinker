@@ -340,6 +340,10 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         @capture_exceptions(fatal=True)
         async def _sample_async_without_retries() -> types.SampleResponse:
+            # Reference `self` so it lands in this function's closure;
+            # @capture_exceptions discovers the TelemetryProvider via
+            # `inspect.getclosurevars(...).nonlocals["self"]`.
+            _ = self
             return await _sample_async()
 
         # TODO make max_tokens a required field
