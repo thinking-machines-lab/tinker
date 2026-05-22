@@ -58,7 +58,14 @@ class TensorData:
             raise TypeError("TensorData requires `dtype`")
         np_dtype = _convert_tensor_dtype_to_numpy(dtype)
         if isinstance(data, np.ndarray):
-            arr = data if data.dtype == np_dtype else data.astype(np_dtype)
+            if data.dtype != np_dtype:
+                arr = data.astype(np_dtype)
+            elif not data.flags.writeable:
+                # torch.from_numpy warns on non-writable buffers (np.frombuffer
+                # over immutable bytes, mmap_mode='r', Arrow-backed arrays, etc.).
+                arr = data.copy()
+            else:
+                arr = data
         elif data is None:
             arr = np.empty(0, dtype=np_dtype)
         else:

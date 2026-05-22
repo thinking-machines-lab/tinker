@@ -41,6 +41,7 @@ class RestClient(TelemetryProvider):
     - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
     - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
+    - assign_session_project() - move a session into a project
 
     Args:
     - `holder`: Internal client managing HTTP connections and async operations
@@ -870,6 +871,58 @@ class RestClient(TelemetryProvider):
             offset,
             access_scope=access_scope,
         )
+
+    def _assign_session_project_submit(
+        self, session_id: str, project_id: str
+    ) -> AwaitableConcurrentFuture[None]:
+        """Internal method to submit assign session project request."""
+
+        async def _assign_session_project_async() -> None:
+            async def _send_request() -> None:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    await client.put(
+                        f"/api/v1/sessions/{session_id}/project",
+                        body={"project_id": project_id},
+                        cast_to=NoneType,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_assign_session_project_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def assign_session_project(self, session_id: str, project_id: str) -> ConcurrentFuture[None]:
+        """Move a session (and all of its training runs/samplers) into a project.
+
+        Use this to attach a previously-created session to a project, or to move
+        a session between projects. Clearing the project is not supported — sessions
+        cannot be moved out of a project once placed.
+
+        Args:
+        - `session_id`: The session ID to move
+        - `project_id`: The destination project ID
+
+        Returns:
+        - A `Future` that completes when the session has been moved
+
+        Raises:
+            HTTPException: 400 if `project_id` is missing
+            HTTPException: 403 if the caller lacks access to the destination project
+            HTTPException: 404 if the session is not found or not accessible
+
+        Example:
+        ```python
+        future = rest_client.assign_session_project("session-id", "project-id")
+        future.result()
+        ```
+        """
+        return self._assign_session_project_submit(session_id, project_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def assign_session_project_async(self, session_id: str, project_id: str) -> None:
+        """Async version of assign_session_project."""
+        await self._assign_session_project_submit(session_id, project_id)
 
     @capture_exceptions(fatal=True)
     def get_sampler(self, sampler_id: str) -> APIFuture[types.GetSamplerResponse]:

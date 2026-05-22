@@ -227,6 +227,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 self._fetch_client_config(config_auth)
             ).result()
 
+        # Pin the server-chosen transport backend onto every subsequently-built
+        # AsyncTinker. The one-off config-fetch pool above used the SDK default
+        # (pyqwest) since the flag isn't known until that call returns.
+        self._constructor_kwargs["_use_pyqwest"] = self._client_config.use_pyqwest_transport
+
         self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(
             self._client_config.sample_dispatch_bytes_semaphore_size
         )
@@ -444,10 +449,13 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     async def _fetch_client_config(self, auth: AuthTokenProvider) -> types.ClientConfigResponse:
         """Call /api/v1/client/config and return server feature flags.
 
-        Creates a one-off connection pool with the given auth.  Retries
-        transient failures via execute_with_retries.
+        Creates a one-off connection pool with the given auth, pinned to
+        httpx's default transport (no pyqwest) so the kill-switch in
+        ClientConfigResponse.use_pyqwest_transport is always reachable, even
+        if pyqwest itself is broken. Retries transient failures via
+        execute_with_retries.
         """
-        kwargs = {**self._constructor_kwargs, "_auth": auth}
+        kwargs = {**self._constructor_kwargs, "_auth": auth, "_use_pyqwest": False}
         pool = ClientConnectionPool(self.get_loop(), 1, kwargs)
 
         async def _once() -> types.ClientConfigResponse:

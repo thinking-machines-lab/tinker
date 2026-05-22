@@ -745,6 +745,17 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
         return f"stainless-python-retry-{uuid.uuid4()}"
 
 
+def _default_pyqwest_transport() -> httpx.AsyncBaseTransport:
+    # pyqwest is a reqwest/hyper-based HTTP backend exposed through an
+    # httpx-compatible transport adapter. Gated by
+    # ClientConfigResponse.use_pyqwest_transport so the server can flip every
+    # client back to httpx's default transport without an SDK release.
+    import pyqwest
+    from pyqwest.httpx import AsyncPyqwestTransport
+
+    return AsyncPyqwestTransport(transport=pyqwest.HTTPTransport())
+
+
 class _DefaultAsyncHttpxClient(httpx.AsyncClient):
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("timeout", DEFAULT_TIMEOUT)
@@ -816,6 +827,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         http_client: httpx.AsyncClient | None = None,
         custom_headers: Mapping[str, str] | None = None,
         custom_query: Mapping[str, object] | None = None,
+        use_pyqwest: bool = True,
     ) -> None:
         if not is_given(timeout):
             # if the user passed in a custom http client with a non-default
@@ -845,12 +857,18 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
             custom_headers=custom_headers,
             _strict_response_validation=_strict_response_validation,
         )
-        self._client = http_client or AsyncHttpxClientWrapper(
-            base_url=base_url,
-            # cast to a valid type because mypy doesn't understand our type narrowing
-            timeout=cast(Timeout, timeout),
-            http2=True,
-        )
+        if http_client is not None:
+            self._client = http_client
+        else:
+            default_kwargs: dict[str, Any] = {
+                "base_url": base_url,
+                # cast to a valid type because mypy doesn't understand our type narrowing
+                "timeout": cast(Timeout, timeout),
+                "http2": True,
+            }
+            if use_pyqwest:
+                default_kwargs["transport"] = _default_pyqwest_transport()
+            self._client = AsyncHttpxClientWrapper(**default_kwargs)
 
     def is_closed(self) -> bool:
         return self._client.is_closed

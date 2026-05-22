@@ -30,3 +30,7 @@ class ClientConfigResponse(BaseModel):
     # grpc_target is also set.
     enable_grpc_retrieve_future: bool = False
     sample_no_retries: bool = False
+    use_pyqwest_transport: bool = True
+    """When true, the SDK builds its default httpx async client on top of the
+    pyqwest (reqwest/hyper-based) transport adapter. Set to false server-side
+    to force every client to fall back to httpx's default transport."""

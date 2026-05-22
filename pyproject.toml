@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.21.0"
+version = "0.22.0"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -10,6 +10,7 @@ authors = [
 keywords = ["tinker", "machine learning"]
 dependencies = [
     "httpx[http2]>=0.23.0, <1",
+    "pyqwest>=0.4.1",
     "pydantic>=1.9.0, <3",
     "typing-extensions>=4.10, <5",
     "anyio>=3.5.0, <5",
