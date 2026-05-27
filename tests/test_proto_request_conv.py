@@ -321,3 +321,45 @@ async def test_send_forward_backward_proto_writes_bytes_to_wire() -> None:
     parsed = public_pb.ForwardBackwardRequest()
     parsed.ParseFromString(body)
     assert parsed.model_id == "m-test"
+
+
+@pytest.mark.asyncio
+async def test_send_forward_backward_proto_zstd_compresses_body_when_enabled() -> None:
+    """With ``compress=True`` the helper zstd-compresses the proto body and
+    sets ``Content-Encoding: zstd``; the body decompresses back to the same
+    proto bytes."""
+    from unittest.mock import AsyncMock
+
+    import zstandard as zstd
+
+    from tinker.lib.public_interfaces.training_client import _send_forward_backward_proto
+
+    request = _make_request(
+        data=[
+            types.Datum(
+                model_input=types.ModelInput.from_ints([1, 2]),
+                loss_fn_inputs={"target_tokens": [3, 4], "weights": [1.0, 1.0]},
+            )
+        ]
+    )
+
+    fake_client = AsyncMock()
+    fake_client.post = AsyncMock(return_value="sentinel-future")
+
+    await _send_forward_backward_proto(fake_client, request, compress=True)
+
+    fake_client.post.assert_awaited_once()
+    call = fake_client.post.await_args
+    headers = call.kwargs["options"].get("headers")
+    assert headers == {
+        "Content-Type": "application/x-protobuf",
+        "Content-Encoding": "zstd",
+    }
+    body = call.kwargs["body"]
+    assert isinstance(body, bytes)
+    # The wire body is zstd-compressed; decompressing yields a valid proto.
+    decompressed = zstd.ZstdDecompressor().decompress(body)
+    parsed = public_pb.ForwardBackwardRequest()
+    parsed.ParseFromString(decompressed)
+    assert parsed.model_id == "m-test"
+    assert parsed.loss_fn == "cross_entropy"
