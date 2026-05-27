@@ -21,6 +21,11 @@ class ClientConfigResponse(BaseModel):
     """When true, the SDK serializes ForwardBackwardRequest as proto bytes and
     POSTs with Content-Type: application/x-protobuf. Falls back to JSON when
     false (default) or when the request can't be encoded in proto."""
+    proto_compress_fwdbwd: bool = False
+    """When true (and proto_write_fwdbwd is also true), the SDK zstd-compresses
+    the proto fwd/bwd request body and sets Content-Encoding: zstd. Real fwd/bwd
+    payloads compress >10× — the API server decompresses transparently via an
+    ASGI middleware. Ignored on the JSON path."""
     billing_exception_max_pause_duration_sec: int = 60 * 60
     # gRPC endpoint advertised by the server. Scheme-prefixed URL:
     # "grpc://host:port" (plaintext) or "grpcs://host:port" (TLS).

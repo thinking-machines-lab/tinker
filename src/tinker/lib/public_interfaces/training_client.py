@@ -65,6 +65,8 @@ _PROTO_CONTENT_TYPE = "application/x-protobuf"
 async def _send_forward_backward_proto(
     client: AsyncTinker,
     request: types.ForwardBackwardRequest,
+    *,
+    compress: bool = False,
 ) -> types.UntypedAPIFuture:
     """POST a fwd/bwd request as proto bytes (Content-Type: application/x-protobuf).
 
@@ -73,6 +75,10 @@ async def _send_forward_backward_proto(
     only knows how to JSON-serialize, and instead drives ``client.post``
     directly with a raw bytes body — ``_base_client._build_request`` sends
     bytes as ``content=`` rather than ``json=`` when the body is bytes.
+
+    When ``compress=True`` (server flips on ``proto_compress_fwdbwd``), the
+    proto body is zstd-compressed and ``Content-Encoding: zstd`` is set;
+    the API server decompresses transparently via an ASGI middleware.
     """
     # Local import to keep the proto modules off the SDK's import-time hot
     # path; only callers with the dync flag flipped actually load them.
@@ -80,7 +86,13 @@ async def _send_forward_backward_proto(
     from tinker.proto.request_conv import forward_backward_request_to_proto
 
     proto_bytes = forward_backward_request_to_proto(request).SerializeToString()
-    options = make_request_options(extra_headers={"Content-Type": _PROTO_CONTENT_TYPE})
+    headers: dict[str, str] = {"Content-Type": _PROTO_CONTENT_TYPE}
+    if compress:
+        import zstandard as zstd
+
+        proto_bytes = await asyncio.to_thread(zstd.ZstdCompressor().compress, proto_bytes)
+        headers["Content-Encoding"] = "zstd"
+    options = make_request_options(extra_headers=headers)
     return await client.post(
         "/api/v1/forward_backward",
         body=proto_bytes,
@@ -341,8 +353,11 @@ class TrainingClient(TelemetryProvider):
                     seq_id=request_id + 1,
                 )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    if self.holder._client_config.proto_write_fwdbwd:
-                        return await _send_forward_backward_proto(client, request)
+                    cfg = self.holder._client_config
+                    if cfg.proto_write_fwdbwd:
+                        return await _send_forward_backward_proto(
+                            client, request, compress=cfg.proto_compress_fwdbwd
+                        )
                     return await client.training.forward_backward(
                         request=request,
                     )

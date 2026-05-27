@@ -324,13 +324,16 @@ class RestClient(TelemetryProvider):
                     logger.warning("... still running")
 
         async def _get_checkpoint_archive_url_async() -> types.CheckpointArchiveUrlResponse:
-            status_task = asyncio.create_task(_status_task())
-            try:
+            async def _send_request() -> types.CheckpointArchiveUrlResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    result = await client.weights.get_checkpoint_archive_url(
+                    return await client.weights.get_checkpoint_archive_url(
                         model_id=training_run_id,
                         checkpoint_id=checkpoint_id,
                     )
+
+            status_task = asyncio.create_task(_status_task())
+            try:
+                result = await self.holder.execute_with_retries(_send_request)
             finally:
                 status_task.cancel()
 
