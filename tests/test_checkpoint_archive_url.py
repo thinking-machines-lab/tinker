@@ -7,7 +7,9 @@ from collections.abc import Awaitable, Callable, Iterator
 from typing import TypeVar
 
 import httpx
+import pytest
 
+from tinker._client import AsyncTinker
 from tinker._exceptions import APIConnectionError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.rest_client import RestClient
@@ -78,5 +80,78 @@ def test_get_checkpoint_archive_url_uses_holder_retries() -> None:
 
     assert result is response
     assert holder.execute_with_retries_called
-    assert holder.used_pool_type == ClientConnectionPoolType.TRAIN
+    assert holder.used_pool_type == ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
     assert weights.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_get_checkpoint_archive_url_accepts_current_backend_redirect_response() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        accept_values = {value.strip() for value in request.headers["accept"].split(",")}
+        assert accept_values == {"application/json"}
+        return httpx.Response(
+            302,
+            headers={
+                "Location": "https://download.example.test/archive.tar",
+                "Expires": "Wed, 27 May 2026 20:00:00 GMT",
+            },
+        )
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        async_tinker = AsyncTinker(
+            base_url="https://api.example.test",
+            api_key="tml-test-api-key",
+            http_client=http_client,
+        )
+
+        result = await async_tinker.weights.get_checkpoint_archive_url(
+            model_id="run-id",
+            checkpoint_id="sampler_weights/final",
+        )
+    finally:
+        await http_client.aclose()
+
+    assert result.url == "https://download.example.test/archive.tar"
+    assert result.expires == datetime.datetime(2026, 5, 27, 20, tzinfo=datetime.UTC)
+    assert len(captured) == 1
+    assert "redirect" not in captured[0].url.params
+
+
+@pytest.mark.asyncio
+async def test_get_checkpoint_archive_url_accepts_future_backend_json_response() -> None:
+    captured: list[httpx.Request] = []
+    expires = datetime.datetime(2026, 5, 27, 20, tzinfo=datetime.UTC)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "url": "https://download.example.test/archive.tar",
+                "expires": expires.isoformat(),
+            },
+        )
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        async_tinker = AsyncTinker(
+            base_url="https://api.example.test",
+            api_key="tml-test-api-key",
+            http_client=http_client,
+        )
+
+        result = await async_tinker.weights.get_checkpoint_archive_url(
+            model_id="run-id",
+            checkpoint_id="sampler_weights/final",
+        )
+    finally:
+        await http_client.aclose()
+
+    assert result.url == "https://download.example.test/archive.tar"
+    assert result.expires == expires
+    assert len(captured) == 1
+    assert "redirect" not in captured[0].url.params
