@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import time
 import traceback
@@ -10,9 +9,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, List, Type, TypeVar, cast
-
-import grpc
-import grpc.aio
 
 import tinker
 from tinker import types
@@ -30,7 +26,6 @@ from .sync_only import sync_only
 if TYPE_CHECKING:
     from tinker.lib.internal_client_holder import InternalClientHolder
 
-from tinker.proto import tinker_api_pb2
 from tinker.proto.response_conv import PROTO_SUPPORTED_TYPES, deserialize_proto_response
 
 logger = logging.getLogger(__name__)
@@ -57,9 +52,8 @@ class QueueStateObserver(ABC):
         raise NotImplementedError
 
 
-# Internal outcome types — `_fetch_via_rest` and `_fetch_via_grpc` both
-# produce one of these, and `_handle_outcome` dispatches. Keeps the two
-# transports' post-fetch logic unified.
+# Internal outcome types — `_fetch_via_rest` produces one of these, and
+# `_handle_outcome` dispatches.
 
 
 @dataclass
@@ -105,24 +99,17 @@ _MAX_BAD_REQUEST_RETRIES = 3
 
 
 class _TransportErrorKind(Enum):
-    """How the outer loop should react to a transport-layer error.
+    """How the outer loop should react to a transport-layer error."""
 
-    One enum so REST and gRPC paths collapse onto the same decision
-    space — both translate their native exceptions into a _TransportError
-    with a kind, and the shared handler acts on the kind.
-    """
-
-    # Immediate retry without backoff. Maps to REST 408/5xx, gRPC INTERNAL.
+    # Immediate retry without backoff. Maps to HTTP 408/5xx.
     RETRY = "retry"
-    # Retry with exponential backoff. Maps to REST connection errors and
-    # gRPC UNAVAILABLE (server unreachable vs. currently overloaded).
+    # Retry with exponential backoff. Maps to connection errors.
     RETRY_WITH_BACKOFF = "retry_with_backoff"
-    # Retry up to _MAX_BAD_REQUEST_RETRIES. Maps to bare HTTP 400 / gRPC
-    # INVALID_ARGUMENT, which an upstream proxy may inject spuriously.
+    # Retry up to _MAX_BAD_REQUEST_RETRIES. Maps to bare HTTP 400, which
+    # an upstream proxy may inject spuriously.
     RETRY_IF_BUDGET = "retry_if_budget"
     # Raise RetryableException so the outer-outer client can retry the
-    # *original* request (promise is gone/corrupt). Maps to REST 410 /
-    # gRPC FAILED_PRECONDITION.
+    # *original* request (promise is gone/corrupt). Maps to HTTP 410.
     RETRYABLE_EXCEPTION = "retryable_exception"
     # Everything else — auth/permission/not_found/etc. Raise ValueError.
     FATAL = "fatal"
@@ -130,62 +117,30 @@ class _TransportErrorKind(Enum):
 
 @dataclass
 class _TransportError:
-    """Transport-layer error, normalized across REST and gRPC.
+    """Transport-layer error.
 
-    Both _fetch_via_rest and _fetch_via_grpc translate their native
-    exceptions into this shape; _handle_transport_error picks the retry
-    action based on .kind and emits the telemetry event in one place.
+    `_fetch_via_rest` translates exceptions into this shape;
+    `_handle_transport_error` picks the retry action based on `.kind` and
+    emits the telemetry event in one place.
     """
 
     kind: _TransportErrorKind
-    # HTTP status for telemetry parity. gRPC codes map back via
-    # _GRPC_TO_HTTP_STATUS; 0 means "transport error with no HTTP response"
+    # HTTP status. 0 means "transport error with no HTTP response"
     # (e.g. connection refused).
     status_code: int
     detail: str
     exception: Exception
     # Telemetry event name. "api_status_error" is the catch-all;
-    # "connection_error" identifies cases where no usable HTTP-shaped response
-    # came back from the server (REST APIConnectionError and gRPC
-    # UNAVAILABLE / UNKNOWN / CANCELLED / ABORTED / DATA_LOSS).
+    # "connection_error" identifies cases where no usable response came
+    # back from the server (APIConnectionError).
     event_name: str = "api_status_error"
-    # REST 408 carries queue_state in the body. Plumb it through so the
-    # shared handler can still notify the observer.
+    # HTTP 408 carries queue_state in the body. Plumb it through so the
+    # handler can still notify the observer.
     try_again_body: dict[str, Any] | None = None
-    # REST-only post-mortem context for terminal errors (auth headers, error
-    # body). gRPC's AioRpcError.trailing_metadata() doesn't carry the same
-    # HTTP-shaped debug context, so these stay None on the gRPC path.
+    # Post-mortem context for terminal errors (auth headers, error body).
     response_headers: dict[str, str] | None = None
     request_headers: dict[str, str] | None = None
     response_body: object | None = None
-
-
-# gRPC status code → HTTP-ish status for telemetry symmetry. Mirrors the
-# server's _HTTP_TO_GRPC map (inverted). 429 maps to RESOURCE_EXHAUSTED
-# on the server; for the reverse we pick the most common HTTP code.
-_GRPC_TO_HTTP_STATUS: dict[grpc.StatusCode, int] = {
-    grpc.StatusCode.INVALID_ARGUMENT: 400,
-    grpc.StatusCode.UNAUTHENTICATED: 401,
-    grpc.StatusCode.PERMISSION_DENIED: 403,
-    grpc.StatusCode.NOT_FOUND: 404,
-    grpc.StatusCode.DEADLINE_EXCEEDED: 408,
-    grpc.StatusCode.FAILED_PRECONDITION: 410,
-    grpc.StatusCode.RESOURCE_EXHAUSTED: 429,
-    grpc.StatusCode.CANCELLED: 499,
-    grpc.StatusCode.INTERNAL: 500,
-    grpc.StatusCode.UNAVAILABLE: 503,
-}
-
-
-_GRPC_QUEUE_STATE_TO_ENUM: dict[int, QueueState] = {
-    tinker_api_pb2.QUEUE_ACTIVITY_STATE_ACTIVE: QueueState.ACTIVE,
-    tinker_api_pb2.QUEUE_ACTIVITY_STATE_PAUSED_CAPACITY: QueueState.PAUSED_CAPACITY,
-    tinker_api_pb2.QUEUE_ACTIVITY_STATE_PAUSED_RATE_LIMIT: QueueState.PAUSED_RATE_LIMIT,
-}
-
-
-def _grpc_queue_state_to_enum(proto_value: int) -> QueueState:
-    return _GRPC_QUEUE_STATE_TO_ENUM.get(proto_value, QueueState.UNKNOWN)
 
 
 _REST_QUEUE_STATE_TO_ENUM: dict[str, QueueState] = {
@@ -197,148 +152,6 @@ _REST_QUEUE_STATE_TO_ENUM: dict[str, QueueState] = {
 
 def _rest_queue_state_to_enum(value: str) -> QueueState:
     return _REST_QUEUE_STATE_TO_ENUM.get(value, QueueState.UNKNOWN)
-
-
-def _poll_response_to_outcome(response: tinker_api_pb2.PollPromiseResponse) -> _Outcome:
-    """Translate a PollPromiseResponse oneof into the SDK's _Outcome union."""
-    which = response.WhichOneof("result")
-    if which == "try_again":
-        return _TryAgain(
-            queue_state=_grpc_queue_state_to_enum(response.try_again.queue_state),
-            # Proto string defaults to "" when unset; observer treats
-            # empty/None equivalently, so coerce empty to None for parity
-            # with REST (where missing key → None).
-            queue_state_reason=response.try_again.queue_state_reason or None,
-        )
-    if which == "metadata":
-        return _MetadataOnly(payload_size=response.metadata.payload_size)
-    if which == "failed":
-        category = RequestErrorCategory.Unknown
-        with contextlib.suppress(Exception):
-            category = RequestErrorCategory(response.failed.category)
-        return _Failed(
-            error_message=response.failed.error,
-            error_category=category,
-        )
-    assert which == "payload", (
-        f"PollPromiseResponse.result oneof not set (got {which!r}); server contract violation"
-    )
-    if response.payload.format == "proto":
-        return _SuccessProto(proto_bytes=response.payload.data)
-    return _SuccessJson(result_dict=json.loads(response.payload.data))
-
-
-def _fetch_payload_response_to_outcome(
-    response: tinker_api_pb2.FetchPromisePayloadResponse,
-) -> _Outcome:
-    """Translate a FetchPromisePayloadResponse oneof into the SDK's
-    _Outcome union. Narrower than poll: only payload | failed.
-    """
-    which = response.WhichOneof("result")
-    if which == "failed":
-        category = RequestErrorCategory.Unknown
-        with contextlib.suppress(Exception):
-            category = RequestErrorCategory(response.failed.category)
-        return _Failed(
-            error_message=response.failed.error,
-            error_category=category,
-        )
-    assert which == "payload", (
-        f"FetchPromisePayloadResponse.result oneof not set (got {which!r}); "
-        "server contract violation"
-    )
-    if response.payload.format == "proto":
-        return _SuccessProto(proto_bytes=response.payload.data)
-    return _SuccessJson(result_dict=json.loads(response.payload.data))
-
-
-# gRPC codes that the server emits directly (via _HTTP_TO_GRPC), plus codes
-# an intermediate L7 proxy (Cloudflare, nginx, Envoy, Linkerd) is allowed to
-# inject when it can't terminate a stream cleanly or strips grpc-status
-# trailers. Anything outside this set collapses to FATAL.
-_GRPC_RETRY_KIND: dict[grpc.StatusCode, _TransportErrorKind] = {
-    # Transport unreachable or currently unable to accept a new call.
-    # Matches REST's APIConnectionError path.
-    grpc.StatusCode.UNAVAILABLE: _TransportErrorKind.RETRY_WITH_BACKOFF,
-    # Server-side transient: matches REST 500..599. No backoff — the server
-    # is reachable, we just want to try again.
-    grpc.StatusCode.INTERNAL: _TransportErrorKind.RETRY,
-    # Rate limit / capacity (matches REST 429). Back off so the retry has a
-    # chance of finding the bucket refilled.
-    grpc.StatusCode.RESOURCE_EXHAUSTED: _TransportErrorKind.RETRY_WITH_BACKOFF,
-    # Client-side deadline beat the server's response. On gRPC, normal
-    # TryAgain comes back through the in-band `try_again` oneof (not as an
-    # error), so DEADLINE_EXCEEDED here means the server was unusually slow
-    # or stuck — semantically the same as REST's APIConnectionError, hence
-    # backoff rather than bare retry. No queue_state is available because
-    # the server didn't respond.
-    grpc.StatusCode.DEADLINE_EXCEEDED: _TransportErrorKind.RETRY_WITH_BACKOFF,
-    # Promise is gone / corrupted (server-side 410). Bubble up so the
-    # outer-outer client can retry the *original* request.
-    grpc.StatusCode.FAILED_PRECONDITION: _TransportErrorKind.RETRYABLE_EXCEPTION,
-    # Bare 400 from an upstream proxy (not just nginx — any L7 in the path
-    # may inject these). Retry up to a small budget before giving up.
-    grpc.StatusCode.INVALID_ARGUMENT: _TransportErrorKind.RETRY_IF_BUDGET,
-    # Per gRPC spec: a stream terminating without a grpc-status trailer is
-    # reported as UNKNOWN. Cloudflare and other L7 proxies frequently emit
-    # this when they cut a connection mid-response or strip trailers.
-    grpc.StatusCode.UNKNOWN: _TransportErrorKind.RETRY_WITH_BACKOFF,
-    # CANCELLED from the wire (proxy closed an idle stream, upstream
-    # GOAWAY with a partial response, midway RST_STREAM(CANCEL)). Genuine
-    # client-side cancellation is filtered out below in
-    # _grpc_error_to_transport_error before we look up this kind.
-    grpc.StatusCode.CANCELLED: _TransportErrorKind.RETRY_WITH_BACKOFF,
-    # Concurrency abort, or a proxy that lost the connection and decided
-    # to surface ABORTED with debug info on GOAWAY. Same treatment as a
-    # transport-level transient.
-    grpc.StatusCode.ABORTED: _TransportErrorKind.RETRY_WITH_BACKOFF,
-    # Trailer / framing corruption mid-stream. Rare but transport-shaped.
-    grpc.StatusCode.DATA_LOSS: _TransportErrorKind.RETRY_WITH_BACKOFF,
-}
-
-
-# gRPC codes that signal "no usable HTTP-shaped response came back from the
-# server" — server unreachable, mid-stream cut, trailer strip, etc. These
-# route through the `connection_error` telemetry event for parity with
-# REST's APIConnectionError; everything else uses `api_status_error`.
-_GRPC_CONNECTION_ERROR_CODES: frozenset[grpc.StatusCode] = frozenset(
-    {
-        grpc.StatusCode.UNAVAILABLE,
-        grpc.StatusCode.UNKNOWN,
-        grpc.StatusCode.CANCELLED,
-        grpc.StatusCode.ABORTED,
-        grpc.StatusCode.DATA_LOSS,
-    }
-)
-
-
-def _grpc_error_to_transport_error(e: grpc.aio.AioRpcError) -> _TransportError:
-    code = e.code()
-    # User-cancellation guard: if our asyncio task is being cancelled, the
-    # CANCELLED status came from *us*, not from the wire. Don't retry —
-    # let the outer CancelledError propagate (FATAL here is a placeholder;
-    # the cancellation will outrace any retry decision on the next await).
-    if code == grpc.StatusCode.CANCELLED:
-        current_task = asyncio.current_task()
-        if current_task is not None and current_task.cancelling() > 0:
-            return _TransportError(
-                kind=_TransportErrorKind.FATAL,
-                status_code=499,
-                detail="cancelled by caller",
-                exception=e,
-            )
-    kind = (
-        _GRPC_RETRY_KIND.get(code, _TransportErrorKind.FATAL) if code else _TransportErrorKind.FATAL
-    )
-    status_code = _GRPC_TO_HTTP_STATUS.get(code, 0) if code else 0
-    event_name = "connection_error" if code in _GRPC_CONNECTION_ERROR_CODES else "api_status_error"
-    return _TransportError(
-        kind=kind,
-        status_code=status_code,
-        detail=e.details() or str(e),
-        exception=e,
-        event_name=event_name,
-    )
 
 
 def _rest_status_error_to_transport_error(e: tinker.APIStatusError) -> _TransportError:
@@ -425,20 +238,12 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         iteration = -1
         state = _LoopState()
 
-        # _client_config is immutable post-init, so the transport choice is
-        # the same for every iteration of the retry loop.
-        client_config = self.holder.get_client_config()
-        use_grpc = bool(client_config.enable_grpc_retrieve_future and client_config.grpc_target)
-
         async with contextlib.AsyncExitStack() as stack:
             while True:
                 iteration += 1
                 self._check_timeout(timeout, iteration, start_time)
 
-                if use_grpc:
-                    fetched = await self._fetch_via_grpc(state, iteration)
-                else:
-                    fetched = await self._fetch_via_rest(state, iteration)
+                fetched = await self._fetch_via_rest(state, iteration)
                 if isinstance(fetched, _TransportError):
                     await self._handle_transport_error(fetched, state, iteration, start_time)
                     continue
@@ -459,8 +264,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         iteration: int,
         start_time: float,
     ) -> None:
-        """Shared retry / telemetry / raise dispatch for transport errors
-        from either REST or gRPC. Returns (loop continues) or raises.
+        """Retry / telemetry / raise dispatch for transport errors.
+        Returns (loop continues) or raises.
         """
         # Billing-pause: while the holder says we're still inside the
         # max-pause window, sleep and retry silently (no telemetry — the
@@ -480,10 +285,6 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             if err.kind in (_TransportErrorKind.FATAL, _TransportErrorKind.RETRY_IF_BUDGET)
             else "WARNING"
         )
-        # Compute is_user_error from the normalized HTTP status_code so the
-        # gRPC translator (which sets status_code via _GRPC_TO_HTTP_STATUS)
-        # produces the same telemetry shape as REST. AioRpcError doesn't
-        # expose a `.status_code` attribute that `is_user_error()` would pick up.
         is_user = 400 <= err.status_code < 500 and err.status_code != 408
         if telemetry := self.get_telemetry():
             event_data: dict[str, object] = {
@@ -501,9 +302,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 "bad_request_retries": state.bad_request_retries,
                 "connection_error_retries": state.connection_error_retries,
             }
-            # REST FATAL errors carry full request/response context for
-            # post-mortems (auth headers, error body, etc.). Only populated
-            # on REST; gRPC leaves these None.
+            # FATAL errors carry full request/response context for
+            # post-mortems (auth headers, error body, etc.).
             if err.response_headers is not None:
                 event_data["response_headers"] = err.response_headers
             if err.request_headers is not None:
@@ -525,9 +325,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             state.connection_error_retries = 0
 
         if err.kind == _TransportErrorKind.RETRY:
-            # REST 408 carries queue_state in the body; surface it to the
-            # observer so clients can render progress (gRPC's try_again is
-            # in-band and goes through _handle_outcome instead). Reset the
+            # HTTP 408 carries queue_state in the body; surface it to the
+            # observer so clients can render progress. Reset the
             # bad_request budget too — a 408 is a successful round-trip and
             # an earlier 400 shouldn't fence off subsequent retries.
             if err.try_again_body is not None:
@@ -585,53 +384,6 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         raise TimeoutError(
             f"Timeout of {timeout} seconds reached while waiting for result of {self.request_id=}"
         )
-
-    async def _fetch_via_grpc(
-        self, state: _LoopState, iteration: int
-    ) -> _Outcome | _TransportError:
-        """Fetch retrieve_future over gRPC. Returns an _Outcome on success
-        or a _TransportError (normalized) for the shared handler. No retry
-        or telemetry logic here — kept per-transport only what's
-        transport-specific (request building + error translation).
-        """
-        stub = await self.holder.get_tinker_api_grpc_stub(ClientConnectionPoolType.RETRIEVE_PROMISE)
-        assert stub is not None
-        md: list[tuple[str, str]] = [
-            ("x-tinker-request-iteration", str(iteration)),
-            ("x-tinker-request-type", self.request_type),
-        ]
-        if iteration == 0:
-            md.append(
-                ("x-tinker-create-promise-roundtrip-time", str(self.request_queue_roundtrip_time))
-            )
-        if self.model_cls in PROTO_SUPPORTED_TYPES:
-            md.append(("x-tinker-accept-format", "proto"))
-
-        # First call (and every poll iteration after a TryAgain) goes to
-        # PollPromise — server may inline small payloads or reply
-        # MetadataOnly. Once we've seen MetadataOnly the loop flips
-        # state.allow_metadata_only=False and we route to
-        # FetchPromisePayload, which always returns bytes.
-        if state.allow_metadata_only:
-            try:
-                poll_resp = await stub.PollPromise(
-                    tinker_api_pb2.PollPromiseRequest(request_id=self.request_id),
-                    metadata=md,
-                    timeout=45,
-                )
-            except grpc.aio.AioRpcError as e:
-                return _grpc_error_to_transport_error(e)
-            return _poll_response_to_outcome(poll_resp)
-
-        try:
-            fetch_resp = await stub.FetchPromisePayload(
-                tinker_api_pb2.FetchPromisePayloadRequest(request_id=self.request_id),
-                metadata=md,
-                timeout=45,
-            )
-        except grpc.aio.AioRpcError as e:
-            return _grpc_error_to_transport_error(e)
-        return _fetch_payload_response_to_outcome(fetch_resp)
 
     async def _fetch_via_rest(
         self, state: _LoopState, iteration: int
@@ -735,8 +487,6 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             )
             return None
         if isinstance(outcome, _Failed):
-            # Emitted here (not in the fetchers) so REST and gRPC both get
-            # the same application_error event with matching fields.
             if telemetry := self.get_telemetry():
                 is_user = outcome.error_category is RequestErrorCategory.User
                 telemetry.log(

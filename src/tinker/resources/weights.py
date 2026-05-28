@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import email.utils
 
 import httpx
 
 from .._base_client import make_request_options
-from .._compat import model_dump
+from .._compat import model_dump, parse_obj
 from .._exceptions import APIStatusError
 from .._resource import AsyncAPIResource
 from .._types import NOT_GIVEN, Body, Headers, NoneType, NotGiven, Query
@@ -264,10 +265,8 @@ class AsyncWeightsResource(AsyncAPIResource):
                 f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
             )
 
-        from .._response import APIResponse
-
         # Merge the accept header
-        merged_headers: Headers = {"accept": "application/gzip"}
+        merged_headers: Headers = {"accept": "application/json"}
         if extra_headers is not None:
             merged_headers = {**merged_headers, **extra_headers}
 
@@ -279,20 +278,22 @@ class AsyncWeightsResource(AsyncAPIResource):
         )
         options["follow_redirects"] = False
 
-        response = None
         for retry in range(max_retries):
             try:
+                # Accept both the current 302 redirect contract and the future 200 JSON contract.
                 response = await self._get(
                     f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/archive",
-                    cast_to=APIResponse,
+                    cast_to=object,
                     options=options,
                 )
+                # If 200 JSON response, parse it into a CheckpointArchiveUrlResponse.
+                return parse_obj(CheckpointArchiveUrlResponse, response)
+            # If 302 redirect, handle the redirect.
             except APIStatusError as e:
                 if e.status_code == 503 and retry < max_retries - 1:
                     await asyncio.sleep(30)
                     continue
 
-                # On success, this API responds with a 302
                 if e.status_code != 302:
                     raise e
 
@@ -303,16 +304,14 @@ class AsyncWeightsResource(AsyncAPIResource):
                 expires = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)
                 try:
                     if expires_header := e.response.headers.get("Expires"):
-                        expires = datetime.datetime.strptime(
-                            expires_header, "%a, %d %b %Y %H:%M:%S GMT"
-                        )
-                except ValueError:
+                        expires = email.utils.parsedate_to_datetime(expires_header)
+                        if expires.tzinfo is None:
+                            expires = expires.replace(tzinfo=datetime.UTC)
+                        expires = expires.astimezone(datetime.UTC)
+                except (TypeError, ValueError):
                     pass
 
                 return CheckpointArchiveUrlResponse(
                     url=location,
                     expires=expires,
                 )
-
-        # If we did not get an exception we should have gotten a redirect...
-        raise RuntimeError("Expected a redirect response, got: " + str(response))

@@ -15,8 +15,6 @@ from collections.abc import Coroutine, Generator
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from typing import Any, Awaitable, Callable, TypeVar
 
-import grpc
-import grpc.aio
 import httpx
 
 from tinker import types
@@ -28,14 +26,12 @@ from tinker.lib._auth_token_provider import (
     AuthTokenProvider,
     resolve_auth_provider,
 )
-from tinker.lib._grpc_auth_interceptor import auth_interceptors
 from tinker.lib._jwt_auth import JwtAuthProvider
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
-from tinker.proto import tinker_api_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
@@ -204,10 +200,6 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._constructor_kwargs = dict(kwargs)
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
-        # Per-pool-type gRPC channels, lazily created by _get_grpc_channel so
-        # the holder stays picklable (grpc.aio channels bind to the current
-        # event loop at construction).
-        self._grpc_channels: dict[ClientConnectionPoolType, "grpc.aio.Channel"] = {}
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
@@ -455,8 +447,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         if pyqwest itself is broken. Retries transient failures via
         execute_with_retries.
         """
-        kwargs = {**self._constructor_kwargs, "_auth": auth, "_use_pyqwest": False}
-        pool = ClientConnectionPool(self.get_loop(), 1, kwargs)
+        pool = self._create_client_connection_pool(
+            max_requests_per_client=1,
+            auth=auth,
+            use_pyqwest=False,
+        )
 
         async def _once() -> types.ClientConfigResponse:
             with pool.aclient() as client:
@@ -491,6 +486,18 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             logger.error(result.error_message)
         return result.session_id
 
+    def _create_client_connection_pool(
+        self,
+        max_requests_per_client: int,
+        auth: AuthTokenProvider,
+        *,
+        use_pyqwest: bool | None = None,
+    ) -> ClientConnectionPool:
+        kwargs = {**self._constructor_kwargs, "_auth": auth}
+        if use_pyqwest is not None:
+            kwargs["_use_pyqwest"] = use_pyqwest
+        return ClientConnectionPool(self.get_loop(), max_requests_per_client, kwargs)
+
     def _get_client_connection_pool(
         self, client_pool_type: ClientConnectionPoolType
     ) -> ClientConnectionPool:
@@ -500,9 +507,15 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 if client_pool_type == ClientConnectionPoolType.TRAIN
                 else MAX_REQUESTS_PER_HTTPX_CLIENT
             )
-            kwargs = {**self._constructor_kwargs, "_auth": self._default_auth}
-            self._client_pools[client_pool_type] = ClientConnectionPool(
-                self.get_loop(), max_requests_per_client, kwargs
+            use_pyqwest = (
+                False
+                if client_pool_type == ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
+                else None
+            )
+            self._client_pools[client_pool_type] = self._create_client_connection_pool(
+                max_requests_per_client=max_requests_per_client,
+                auth=self._default_auth,
+                use_pyqwest=use_pyqwest,
             )
         return self._client_pools[client_pool_type]
 
@@ -525,54 +538,6 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self, client_pool_type: ClientConnectionPoolType
     ) -> AbstractContextManager[AsyncTinker]:
         return self._get_client_connection_pool(client_pool_type).aclient()
-
-    def _parse_grpc_target(self, target: str) -> tuple[bool, str]:
-        """Split a scheme-prefixed grpc target into (secure, host:port).
-
-        Accepts "grpc://host:port" (plaintext) or "grpcs://host:port" (TLS).
-        """
-        if target.startswith("grpcs://"):
-            return True, target.removeprefix("grpcs://")
-        if target.startswith("grpc://"):
-            return False, target.removeprefix("grpc://")
-        # Tolerate a bare host:port for developer convenience.
-        return False, target
-
-    async def _get_grpc_channel(
-        self, pool_type: ClientConnectionPoolType
-    ) -> grpc.aio.Channel | None:
-        """Returns the gRPC channel for this pool type, lazily creating it.
-
-        Returns None if the server hasn't advertised a grpc_target. Must be
-        called on the holder's event loop so the channel binds correctly.
-        """
-        target = self._client_config.grpc_target
-        if not target:
-            return None
-        if pool_type not in self._grpc_channels:
-            secure, addr = self._parse_grpc_target(target)
-            interceptors = auth_interceptors(self._default_auth)
-            if secure:
-                self._grpc_channels[pool_type] = grpc.aio.secure_channel(
-                    addr, grpc.ssl_channel_credentials(), interceptors=interceptors
-                )
-            else:
-                self._grpc_channels[pool_type] = grpc.aio.insecure_channel(
-                    addr, interceptors=interceptors
-                )
-        return self._grpc_channels[pool_type]
-
-    async def get_tinker_api_grpc_stub(
-        self, pool_type: ClientConnectionPoolType
-    ) -> tinker_api_pb2_grpc.TinkerApiStub | None:
-        """Returns a gRPC stub for the TinkerApi service over the channel for
-        this pool type, or None if the server hasn't advertised a gRPC
-        endpoint. Auth is injected by the channel's auth interceptor (see
-        `tinker.lib._grpc_auth_interceptor.auth_interceptors`)."""
-        channel = await self._get_grpc_channel(pool_type)
-        if channel is None:
-            return None
-        return tinker_api_pb2_grpc.TinkerApiStub(channel)
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
         return self._loop
@@ -599,10 +564,6 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._session_heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._session_heartbeat_task
-        for channel in self._grpc_channels.values():
-            with contextlib.suppress(Exception):
-                await channel.close()
-        self._grpc_channels.clear()
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

@@ -325,7 +325,7 @@ class RestClient(TelemetryProvider):
 
         async def _get_checkpoint_archive_url_async() -> types.CheckpointArchiveUrlResponse:
             async def _send_request() -> types.CheckpointArchiveUrlResponse:
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                with self.holder.aclient(ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL) as client:
                     return await client.weights.get_checkpoint_archive_url(
                         model_id=training_run_id,
                         checkpoint_id=checkpoint_id,

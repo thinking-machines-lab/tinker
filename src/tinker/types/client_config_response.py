@@ -27,13 +27,6 @@ class ClientConfigResponse(BaseModel):
     payloads compress >10× — the API server decompresses transparently via an
     ASGI middleware. Ignored on the JSON path."""
     billing_exception_max_pause_duration_sec: int = 60 * 60
-    # gRPC endpoint advertised by the server. Scheme-prefixed URL:
-    # "grpc://host:port" (plaintext) or "grpcs://host:port" (TLS).
-    # None means the SDK stays on REST.
-    grpc_target: str | None = None
-    # Gate for routing retrieve_future through gRPC. Only honored when
-    # grpc_target is also set.
-    enable_grpc_retrieve_future: bool = False
     sample_no_retries: bool = False
     use_pyqwest_transport: bool = True
     """When true, the SDK builds its default httpx async client on top of the

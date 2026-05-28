@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tinker.lib._auth_token_provider import ApiKeyAuthProvider, AuthTokenProvider
+from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.internal_client_holder import ClientConnectionPool, InternalClientHolder
 from tinker.types.client_config_response import ClientConfigResponse as _ClientConfigResponse
 
@@ -39,7 +40,8 @@ class _MockHolder:
     async def execute_with_retries(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         return await func(*args, **kwargs)
 
-    # Bind the real method so the pool it creates uses our mock client
+    # Bind the real methods so the pool they create uses our mock client.
+    _create_client_connection_pool = InternalClientHolder._create_client_connection_pool
     _fetch_client_config = InternalClientHolder._fetch_client_config
 
 
@@ -156,3 +158,17 @@ def test_sampling_client_pickle_roundtrip_without_env_var(
 
     assert isinstance(restored.holder._default_auth, ApiKeyAuthProvider)
     assert restored.holder._default_auth._token == "tml-key-from-env"
+
+
+def test_checkpoint_archive_client_pool_disables_pyqwest_when_enabled_by_config() -> None:
+    holder = _make_holder(api_key="tml-test-key")
+
+    archive_pool = holder._get_client_connection_pool(
+        ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
+    )
+    train_pool = holder._get_client_connection_pool(ClientConnectionPoolType.TRAIN)
+    sample_pool = holder._get_client_connection_pool(ClientConnectionPoolType.SAMPLE)
+
+    assert archive_pool._constructor_kwargs["_use_pyqwest"] is False
+    assert train_pool._constructor_kwargs["_use_pyqwest"] is True
+    assert sample_pool._constructor_kwargs["_use_pyqwest"] is True
