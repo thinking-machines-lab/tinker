@@ -194,3 +194,65 @@ class TestDeleteCLIValidation:
         )
         assert result.exit_code != 0
         assert "--run-id" in self._get_error_message(result)
+
+
+class TestParsedCheckpointTinkerPath:
+    """Tests for ParsedCheckpointTinkerPath.from_tinker_path()."""
+
+    def test_standard_format(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        result = ParsedCheckpointTinkerPath.from_tinker_path(
+            "tinker://run-id/weights/0001"
+        )
+        assert result.training_run_id == "run-id"
+        assert result.checkpoint_type == "training"
+        assert result.checkpoint_id == "weights/0001"
+
+    def test_sampler_format(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        result = ParsedCheckpointTinkerPath.from_tinker_path(
+            "tinker://run-id/sampler_weights/0001"
+        )
+        assert result.training_run_id == "run-id"
+        assert result.checkpoint_type == "sampler"
+        assert result.checkpoint_id == "sampler_weights/0001"
+
+    def test_with_train_suffix(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        result = ParsedCheckpointTinkerPath.from_tinker_path(
+            "tinker://5f2d7413-3980-502a-b012-9b7e122b3305:train:0/sampler_weights/final"
+        )
+        assert result.training_run_id == "5f2d7413-3980-502a-b012-9b7e122b3305:train:0"
+        assert result.checkpoint_type == "sampler"
+        assert result.checkpoint_id == "sampler_weights/final"
+
+    def test_with_sampler_suffix(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        result = ParsedCheckpointTinkerPath.from_tinker_path(
+            "tinker://run-id:sampler/weights/0001"
+        )
+        assert result.training_run_id == "run-id:sampler"
+        assert result.checkpoint_type == "training"
+        assert result.checkpoint_id == "weights/0001"
+
+    def test_invalid_missing_prefix(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        with pytest.raises(ValueError, match="Invalid tinker path"):
+            ParsedCheckpointTinkerPath.from_tinker_path("run-id/weights/0001")
+
+    def test_invalid_wrong_checkpoint_type(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        with pytest.raises(ValueError, match="Invalid checkpoint type"):
+            ParsedCheckpointTinkerPath.from_tinker_path("tinker://run-id/invalid/0001")
+
+    def test_invalid_not_enough_parts(self) -> None:
+        from tinker.types.checkpoint import ParsedCheckpointTinkerPath
+
+        with pytest.raises(ValueError, match="Invalid tinker path"):
+            ParsedCheckpointTinkerPath.from_tinker_path("tinker://run-id/weights")
