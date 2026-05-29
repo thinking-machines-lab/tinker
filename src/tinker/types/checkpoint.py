@@ -42,7 +42,14 @@ class ParsedCheckpointTinkerPath(BaseModel):
     """The type of checkpoint (training or sampler)"""
 
     checkpoint_id: str
-    """The checkpoint ID"""
+    """The checkpoint ID (without the type prefix)"""
+
+    @property
+    def api_checkpoint_id(self) -> str:
+        """Returns the checkpoint ID as used in API calls (includes type prefix for sampler)."""
+        if self.checkpoint_type == "sampler":
+            return f"sampler_weights/{self.checkpoint_id}"
+        return self.checkpoint_id
 
     @classmethod
     def from_tinker_path(cls, tinker_path: str) -> "ParsedCheckpointTinkerPath":
@@ -55,9 +62,11 @@ class ParsedCheckpointTinkerPath(BaseModel):
         if parts[1] not in ["weights", "sampler_weights"]:
             raise ValueError(f"Invalid tinker path: {tinker_path}")
         checkpoint_type = "training" if parts[1] == "weights" else "sampler"
+        # checkpoint_id should be just the ID (e.g., "0001"), not including the type prefix
+        checkpoint_id = parts[2]
         return cls(
             tinker_path=tinker_path,
             training_run_id=parts[0],
             checkpoint_type=checkpoint_type,
-            checkpoint_id="/".join(parts[1:]),
+            checkpoint_id=checkpoint_id,
         )
