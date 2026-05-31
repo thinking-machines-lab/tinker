@@ -35,8 +35,6 @@ except ImportError:
 if TYPE_CHECKING:
     from transformers.tokenization_utils import PreTrainedTokenizer
 
-    from tinker._client import AsyncTinker
-
     from ..internal_client_holder import InternalClientHolder
 
 # pyright: reportPrivateImportUsage=false
@@ -57,48 +55,6 @@ _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS = frozenset({"cross_entropy"})
 _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE: dict[Literal["logprobs"], types.LossFnType] = {
     "logprobs": "cross_entropy",
 }
-
-
-_PROTO_CONTENT_TYPE = "application/x-protobuf"
-
-
-async def _send_forward_backward_proto(
-    client: AsyncTinker,
-    request: types.ForwardBackwardRequest,
-    *,
-    compress: bool = False,
-) -> types.UntypedAPIFuture:
-    """POST a fwd/bwd request as proto bytes (Content-Type: application/x-protobuf).
-
-    Gated by ``ClientConfigResponse.proto_write_fwdbwd``. Bypasses the
-    auto-generated ``client.training.forward_backward`` resource, which
-    only knows how to JSON-serialize, and instead drives ``client.post``
-    directly with a raw bytes body — ``_base_client._build_request`` sends
-    bytes as ``content=`` rather than ``json=`` when the body is bytes.
-
-    When ``compress=True`` (server flips on ``proto_compress_fwdbwd``), the
-    proto body is zstd-compressed and ``Content-Encoding: zstd`` is set;
-    the API server decompresses transparently via an ASGI middleware.
-    """
-    # Local import to keep the proto modules off the SDK's import-time hot
-    # path; only callers with the dync flag flipped actually load them.
-    from tinker._base_client import make_request_options
-    from tinker.proto.request_conv import forward_backward_request_to_proto
-
-    proto_bytes = forward_backward_request_to_proto(request).SerializeToString()
-    headers: dict[str, str] = {"Content-Type": _PROTO_CONTENT_TYPE}
-    if compress:
-        import zstandard as zstd
-
-        proto_bytes = await asyncio.to_thread(zstd.ZstdCompressor().compress, proto_bytes)
-        headers["Content-Encoding"] = "zstd"
-    options = make_request_options(extra_headers=headers)
-    return await client.post(
-        "/api/v1/forward_backward",
-        body=proto_bytes,
-        options=options,
-        cast_to=types.UntypedAPIFuture,
-    )
 
 
 class TrainingClient(TelemetryProvider):
@@ -248,6 +204,11 @@ class TrainingClient(TelemetryProvider):
         print(f"Loss: {result.loss}")
         ```
         """
+        cfg = self.holder._client_config
+        if cfg.fwd_via_fwdbwd and cfg.proto_write_fwdbwd:
+            # Route through /forward_backward. Falls through to the legacy /forward
+            # JSON path when either flag is off.
+            return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=True)
         requests = self._chunked_requests(data)
 
         @capture_exceptions(fatal=True)
@@ -330,18 +291,38 @@ class TrainingClient(TelemetryProvider):
         print(f"Loss: {fwdbwd_result.loss}")
         ```
         """
+        return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=False)
+
+    def _run_fwd_bwd(
+        self,
+        data: List[types.Datum],
+        loss_fn: types.LossFnType,
+        loss_fn_config: Dict[str, float] | None,
+        *,
+        forward_only: bool,
+    ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Shared implementation for /forward_backward submissions.
+
+        Drives chunking, optional parallel submit. ``forward_only=True``
+        is only allowed when proto_write_fwdbwd flag in client config is true.
+        """
+        assert not forward_only or self.holder._client_config.proto_write_fwdbwd, (
+            "forward_only is only allowed when proto_write_fwdbwd is true"
+        )
+
         requests = self._chunked_requests(data)
         if not requests:
-            raise ValueError("No data provided to forward_backward")
+            raise ValueError("No data provided")
 
         parallel = self.holder._client_config.parallel_fwdbwd_chunks
         # When parallel, all chunks share [min, max] range and fire concurrently.
         # When serial, each chunk takes its own turn sequentially.
         min_rid = requests[0][0]
         max_rid = requests[-1][0] if parallel else None
+        request_type = "Forward" if forward_only else "ForwardBackward"
 
         @capture_exceptions(fatal=True)
-        async def _forward_backward_async():
+        async def _run_async():
             start_time = time.time()
 
             async def _send_request(request_id: int, data: List[types.Datum]):
@@ -353,13 +334,8 @@ class TrainingClient(TelemetryProvider):
                     seq_id=request_id + 1,
                 )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    cfg = self.holder._client_config
-                    if cfg.proto_write_fwdbwd:
-                        return await _send_forward_backward_proto(
-                            client, request, compress=cfg.proto_compress_fwdbwd
-                        )
                     return await client.training.forward_backward(
-                        request=request,
+                        request=request, forward_only=forward_only
                     )
 
             async def _submit_chunk(
@@ -376,7 +352,7 @@ class TrainingClient(TelemetryProvider):
                         self.holder,
                         untyped_future,
                         request_start_time=start_time,
-                        request_type="ForwardBackward",
+                        request_type=request_type,
                         queue_state_observer=self._queue_state_logger,
                     )
 
@@ -402,7 +378,7 @@ class TrainingClient(TelemetryProvider):
 
             return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
 
-        return self.holder.run_coroutine_threadsafe(_forward_backward_async())
+        return self.holder.run_coroutine_threadsafe(_run_async())
 
     async def forward_backward_async(
         self,

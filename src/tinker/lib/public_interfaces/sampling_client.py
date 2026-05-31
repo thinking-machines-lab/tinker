@@ -136,6 +136,11 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     ):
         self.holder = holder
 
+        if not holder._client_config.sample_enable_stuck_detection:
+            retry_config = dataclasses.replace(
+                retry_config or RetryConfig(), enable_stuck_detection=False
+            )
+
         # Create retry handler with the provided configuration
         self.retry_handler = _get_retry_handler(
             sampling_session_id, retry_config=retry_config, telemetry=holder.get_telemetry()

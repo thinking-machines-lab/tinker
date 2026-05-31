@@ -219,10 +219,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 self._fetch_client_config(config_auth)
             ).result()
 
-        # Pin the server-chosen transport backend onto every subsequently-built
-        # AsyncTinker. The one-off config-fetch pool above used the SDK default
-        # (pyqwest) since the flag isn't known until that call returns.
-        self._constructor_kwargs["_use_pyqwest"] = self._client_config.use_pyqwest_transport
+        # Hand the resolved feature flags to every AsyncTinker, so that they can
+        # customize their behavior based on the flags.
+        self._constructor_kwargs["_client_config"] = self._client_config
 
         self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(
             self._client_config.sample_dispatch_bytes_semaphore_size
@@ -450,7 +449,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         pool = self._create_client_connection_pool(
             max_requests_per_client=1,
             auth=auth,
-            use_pyqwest=False,
+            client_config=types.ClientConfigResponse(use_pyqwest_transport=False),
         )
 
         async def _once() -> types.ClientConfigResponse:
@@ -491,11 +490,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         max_requests_per_client: int,
         auth: AuthTokenProvider,
         *,
-        use_pyqwest: bool | None = None,
+        client_config: types.ClientConfigResponse | None = None,
     ) -> ClientConnectionPool:
         kwargs = {**self._constructor_kwargs, "_auth": auth}
-        if use_pyqwest is not None:
-            kwargs["_use_pyqwest"] = use_pyqwest
+        if client_config is not None:
+            kwargs["_client_config"] = client_config
         return ClientConnectionPool(self.get_loop(), max_requests_per_client, kwargs)
 
     def _get_client_connection_pool(
@@ -507,15 +506,15 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 if client_pool_type == ClientConnectionPoolType.TRAIN
                 else MAX_REQUESTS_PER_HTTPX_CLIENT
             )
-            use_pyqwest = (
-                False
+            client_config = (
+                types.ClientConfigResponse(use_pyqwest_transport=False)
                 if client_pool_type == ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
                 else None
             )
             self._client_pools[client_pool_type] = self._create_client_connection_pool(
                 max_requests_per_client=max_requests_per_client,
                 auth=self._default_auth,
-                use_pyqwest=use_pyqwest,
+                client_config=client_config,
             )
         return self._client_pools[client_pool_type]
 

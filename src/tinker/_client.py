@@ -27,6 +27,7 @@ from ._types import (
 from ._utils import get_async_library, is_given
 from ._version import __version__
 from .lib._auth_token_provider import ApiKeyAuthProvider, AuthTokenProvider
+from .types.client_config_response import ClientConfigResponse
 
 if TYPE_CHECKING:
     from .resources import futures, telemetry
@@ -71,11 +72,9 @@ class AsyncTinker(AsyncAPIClient):
         # part of our public interface in the future.
         _strict_response_validation: bool = False,
         _auth: AuthTokenProvider | None = None,
-        # Internal: when http_client is None, controls whether the default
-        # client is built on top of the pyqwest httpx transport. Sourced from
-        # `ClientConfigResponse.use_pyqwest_transport` by InternalClientHolder
-        # so the server retains a remote kill-switch.
-        _use_pyqwest: bool = True,
+        # Internal: server-resolved feature flags. Set by InternalClientHolder
+        # after the one-off /client/config fetch.
+        _client_config: ClientConfigResponse = ClientConfigResponse(),
     ) -> None:
         """Construct a new async AsyncTinker client instance.
 
@@ -99,9 +98,11 @@ class AsyncTinker(AsyncAPIClient):
             http_client=http_client,
             custom_headers=default_headers,
             custom_query=default_query,
-            use_pyqwest=_use_pyqwest,
+            use_pyqwest=_client_config.use_pyqwest_transport,
             _strict_response_validation=_strict_response_validation,
         )
+
+        self._client_config = _client_config
 
         self._idempotency_header = "X-Idempotency-Key"
 

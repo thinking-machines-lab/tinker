@@ -634,7 +634,7 @@ def cli():
     pass
 
 
-@cli.command()
+@cli.command(name="list")
 @click.option("--run-id", help="Training run ID")
 @click.option(
     "--limit",
@@ -644,7 +644,7 @@ def cli():
 )
 @click.pass_obj
 @handle_api_errors
-def list(cli_context: CLIContext, run_id: str | None, limit: int) -> None:
+def list_checkpoints(cli_context: CLIContext, run_id: str | None, limit: int) -> None:
     """List checkpoints.
 
     If --run-id is provided, list checkpoints for that specific training run.

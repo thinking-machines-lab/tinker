@@ -159,6 +159,38 @@ class TestDeleteCLIValidation:
         result = runner.invoke(cli, ["delete"])
         assert result.exit_code != 0
 
+    def test_explicit_tinker_path_deletes_checkpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from tinker.cli.commands import checkpoint
+        from tinker.cli.context import CLIContext
+
+        checkpoint_path = "tinker://run-1/sampler_weights/copy-test"
+        deleted_paths: list[str] = []
+
+        class _Result:
+            def result(self) -> None:
+                return None
+
+        class _Client:
+            def delete_checkpoint_from_tinker_path(self, path: str) -> _Result:
+                deleted_paths.append(path)
+                return _Result()
+
+        def create_rest_client() -> _Client:
+            return _Client()
+
+        monkeypatch.setattr(checkpoint, "create_rest_client", create_rest_client)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            checkpoint.cli,
+            ["delete", "-y", checkpoint_path],
+            obj=CLIContext(format="json"),
+        )
+
+        assert result.exit_code == 0, result.output
+        assert deleted_paths == [checkpoint_path]
+        assert '"deleted_count": 1' in result.output
+
     def test_paths_and_run_id_conflict(self) -> None:
         from tinker.cli.commands.checkpoint import cli
 
