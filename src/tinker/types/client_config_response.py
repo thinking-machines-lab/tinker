@@ -26,8 +26,17 @@ class ClientConfigResponse(BaseModel):
     the proto fwd/bwd request body and sets Content-Encoding: zstd. Real fwd/bwd
     payloads compress >10× — the API server decompresses transparently via an
     ASGI middleware. Ignored on the JSON path."""
+    fwd_via_fwdbwd: bool = False
+    """When true (and proto_write_fwdbwd is also true), TrainingClient.forward()
+    routes through /api/v1/forward_backward with forward_only=True on the proto
+    instead of /api/v1/forward. Ignored when proto_write_fwdbwd
+    is false (the JSON /forward path remains)."""
     billing_exception_max_pause_duration_sec: int = 60 * 60
     sample_no_retries: bool = False
+    sample_enable_stuck_detection: bool = True
+    """When true, the SDK runs the retry handler's progress timeout check that
+    raises ``APIConnectionError("...Requests appear to be stuck.")`` when no
+    progress is made within ``RetryConfig.progress_timeout``."""
     use_pyqwest_transport: bool = True
     """When true, the SDK builds its default httpx async client on top of the
     pyqwest (reqwest/hyper-based) transport adapter. Set to false server-side

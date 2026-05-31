@@ -330,9 +330,15 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
     DATA_FIELD_NUMBER: builtins.int
     LOSS_FN_FIELD_NUMBER: builtins.int
     LOSS_FN_CONFIG_FIELD_NUMBER: builtins.int
+    FORWARD_ONLY_FIELD_NUMBER: builtins.int
     model_id: builtins.str
     seq_id: builtins.int
     loss_fn: builtins.str
+    forward_only: builtins.bool
+    """When true, the trainer computes loss + loss_fn_outputs without running
+    backward / accumulating gradients. proto3 default false preserves
+    fwd+bwd behavior for older SDKs that don't set this field.
+    """
     @property
     def data(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Datum]: ...
     @property
@@ -345,8 +351,9 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
         data: collections.abc.Iterable[Global___Datum] | None = ...,
         loss_fn: builtins.str = ...,
         loss_fn_config: collections.abc.Mapping[builtins.str, builtins.float] | None = ...,
+        forward_only: builtins.bool = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["data", b"data", "loss_fn", b"loss_fn", "loss_fn_config", b"loss_fn_config", "model_id", b"model_id", "seq_id", b"seq_id"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["data", b"data", "forward_only", b"forward_only", "loss_fn", b"loss_fn", "loss_fn_config", b"loss_fn_config", "model_id", b"model_id", "seq_id", b"seq_id"]) -> None: ...
 
 Global___ForwardBackwardRequest: typing_extensions.TypeAlias = ForwardBackwardRequest
 

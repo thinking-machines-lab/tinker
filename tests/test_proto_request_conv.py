@@ -231,12 +231,32 @@ def test_unsupported_dtype_raises() -> None:
         forward_backward_request_to_proto(request)
 
 
-@pytest.mark.asyncio
-async def test_send_forward_backward_proto_uses_protobuf_content_type() -> None:
-    """The send helper POSTs raw proto bytes with Content-Type: application/x-protobuf."""
-    from unittest.mock import AsyncMock
+def _async_tinker_with_proto_config(
+    *,
+    proto_write_fwdbwd: bool = True,
+    proto_compress_fwdbwd: bool = False,
+    http_client=None,
+):
+    """Build an AsyncTinker pinned to the proto path for fwd/bwd."""
+    from tinker._client import AsyncTinker
+    from tinker.types.client_config_response import ClientConfigResponse
 
-    from tinker.lib.public_interfaces.training_client import _send_forward_backward_proto
+    return AsyncTinker(
+        base_url="http://test",
+        api_key="tml-test-api-key",
+        http_client=http_client,
+        _client_config=ClientConfigResponse(
+            proto_write_fwdbwd=proto_write_fwdbwd,
+            proto_compress_fwdbwd=proto_compress_fwdbwd,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_forward_backward_proto_path_uses_protobuf_content_type() -> None:
+    """With proto_write_fwdbwd=True, forward_backward() POSTs raw proto bytes
+    with Content-Type: application/x-protobuf."""
+    from unittest.mock import AsyncMock
 
     request = _make_request(
         data=[
@@ -247,14 +267,16 @@ async def test_send_forward_backward_proto_uses_protobuf_content_type() -> None:
         ]
     )
 
-    fake_client = AsyncMock()
-    fake_client.post = AsyncMock(return_value="sentinel-future")
+    client = _async_tinker_with_proto_config()
+    # Resource binds _post = client.post at construction, so patch _post on
+    # the materialized resource.
+    client.training._post = AsyncMock(return_value="sentinel-future")
 
-    result = await _send_forward_backward_proto(fake_client, request)
+    result = await client.training.forward_backward(request=request)
     assert result == "sentinel-future"
 
-    fake_client.post.assert_awaited_once()
-    call = fake_client.post.await_args
+    client.training._post.assert_awaited_once()
+    call = client.training._post.await_args
     assert call.args[0] == "/api/v1/forward_backward"
     body = call.kwargs["body"]
     assert isinstance(body, bytes)
@@ -269,13 +291,12 @@ async def test_send_forward_backward_proto_uses_protobuf_content_type() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_forward_backward_proto_writes_bytes_to_wire() -> None:
-    """End-to-end: helper drives a real httpx.AsyncClient via MockTransport so
-    the Content-Type header and bytes body are observed on the actual outgoing
-    HTTP request line — not just on the RequestOptions dict structure."""
+async def test_forward_backward_proto_path_writes_bytes_to_wire() -> None:
+    """End-to-end: forward_backward() drives a real httpx.AsyncClient via
+    MockTransport so the Content-Type header and bytes body are observed on
+    the actual outgoing HTTP request line — not just on the RequestOptions
+    dict structure."""
     import httpx
-
-    from tinker._client import AsyncTinker
 
     captured: list[httpx.Request] = []
 
@@ -286,13 +307,7 @@ async def test_send_forward_backward_proto_writes_bytes_to_wire() -> None:
     transport = httpx.MockTransport(handler)
     http_client = httpx.AsyncClient(transport=transport)
     try:
-        async_tinker = AsyncTinker(
-            base_url="http://test",
-            api_key="tml-test-api-key",
-            http_client=http_client,
-        )
-        from tinker.lib.public_interfaces.training_client import _send_forward_backward_proto
-
+        client = _async_tinker_with_proto_config(http_client=http_client)
         request = _make_request(
             data=[
                 types.Datum(
@@ -308,7 +323,7 @@ async def test_send_forward_backward_proto_writes_bytes_to_wire() -> None:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            await _send_forward_backward_proto(async_tinker, request)
+            await client.training.forward_backward(request=request)
     finally:
         await http_client.aclose()
 
@@ -324,15 +339,13 @@ async def test_send_forward_backward_proto_writes_bytes_to_wire() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_forward_backward_proto_zstd_compresses_body_when_enabled() -> None:
-    """With ``compress=True`` the helper zstd-compresses the proto body and
-    sets ``Content-Encoding: zstd``; the body decompresses back to the same
-    proto bytes."""
+async def test_forward_backward_proto_path_zstd_compresses_body_when_enabled() -> None:
+    """With proto_compress_fwdbwd=True, forward_backward() zstd-compresses the
+    proto body and sets Content-Encoding: zstd; the body decompresses back
+    to the same proto bytes."""
     from unittest.mock import AsyncMock
 
     import zstandard as zstd
-
-    from tinker.lib.public_interfaces.training_client import _send_forward_backward_proto
 
     request = _make_request(
         data=[
@@ -343,13 +356,13 @@ async def test_send_forward_backward_proto_zstd_compresses_body_when_enabled() -
         ]
     )
 
-    fake_client = AsyncMock()
-    fake_client.post = AsyncMock(return_value="sentinel-future")
+    client = _async_tinker_with_proto_config(proto_compress_fwdbwd=True)
+    client.training._post = AsyncMock(return_value="sentinel-future")
 
-    await _send_forward_backward_proto(fake_client, request, compress=True)
+    await client.training.forward_backward(request=request)
 
-    fake_client.post.assert_awaited_once()
-    call = fake_client.post.await_args
+    client.training._post.assert_awaited_once()
+    call = client.training._post.await_args
     headers = call.kwargs["options"].get("headers")
     assert headers == {
         "Content-Type": "application/x-protobuf",

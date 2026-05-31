@@ -61,6 +61,11 @@ class RetryConfig:
     enable_retry_logic: bool = True
     """Whether to enable automatic retries on failure."""
 
+    enable_stuck_detection: bool = True
+    """Whether to fail with ``APIConnectionError("...Requests appear to be stuck.")``
+    after ``progress_timeout`` seconds with no progress. When false, requests
+    can block indefinitely waiting for progress."""
+
     retryable_exceptions: tuple[Type[Exception], ...] = (
         asyncio.TimeoutError,
         tinker.APIConnectionError,
@@ -82,6 +87,7 @@ class RetryConfig:
                 self.retry_delay_max,
                 self.jitter_factor,
                 self.enable_retry_logic,
+                self.enable_stuck_detection,
                 self.retryable_exceptions,
             )
         )
@@ -149,7 +155,11 @@ class RetryHandler(Generic[T]):  # noqa: UP046
             current_task = asyncio.current_task()
             assert current_task is not None
             current_task._no_progress_made_marker = False  # pyright: ignore[reportAttributeAccessIssue]
-            progress_task = asyncio.create_task(_check_progress(current_task))
+            progress_task: asyncio.Task[None] | None = (
+                asyncio.create_task(_check_progress(current_task))
+                if self.config.enable_stuck_detection
+                else None
+            )
 
             try:
                 result = await self._execute_with_retry(func, *args, **kwargs)
@@ -168,7 +178,8 @@ class RetryHandler(Generic[T]):  # noqa: UP046
             finally:
                 self._in_retry_loop_count -= 1
                 self._maybe_log_progress()
-                progress_task.cancel()
+                if progress_task is not None:
+                    progress_task.cancel()
 
     def _maybe_log_progress(self):
         current_time = time.time()

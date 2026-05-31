@@ -169,6 +169,6 @@ def test_checkpoint_archive_client_pool_disables_pyqwest_when_enabled_by_config(
     train_pool = holder._get_client_connection_pool(ClientConnectionPoolType.TRAIN)
     sample_pool = holder._get_client_connection_pool(ClientConnectionPoolType.SAMPLE)
 
-    assert archive_pool._constructor_kwargs["_use_pyqwest"] is False
-    assert train_pool._constructor_kwargs["_use_pyqwest"] is True
-    assert sample_pool._constructor_kwargs["_use_pyqwest"] is True
+    assert archive_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is False
+    assert train_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is True
+    assert sample_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is True
