@@ -977,7 +977,7 @@ def _delete_paths(
 
 
 @cli.command()
-@click.argument("checkpoint_paths", nargs=-1, required=False)
+@click.argument("checkpoint_path", required=False)
 @click.option("--run-id", default=None, help="Delete all checkpoints for a training run")
 @click.option(
     "--type", "checkpoint_type", default=None, help="Filter by type: weights or sampler_weights"
@@ -997,7 +997,7 @@ def _delete_paths(
 @handle_api_errors
 def delete(
     cli_context: CLIContext,
-    checkpoint_paths: tuple[str, ...],
+    checkpoint_path: str | None,
     run_id: str | None,
     checkpoint_type: str | None,
     before: str | None,
@@ -1006,9 +1006,9 @@ def delete(
 ) -> None:
     """Delete one or more checkpoints permanently.
 
-    Delete by explicit paths:
+    Delete by explicit path:
 
-        tinker checkpoint delete tinker://run-id/weights/0001 tinker://run-id/weights/0002
+        tinker checkpoint delete tinker://run-id/weights/0001
 
     Delete all checkpoints for a training run:
 
@@ -1030,19 +1030,19 @@ def delete(
 
     WARNING: This action is permanent and cannot be undone.
     """
-    if not checkpoint_paths and not run_id:
+    if not checkpoint_path and not run_id:
         raise TinkerCliError(
-            "Must specify checkpoint paths or --run-id",
+            "Must specify checkpoint path or --run-id",
             "Examples:\n"
             "  tinker checkpoint delete tinker://run-id/weights/0001\n"
             "  tinker checkpoint delete --run-id <run-id>\n"
             "  tinker checkpoint delete --run-id <run-id> --type weights --before 2024-06-01",
         )
 
-    if checkpoint_paths and run_id:
+    if checkpoint_path and run_id:
         raise TinkerCliError(
-            "Cannot specify both checkpoint paths and --run-id",
-            "Use either explicit paths or --run-id with optional filters",
+            "Cannot specify both checkpoint path and --run-id",
+            "Use either a path or --run-id with optional filters",
         )
 
     has_filters = checkpoint_type or before or after
@@ -1071,13 +1071,12 @@ def delete(
             click.echo("Deletion cancelled.")
             return
     else:
-        for path in checkpoint_paths:
-            if not path.startswith("tinker://"):
-                raise TinkerCliError(
-                    f"Invalid checkpoint path: {path}",
-                    "Checkpoint path must be in the format: tinker://run-id/weights/0001",
-                )
-        paths_to_delete = list(checkpoint_paths)
+        if not checkpoint_path.startswith("tinker://"):
+            raise TinkerCliError(
+                f"Invalid checkpoint path: {checkpoint_path}",
+                "Checkpoint path must be in the format: tinker://run-id/weights/0001",
+            )
+        paths_to_delete = [checkpoint_path]
         if not yes and not _confirm_deletion(paths_to_delete):
             click.echo("Deletion cancelled.")
             return
