@@ -136,10 +136,16 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     ):
         self.holder = holder
 
+        # The limit on concurrent sampling requests is server-controlled via the
+        # client config and always overrides max_connections, even on a
+        # caller-provided retry_config.
+        retry_config = dataclasses.replace(
+            retry_config or RetryConfig(),
+            max_connections=holder._client_config.sample_max_concurrent_requests,
+        )
+
         if not holder._client_config.sample_enable_stuck_detection:
-            retry_config = dataclasses.replace(
-                retry_config or RetryConfig(), enable_stuck_detection=False
-            )
+            retry_config = dataclasses.replace(retry_config, enable_stuck_detection=False)
 
         # Create retry handler with the provided configuration
         self.retry_handler = _get_retry_handler(

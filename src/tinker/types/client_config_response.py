@@ -37,6 +37,11 @@ class ClientConfigResponse(BaseModel):
     """When true, the SDK runs the retry handler's progress timeout check that
     raises ``APIConnectionError("...Requests appear to be stuck.")`` when no
     progress is made within ``RetryConfig.progress_timeout``."""
+    sample_max_concurrent_requests: int = 2000
+    """Maximum number of in-flight sampling requests a SamplingClient will allow
+    (the size of its retry handler's semaphore). Always applied as the sampling
+    ``RetryConfig.max_connections``, overriding any value in a caller-provided
+    ``retry_config``."""
     use_pyqwest_transport: bool = True
     """When true, the SDK builds its default httpx async client on top of the
     pyqwest (reqwest/hyper-based) transport adapter. Set to false server-side

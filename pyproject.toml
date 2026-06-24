@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.22.3"
+version = "0.22.4"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,7 +22,7 @@ dependencies = [
     "rich>=13.0.0",
     "click>=8.0.0",
     "orjson>=3.10.0",
-    "zstandard>=0.22.0",
+    "zstandard>=0.24.0",
 ]
 
 requires-python = ">= 3.11"
