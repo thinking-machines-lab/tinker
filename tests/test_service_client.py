@@ -30,6 +30,40 @@ def test_service_client_passes_project_id_on_session_create(respx_mock: MockRout
 
 
 @pytest.mark.respx(base_url=base_url)
+def test_service_client_reads_project_id_from_env(
+    respx_mock: MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TINKER_PROJECT_ID", "env-project-456")
+    create_session_route = respx_mock.post("/api/v1/create_session").mock(
+        return_value=httpx.Response(200, json={"session_id": "test-session-id"})
+    )
+
+    service_client = tinker.ServiceClient(base_url=base_url)
+    service_client.holder.close()
+
+    assert create_session_route.called
+    sent_payload = json.loads(create_session_route.calls[0].request.content.decode())
+    assert sent_payload["project_id"] == "env-project-456"
+
+
+@pytest.mark.respx(base_url=base_url)
+def test_service_client_explicit_project_id_overrides_env(
+    respx_mock: MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TINKER_PROJECT_ID", "env-project-456")
+    create_session_route = respx_mock.post("/api/v1/create_session").mock(
+        return_value=httpx.Response(200, json={"session_id": "test-session-id"})
+    )
+
+    service_client = tinker.ServiceClient(base_url=base_url, project_id="explicit-123")
+    service_client.holder.close()
+
+    assert create_session_route.called
+    sent_payload = json.loads(create_session_route.calls[0].request.content.decode())
+    assert sent_payload["project_id"] == "explicit-123"
+
+
+@pytest.mark.respx(base_url=base_url)
 async def test_create_training_client_from_state_async(respx_mock: MockRouter) -> None:
     """Test create_training_client_from_state_async uses public endpoint."""
     tinker_path = "tinker://test-model-123/weights/checkpoint-001"

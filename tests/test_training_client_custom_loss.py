@@ -144,7 +144,7 @@ async def test_forward_backward_custom_preserves_1d_cross_entropy_targets():
         future.set_result(result)
         return AwaitableConcurrentFuture(future)
 
-    setattr(client, "forward_async", forward_async_1d)
+    client.forward_async = forward_async_1d
 
     def custom_loss(
         data: list[types.Datum], logprobs_list: list[torch.Tensor]

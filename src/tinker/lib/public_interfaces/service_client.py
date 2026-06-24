@@ -38,7 +38,8 @@ class ServiceClient(TelemetryProvider):
 
     Args:
         user_metadata: Optional metadata attached to the created session.
-        project_id: Optional project ID to attach to the created session.
+        project_id: Optional project ID to attach to the created session. If not
+            provided, falls back to the `TINKER_PROJECT_ID` environment variable.
         **kwargs: advanced options passed to the underlying HTTP client,
                  including API keys, headers, and connection settings.
 
@@ -66,6 +67,8 @@ class ServiceClient(TelemetryProvider):
     ):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
         kwargs["_strict_response_validation"] = True
+        if project_id is None:
+            project_id = os.environ.get("TINKER_PROJECT_ID") or None
         self.holder = InternalClientHolder(
             user_metadata=user_metadata,
             project_id=project_id,
