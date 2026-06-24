@@ -201,7 +201,7 @@ class TrainingClient(TelemetryProvider):
         )]
         future = training_client.forward(data, "cross_entropy")
         result = await future
-        print(f"Loss: {result.loss}")
+        print(f"Loss: {result.metrics['loss:sum']}")
         ```
         """
         cfg = self.holder._client_config
@@ -288,7 +288,7 @@ class TrainingClient(TelemetryProvider):
         )
 
         fwdbwd_result = await fwdbwd_future
-        print(f"Loss: {fwdbwd_result.loss}")
+        print(f"Loss: {fwdbwd_result.metrics['loss:sum']}")
         ```
         """
         return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=False)
@@ -420,7 +420,6 @@ class TrainingClient(TelemetryProvider):
 
         future = training_client.forward_backward_custom(data, custom_loss)
         result = future.result()
-        print(f"Custom loss: {result.loss}")
         print(f"Metrics: {result.metrics}")
         ```
         """
