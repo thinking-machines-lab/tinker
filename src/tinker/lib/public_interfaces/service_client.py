@@ -238,8 +238,15 @@ class ServiceClient(TelemetryProvider):
         authenticated with that token.
         """
         if weights_access_token is not None:
+            # REST-only client under the source token: it only reads weights info,
+            # so skip session creation. Creating a session here would land in the
+            # token's org Default project (we must NOT inherit this client's
+            # project_id, since the token belongs to a different org), which fails
+            # if that Default is read-only.
             token_client = ServiceClient(
-                api_key=weights_access_token, **self.holder._constructor_kwargs
+                api_key=weights_access_token,
+                _skip_session=True,
+                **self.holder._constructor_kwargs,
             )
             return token_client.create_rest_client()
         return self.create_rest_client()
