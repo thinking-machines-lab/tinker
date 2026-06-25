@@ -191,6 +191,7 @@ class RestClient(TelemetryProvider):
         limit: int = 20,
         offset: int = 0,
         access_scope: Literal["owned", "accessible"] = "owned",
+        project_id: str | None = None,
     ) -> AwaitableConcurrentFuture[types.TrainingRunsResponse]:
         """Internal method to submit list training runs request."""
 
@@ -202,6 +203,8 @@ class RestClient(TelemetryProvider):
                         "offset": offset,
                         "access_scope": access_scope,
                     }
+                    if project_id is not None:
+                        params["project_id"] = project_id
 
                     return await client.get(
                         "/api/v1/training_runs",
@@ -220,12 +223,14 @@ class RestClient(TelemetryProvider):
         limit: int = 20,
         offset: int = 0,
         access_scope: Literal["owned", "accessible"] = "owned",
+        project_id: str | None = None,
     ) -> ConcurrentFuture[types.TrainingRunsResponse]:
         """List training runs with pagination support.
 
         Args:
         - `limit`: Maximum number of training runs to return (default 20)
         - `offset`: Offset for pagination (default 0)
+        - `project_id`: If provided, only return training runs in this project
 
         Returns:
         - A `Future` containing the `TrainingRunsResponse` with training runs and cursor info
@@ -238,12 +243,15 @@ class RestClient(TelemetryProvider):
         print(f"Total: {response.cursor.total_count}")
         # Get next page
         next_page = rest_client.list_training_runs(limit=50, offset=50)
+        # Only runs in a given project
+        project_runs = rest_client.list_training_runs(project_id="my-project-id").result()
         ```
         """
         return self._list_training_runs_submit(
             limit,
             offset,
             access_scope=access_scope,
+            project_id=project_id,
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -252,12 +260,14 @@ class RestClient(TelemetryProvider):
         limit: int = 20,
         offset: int = 0,
         access_scope: Literal["owned", "accessible"] = "owned",
+        project_id: str | None = None,
     ) -> types.TrainingRunsResponse:
         """Async version of list_training_runs."""
         return await self._list_training_runs_submit(
             limit,
             offset,
             access_scope=access_scope,
+            project_id=project_id,
         )
 
     def _list_checkpoints_submit(

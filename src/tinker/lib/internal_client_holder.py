@@ -192,6 +192,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         api_key: str | None = None,
         _client_config: dict[str, str | int | bool] | None = None,
         _jwt_auth_seed: str | None = None,
+        _skip_session: bool = False,
         **kwargs: Any,
     ) -> None:
         # Resolve from env now so shadow_kwargs carries the actual credential
@@ -253,11 +254,20 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                     self.execute_with_retries(self._default_auth.init)
                 ).result()
 
-        if session_id is not None:
-            # Shadow mode: reuse existing session, can't create new clients
-            self._session_id: str = session_id
+        if _skip_session:
+            # Session-less mode: used for raw REST clients (e.g. weights-info
+            # lookups under a different token) that never need a session. We skip
+            # session creation entirely, so a read-only Default project in the
+            # token's org cannot block construction. Auth is already set up above,
+            # which is all a REST read needs.
+            self._session_id: str | None = None
             self._training_client_counter: int | None = None
             self._sampling_client_counter: int | None = None
+        elif session_id is not None:
+            # Shadow mode: reuse existing session, can't create new clients
+            self._session_id = session_id
+            self._training_client_counter = None
+            self._sampling_client_counter = None
         else:
             # Normal mode: create new session.
             self._assert_not_on_event_loop("create a new session")
@@ -267,17 +277,22 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._training_client_counter = 0
             self._sampling_client_counter = 0
 
-        if self._loop.is_running() and _current_loop() is self._loop:
-            # Already on the event loop thread — .result() would deadlock.
-            # Create the heartbeat task directly instead of via run_coroutine_threadsafe.
-            self._session_heartbeat_task: asyncio.Task[None] = asyncio.create_task(
-                self._session_heartbeat(self._session_id)
-            )
+        if _skip_session:
+            self._session_heartbeat_task: asyncio.Task[None] | None = None
+            self._telemetry: Telemetry | None = None
         else:
-            self._session_heartbeat_task = self.run_coroutine_threadsafe(
-                self._start_heartbeat()
-            ).result()
-        self._telemetry: Telemetry | None = init_telemetry(self, session_id=self._session_id)
+            assert self._session_id is not None
+            if self._loop.is_running() and _current_loop() is self._loop:
+                # Already on the event loop thread — .result() would deadlock.
+                # Create the heartbeat task directly instead of via run_coroutine_threadsafe.
+                self._session_heartbeat_task = asyncio.create_task(
+                    self._session_heartbeat(self._session_id)
+                )
+            else:
+                self._session_heartbeat_task = self.run_coroutine_threadsafe(
+                    self._start_heartbeat()
+                ).result()
+            self._telemetry = init_telemetry(self, session_id=self._session_id)
 
         self._first_billing_exception_time: float | None = None
         self._last_logged_billing_exception_time: float | None = None
@@ -421,6 +436,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         # _create_sampling_session can only be called via a ServiceClient.
         # ServiceClient will never have a shadow holder, so we can safely assert.
         assert self._sampling_client_counter is not None
+        assert self._session_id is not None
         sampling_session_seq_id = self._sampling_client_counter
         self._sampling_client_counter += 1
         with self.aclient(ClientConnectionPoolType.SESSION) as client:
@@ -435,6 +451,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
     async def _start_heartbeat(self) -> asyncio.Task[None]:
         """Start the session heartbeat task."""
+        assert self._session_id is not None
         return asyncio.create_task(self._session_heartbeat(self._session_id))
 
     async def _fetch_client_config(self, auth: AuthTokenProvider) -> types.ClientConfigResponse:
@@ -519,6 +536,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         return self._client_pools[client_pool_type]
 
     def get_session_id(self) -> str:
+        assert self._session_id is not None, (
+            "session_id is unavailable on a session-less client (REST-only)"
+        )
         return self._session_id
 
     def get_client_config(self) -> types.ClientConfigResponse:

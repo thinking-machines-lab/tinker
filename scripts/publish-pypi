@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
-set -eux
+# Note: do NOT use `set -x` here — it would echo the publish command and leak $PYPI_TOKEN
+# into stdout/CI logs. Pass the token via the environment (UV_PUBLISH_TOKEN) instead of as a
+# CLI argument so it also never appears in the process argv.
+set -eu
 rm -rf dist
 mkdir -p dist
 uv build
-uv publish --token=$PYPI_TOKEN
+UV_PUBLISH_TOKEN="$PYPI_TOKEN" uv publish

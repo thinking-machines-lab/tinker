@@ -236,3 +236,33 @@ def test_create_training_client_from_state_sync_uses_public_endpoint(
 
     # Verify it uses the public endpoint (info_lite), not the full training run endpoint
     assert info_lite_route.called
+
+
+@pytest.mark.respx(base_url=base_url)
+def test_get_rest_client_for_weights_creates_no_session(respx_mock: MockRouter) -> None:
+    """A weights_access_token REST client must not create its own session.
+
+    Regression test: the source-token client is only used to read weights info,
+    but it used to eagerly create a session on construction. That session lands
+    in the token org's Default project and 400s ("read-only") when that Default
+    is frozen (e.g. cross-org copies). With the fix the source-token client is
+    session-less, so only the destination session is ever created.
+    """
+    # use_pyqwest_transport=False keeps calls on httpx so respx can intercept
+    # them (respx cannot mock the pyqwest transport).
+    respx_mock.post("/api/v1/client/config").mock(
+        return_value=httpx.Response(200, json={"use_pyqwest_transport": False})
+    )
+    create_session_route = respx_mock.post("/api/v1/create_session").mock(
+        return_value=httpx.Response(200, json={"session_id": "dest-session-id"})
+    )
+
+    service_client = tinker.ServiceClient(base_url=base_url, api_key="tml-dest-token")
+    assert create_session_route.call_count == 1  # the destination session
+
+    # Building the source-token REST client must NOT create another session.
+    rest_client = service_client._get_rest_client_for_weights("tml-src-token")
+    assert create_session_route.call_count == 1
+    assert rest_client.holder._session_id is None
+
+    service_client.holder.close()
