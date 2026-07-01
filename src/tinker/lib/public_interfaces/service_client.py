@@ -295,7 +295,15 @@ class ServiceClient(TelemetryProvider):
             user_metadata=user_metadata,
         )
 
-        training_client.load_state(path, weights_access_token=weights_access_token).result()
+        auth_token = (
+            self.holder.run_coroutine_threadsafe(
+                rest_client.holder._default_auth.get_token()
+            ).result()
+            if weights_access_token is not None
+            else None
+        )
+
+        training_client.load_state(path, weights_access_token=auth_token).result()
         return training_client
 
     async def create_training_client_from_state_async(
