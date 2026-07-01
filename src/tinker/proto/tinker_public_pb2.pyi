@@ -336,8 +336,7 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
     loss_fn: builtins.str
     forward_only: builtins.bool
     """When true, the trainer computes loss + loss_fn_outputs without running
-    backward / accumulating gradients. proto3 default false preserves
-    fwd+bwd behavior for older SDKs that don't set this field.
+    backward / accumulating gradients. Default is false.
     """
     @property
     def data(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Datum]: ...
@@ -455,3 +454,83 @@ class ImageChunk(google.protobuf.message.Message):
     def WhichOneof(self, oneof_group: typing.Literal["_expected_tokens", b"_expected_tokens"]) -> typing.Literal["expected_tokens"] | None: ...
 
 Global___ImageChunk: typing_extensions.TypeAlias = ImageChunk
+
+@typing.final
+class SamplingParams(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    MAX_TOKENS_FIELD_NUMBER: builtins.int
+    SEED_FIELD_NUMBER: builtins.int
+    TEMPERATURE_FIELD_NUMBER: builtins.int
+    TOP_K_FIELD_NUMBER: builtins.int
+    TOP_P_FIELD_NUMBER: builtins.int
+    STOP_STRS_FIELD_NUMBER: builtins.int
+    STOP_TOKENS_FIELD_NUMBER: builtins.int
+    max_tokens: builtins.int
+    seed: builtins.int
+    temperature: builtins.float
+    top_k: builtins.int
+    top_p: builtins.float
+    @property
+    def stop_strs(self) -> Global___StopStrings: ...
+    @property
+    def stop_tokens(self) -> Global___StopTokens: ...
+    def __init__(
+        self,
+        *,
+        max_tokens: builtins.int | None = ...,
+        seed: builtins.int | None = ...,
+        temperature: builtins.float | None = ...,
+        top_k: builtins.int | None = ...,
+        top_p: builtins.float | None = ...,
+        stop_strs: Global___StopStrings | None = ...,
+        stop_tokens: Global___StopTokens | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_max_tokens", b"_max_tokens", "_seed", b"_seed", "_temperature", b"_temperature", "_top_k", b"_top_k", "_top_p", b"_top_p", "max_tokens", b"max_tokens", "seed", b"seed", "stop", b"stop", "stop_strs", b"stop_strs", "stop_tokens", b"stop_tokens", "temperature", b"temperature", "top_k", b"top_k", "top_p", b"top_p"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_max_tokens", b"_max_tokens", "_seed", b"_seed", "_temperature", b"_temperature", "_top_k", b"_top_k", "_top_p", b"_top_p", "max_tokens", b"max_tokens", "seed", b"seed", "stop", b"stop", "stop_strs", b"stop_strs", "stop_tokens", b"stop_tokens", "temperature", b"temperature", "top_k", b"top_k", "top_p", b"top_p"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_max_tokens", b"_max_tokens"]) -> typing.Literal["max_tokens"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_seed", b"_seed"]) -> typing.Literal["seed"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_temperature", b"_temperature"]) -> typing.Literal["temperature"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_top_k", b"_top_k"]) -> typing.Literal["top_k"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_top_p", b"_top_p"]) -> typing.Literal["top_p"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["stop", b"stop"]) -> typing.Literal["stop_strs", "stop_tokens"] | None: ...
+
+Global___SamplingParams: typing_extensions.TypeAlias = SamplingParams
+
+@typing.final
+class StopStrings(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: builtins.int
+    @property
+    def values(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        values: collections.abc.Iterable[builtins.str] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["values", b"values"]) -> None: ...
+
+Global___StopStrings: typing_extensions.TypeAlias = StopStrings
+
+@typing.final
+class StopTokens(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: builtins.int
+    @property
+    def values(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    def __init__(
+        self,
+        *,
+        values: collections.abc.Iterable[builtins.int] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["values", b"values"]) -> None: ...
+
+Global___StopTokens: typing_extensions.TypeAlias = StopTokens
