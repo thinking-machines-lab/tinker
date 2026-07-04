@@ -976,6 +976,24 @@ def _delete_paths(
                 click.echo(f"  - {path}: {error}")
 
 
+def _print_no_checkpoints_to_delete(run_id: str, format: str) -> None:
+    if format == "json":
+        import json
+
+        click.echo(
+            json.dumps(
+                {
+                    "deleted_count": 0,
+                    "failed": [],
+                    "run_id": run_id,
+                    "matched_count": 0,
+                }
+            )
+        )
+    else:
+        click.echo(f"No checkpoints found for run {run_id} matching filters")
+
+
 @cli.command()
 @click.argument("checkpoint_paths", nargs=-1, required=False)
 @click.option("--run-id", default=None, help="Delete all checkpoints for a training run")
@@ -1063,7 +1081,7 @@ def delete(
         )
 
         if not checkpoints:
-            click.echo(f"No checkpoints found for run {run_id} matching filters")
+            _print_no_checkpoints_to_delete(run_id, cli_context.format)
             return
 
         paths_to_delete = [c.tinker_path for c in checkpoints]
