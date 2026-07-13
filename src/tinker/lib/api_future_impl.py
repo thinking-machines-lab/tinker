@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, List, Type, TypeVar, cast
 
+import httpx
+
 import tinker
 from tinker import types
 from tinker._exceptions import RequestFailedError
@@ -96,6 +98,7 @@ class _LoopState:
 
 
 _MAX_BAD_REQUEST_RETRIES = 3
+_RETRIEVE_FUTURE_TIMEOUT_SECONDS = 45.0
 
 
 class _TransportErrorKind(Enum):
@@ -404,17 +407,36 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 self.request_queue_roundtrip_time
             )
 
-        try:
+        async def _retrieve_response() -> _SuccessProto | dict[str, Any]:
             with self.holder.aclient(ClientConnectionPoolType.RETRIEVE_PROMISE) as client:
                 response = await client.futures.with_raw_response.retrieve(
                     request=FutureRetrieveRequest(
                         request_id=self.request_id,
                         allow_metadata_only=state.allow_metadata_only,
                     ),
-                    timeout=45,
+                    timeout=_RETRIEVE_FUTURE_TIMEOUT_SECONDS,
                     extra_headers=headers,
                     max_retries=0,
                 )
+                try:
+                    if "application/x-protobuf" in response.headers.get("content-type", ""):
+                        return _SuccessProto(proto_bytes=response.http_response.content)
+                    return cast(dict[str, Any], await response.json())
+                finally:
+                    # Fully-read HTTPX responses are already closed. This is
+                    # intentionally idempotent and also covers future streaming
+                    # response implementations where body reads happen here.
+                    with contextlib.suppress(Exception):
+                        await response.close()
+
+        try:
+            # The pyqwest HTTPX adapter applies the request timeout while waiting
+            # for response headers, but not while consuming the response body.
+            # Bound the complete retrieve operation so a stalled body is closed
+            # and the same future can be polled again before it expires.
+            result = await asyncio.wait_for(
+                _retrieve_response(), timeout=_RETRIEVE_FUTURE_TIMEOUT_SECONDS
+            )
         except tinker.APIStatusError as e:
             return _rest_status_error_to_transport_error(e)
         except tinker.APIConnectionError as e:
@@ -425,11 +447,21 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                 exception=e,
                 event_name="connection_error",
             )
+        except (asyncio.TimeoutError, httpx.TransportError) as e:
+            return _TransportError(
+                kind=_TransportErrorKind.RETRY_WITH_BACKOFF,
+                status_code=0,
+                detail=(
+                    f"Timed out or lost the connection while retrieving future "
+                    f"{self.request_id}: {type(e).__name__}: {e}"
+                ),
+                exception=e,
+                event_name="connection_error",
+            )
 
-        if "application/x-protobuf" in response.headers.get("content-type", ""):
-            return _SuccessProto(proto_bytes=response.http_response.content)
-
-        result_dict: Any = await response.json()
+        if isinstance(result, _SuccessProto):
+            return result
+        result_dict: Any = result
 
         if result_dict.get("type") == "try_again":
             logger.warning(f"Retrying request {self.request_id=} because of try_again")
