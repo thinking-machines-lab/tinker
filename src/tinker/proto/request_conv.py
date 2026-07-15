@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from tinker.proto import tinker_public_pb2 as public_pb
+from tinker.types.dmel_chunk import DmelChunk
 from tinker.types.encoded_text_chunk import EncodedTextChunk
 from tinker.types.forward_backward_request import ForwardBackwardRequest
 from tinker.types.image_chunk import ImageChunk
@@ -71,6 +72,7 @@ def _write_chunk(msg: public_pb.Chunk, chunk: ModelInputChunk) -> None:
 
     EncodedTextChunk: tokens packed as int32 bytes. ImageChunk: raw bytes
     pass through; the server uploads + computes width/height/tokens.
+    DmelChunk: for audio, serialized TensorContainer bytes copied through as-is.
     """
     if isinstance(chunk, EncodedTextChunk):
         msg.encoded_text.tokens = np.asarray(chunk.tokens, dtype=np.int32).tobytes()
@@ -80,6 +82,9 @@ def _write_chunk(msg: public_pb.Chunk, chunk: ModelInputChunk) -> None:
         msg.image.format = chunk.format
         if chunk.expected_tokens is not None:
             msg.image.expected_tokens = chunk.expected_tokens
+        return
+    if isinstance(chunk, DmelChunk):
+        msg.dmel.dmel = chunk.dmel
         return
     raise ValueError(f"Unsupported model input chunk type: {type(chunk).__name__}")
 

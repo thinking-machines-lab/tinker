@@ -656,6 +656,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 raise e
 
     def estimate_bytes_count_in_chunk(self, chunk: types.ModelInputChunk) -> int:
+        if isinstance(chunk, types.DmelChunk):
+            return len(chunk.dmel)
         if isinstance(chunk, types.ImageChunk):
             return len(chunk.data)
         if isinstance(chunk, types.ImageAssetPointerChunk):

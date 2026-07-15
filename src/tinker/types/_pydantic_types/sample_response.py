@@ -25,3 +25,10 @@ class SampleResponse(BaseModel):
     `topk_prompt_logprobs` response contains, for every token in the prompt,
     a list of up to k (token_id, logprob) tuples.
     """
+
+    prompt_cache_hit_tokens: int = 0
+    """Number of prompt tokens billed as prefix-cache hits.
+
+    Counted on the prompt itself: for `num_samples > 1` the prompt is shared,
+    so this is not multiplied across samples.
+    """
