@@ -8,6 +8,8 @@ integration) stay hand-crafted.
 
 from __future__ import annotations
 
+import base64
+
 import numpy as np
 import pytest
 from hypothesis import given
@@ -212,6 +214,43 @@ def test_sparse_tensor_round_trip() -> None:
         2,
     ]
     assert np.frombuffer(weights_msg.sparse_csr.col_indices, dtype=np.int64).tolist() == [1, 3]
+
+
+def test_dmel_chunk_json_and_proto_round_trip() -> None:
+    """DMel chunks carry TensorContainer bytes through SDK JSON and proto paths."""
+    # Serialization doesn't look at the contents, so use arbitrary bytes for this test.
+    dmel_bytes = np.arange(8 * 80, dtype=np.uint8).reshape(8, 80).tobytes()
+    chunk = types.DmelChunk(dmel=dmel_bytes)
+
+    # JSON path: bytes serialize to a base64 string and validate back losslessly.
+    dumped = chunk.model_dump(mode="json")
+    assert dumped == {
+        "dmel": base64.b64encode(dmel_bytes).decode("utf-8"),
+        "type": "dmel",
+    }
+    assert types.DmelChunk.model_validate(dumped).dmel == dmel_bytes
+
+    request = _make_request(
+        data=[
+            types.Datum(
+                model_input=types.ModelInput(
+                    chunks=[
+                        types.EncodedTextChunk(tokens=[1, 2]),
+                        chunk,
+                    ]
+                ),
+                loss_fn_inputs={"target_tokens": [3], "weights": [1.0]},
+            )
+        ]
+    )
+
+    # Proto path: encode + serialize/parse preserves the raw bytes in the
+    # Chunk.dmel oneof arm (no base64, alongside an EncodedTextChunk).
+    msg = _roundtrip(forward_backward_request_to_proto(request))
+    assert msg.data[0].model_input[0].WhichOneof("chunk") == "encoded_text"
+    dmel_msg = msg.data[0].model_input[1]
+    assert dmel_msg.WhichOneof("chunk") == "dmel"
+    assert dmel_msg.dmel.dmel == dmel_bytes
 
 
 def test_unsupported_dtype_raises() -> None:

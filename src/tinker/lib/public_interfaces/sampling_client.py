@@ -563,7 +563,7 @@ def _load_tokenizer_from_model_info(
         else:
             tokenizer_id = model_name
 
-    if tokenizer_id.startswith("TML/"):
+    if tokenizer_id.startswith(("TML/", "thinkingmachines/")):
         from tml_tokenizers.tinker_tokenizers import get_tinker_tokenizer
 
         if (tokenizer := get_tinker_tokenizer(tokenizer_id)) is not None:

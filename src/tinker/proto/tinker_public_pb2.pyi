@@ -66,9 +66,14 @@ class SampleResponse(google.protobuf.message.Message):
     SEQUENCES_FIELD_NUMBER: builtins.int
     PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
     TOPK_PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
+    PROMPT_CACHE_HIT_TOKENS_FIELD_NUMBER: builtins.int
     prompt_logprobs: builtins.bytes
     """np.array(prompt_logprobs, dtype=np.float32).tobytes()
     NaN for missing positions (e.g. first prompt token)
+    """
+    prompt_cache_hit_tokens: builtins.int
+    """Number of prompt tokens billed as prefix-cache hits, counted on the
+    prompt itself regardless of num_samples.
     """
     @property
     def sequences(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___SampledSequence]: ...
@@ -82,9 +87,10 @@ class SampleResponse(google.protobuf.message.Message):
         sequences: collections.abc.Iterable[Global___SampledSequence] | None = ...,
         prompt_logprobs: builtins.bytes | None = ...,
         topk_prompt_logprobs: Global___TopkPromptLogprobs | None = ...,
+        prompt_cache_hit_tokens: builtins.int = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_logprobs", b"prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_logprobs", b"prompt_logprobs", "sequences", b"sequences", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_cache_hit_tokens", b"prompt_cache_hit_tokens", "prompt_logprobs", b"prompt_logprobs", "sequences", b"sequences", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_prompt_logprobs", b"_prompt_logprobs"]) -> typing.Literal["prompt_logprobs"] | None: ...
     @typing.overload
@@ -400,19 +406,23 @@ class Chunk(google.protobuf.message.Message):
 
     ENCODED_TEXT_FIELD_NUMBER: builtins.int
     IMAGE_FIELD_NUMBER: builtins.int
+    DMEL_FIELD_NUMBER: builtins.int
     @property
     def encoded_text(self) -> Global___EncodedTextChunk: ...
     @property
     def image(self) -> Global___ImageChunk: ...
+    @property
+    def dmel(self) -> Global___DmelChunk: ...
     def __init__(
         self,
         *,
         encoded_text: Global___EncodedTextChunk | None = ...,
         image: Global___ImageChunk | None = ...,
+        dmel: Global___DmelChunk | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["chunk", b"chunk", "encoded_text", b"encoded_text", "image", b"image"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["chunk", b"chunk", "encoded_text", b"encoded_text", "image", b"image"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing.Literal["chunk", b"chunk"]) -> typing.Literal["encoded_text", "image"] | None: ...
+    def HasField(self, field_name: typing.Literal["chunk", b"chunk", "dmel", b"dmel", "encoded_text", b"encoded_text", "image", b"image"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["chunk", b"chunk", "dmel", b"dmel", "encoded_text", b"encoded_text", "image", b"image"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["chunk", b"chunk"]) -> typing.Literal["encoded_text", "image", "dmel"] | None: ...
 
 Global___Chunk: typing_extensions.TypeAlias = Chunk
 
@@ -454,6 +464,22 @@ class ImageChunk(google.protobuf.message.Message):
     def WhichOneof(self, oneof_group: typing.Literal["_expected_tokens", b"_expected_tokens"]) -> typing.Literal["expected_tokens"] | None: ...
 
 Global___ImageChunk: typing_extensions.TypeAlias = ImageChunk
+
+@typing.final
+class DmelChunk(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    DMEL_FIELD_NUMBER: builtins.int
+    dmel: builtins.bytes
+    """Serialized TensorContainer bytes of DMel tokens."""
+    def __init__(
+        self,
+        *,
+        dmel: builtins.bytes = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["dmel", b"dmel"]) -> None: ...
+
+Global___DmelChunk: typing_extensions.TypeAlias = DmelChunk
 
 @typing.final
 class SamplingParams(google.protobuf.message.Message):

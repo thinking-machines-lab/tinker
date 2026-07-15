@@ -64,6 +64,7 @@ def _convert_sample_response(pydantic_obj: _PydanticSampleResponse) -> SampleRes
         ],
         _prompt_logprobs_list=pydantic_obj.prompt_logprobs,
         _topk_prompt_logprobs_list=pydantic_obj.topk_prompt_logprobs,
+        prompt_cache_hit_tokens=pydantic_obj.prompt_cache_hit_tokens,
     )
 
 

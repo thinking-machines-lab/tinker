@@ -37,6 +37,13 @@ class SampleResponse:
     (see ``TopkPromptLogprobs``).
     None if top-k was not requested."""
 
+    prompt_cache_hit_tokens: int = 0
+    """Number of prompt tokens billed as prefix-cache hits.
+
+    Counted on the prompt itself: for ``num_samples > 1`` the prompt is
+    shared, so this is not multiplied across samples. Prefill on the shared prompts
+    samples (the remaining ``num_samples - 1``) is billed as cache hits."""
+
     # Private storage for list-based construction path.
     _prompt_logprobs_list: Optional[List[Optional[float]]] = field(default=None, repr=False)
     _topk_prompt_logprobs_list: Optional[list[Optional[list[tuple[int, float]]]]] = field(

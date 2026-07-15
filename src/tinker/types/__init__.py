@@ -30,6 +30,7 @@ from .create_session_request import CreateSessionRequest as CreateSessionRequest
 from .create_session_response import CreateSessionResponse as CreateSessionResponse
 from .cursor import Cursor as Cursor
 from .datum import Datum as Datum
+from .dmel_chunk import DmelChunk as DmelChunk
 from .encoded_text_chunk import EncodedTextChunk as EncodedTextChunk
 from .event_type import EventType as EventType
 from .forward_backward_input import ForwardBackwardInput as ForwardBackwardInput

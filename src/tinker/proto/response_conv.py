@@ -90,6 +90,7 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
         sequences=sequences,
         prompt_logprobs_np=prompt_logprobs_np,
         topk_prompt_logprobs_np=topk_prompt_logprobs_np,
+        prompt_cache_hit_tokens=proto.prompt_cache_hit_tokens,
     )
 
 
