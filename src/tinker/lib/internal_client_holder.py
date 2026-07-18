@@ -523,9 +523,12 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 if client_pool_type == ClientConnectionPoolType.TRAIN
                 else MAX_REQUESTS_PER_HTTPX_CLIENT
             )
+            # Endpoints that respond with a 302 to a signed GCS URL must not use
+            # pyqwest: reqwest follows the redirect internally with the stale
+            # `host` header, and the redirect target resets the stream.
             client_config = (
                 types.ClientConfigResponse(use_pyqwest_transport=False)
-                if client_pool_type == ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
+                if client_pool_type == ClientConnectionPoolType.REST_SUPPORT_REDIRECT
                 else None
             )
             self._client_pools[client_pool_type] = self._create_client_connection_pool(

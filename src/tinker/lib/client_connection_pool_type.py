@@ -5,6 +5,6 @@ class ClientConnectionPoolType(Enum):
     SESSION = "session"
     SAMPLE = "sample"
     TRAIN = "train"
-    CHECKPOINT_ARCHIVE_URL = "checkpoint_archive_url"
+    REST_SUPPORT_REDIRECT = "rest_support_redirect"
     RETRIEVE_PROMISE = "retrieve_promise"
     TELEMETRY = "telemetry"
