@@ -80,7 +80,7 @@ def test_get_checkpoint_archive_url_uses_holder_retries() -> None:
 
     assert result is response
     assert holder.execute_with_retries_called
-    assert holder.used_pool_type == ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
+    assert holder.used_pool_type == ClientConnectionPoolType.REST_SUPPORT_REDIRECT
     assert weights.attempts == 2
 
 

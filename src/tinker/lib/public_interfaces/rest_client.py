@@ -335,7 +335,7 @@ class RestClient(TelemetryProvider):
 
         async def _get_checkpoint_archive_url_async() -> types.CheckpointArchiveUrlResponse:
             async def _send_request() -> types.CheckpointArchiveUrlResponse:
-                with self.holder.aclient(ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL) as client:
+                with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
                     return await client.weights.get_checkpoint_archive_url(
                         model_id=training_run_id,
                         checkpoint_id=checkpoint_id,
@@ -486,7 +486,7 @@ class RestClient(TelemetryProvider):
             params: dict[str, object] = {"event_type": event_type}
             if day is not None:
                 params["day"] = day.isoformat()
-            with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+            with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
                 return await client.get(
                     "/api/v1/audit",
                     options={"params": params},

@@ -160,15 +160,15 @@ def test_sampling_client_pickle_roundtrip_without_env_var(
     assert restored.holder._default_auth._token == "tml-key-from-env"
 
 
-def test_checkpoint_archive_client_pool_disables_pyqwest_when_enabled_by_config() -> None:
+def test_rest_support_redirect_pool_disables_pyqwest_when_enabled_by_config() -> None:
     holder = _make_holder(api_key="tml-test-key")
 
-    archive_pool = holder._get_client_connection_pool(
-        ClientConnectionPoolType.CHECKPOINT_ARCHIVE_URL
+    redirect_pool = holder._get_client_connection_pool(
+        ClientConnectionPoolType.REST_SUPPORT_REDIRECT
     )
     train_pool = holder._get_client_connection_pool(ClientConnectionPoolType.TRAIN)
     sample_pool = holder._get_client_connection_pool(ClientConnectionPoolType.SAMPLE)
 
-    assert archive_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is False
+    assert redirect_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is False
     assert train_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is True
     assert sample_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is True
