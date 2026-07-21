@@ -101,3 +101,4 @@ from .unhandled_exception_event import UnhandledExceptionEvent as UnhandledExcep
 from .unload_model_request import UnloadModelRequest as UnloadModelRequest
 from .unload_model_response import UnloadModelResponse as UnloadModelResponse
 from .weights_info_response import WeightsInfoResponse as WeightsInfoResponse
+from .whoami_response import WhoamiResponse as WhoamiResponse
