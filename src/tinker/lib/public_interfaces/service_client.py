@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -67,28 +68,68 @@ class ServiceClient(TelemetryProvider):
     ):
         default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
         kwargs["_strict_response_validation"] = True
+        kwargs["default_headers"] = default_headers
         if project_id is None:
             project_id = os.environ.get("TINKER_PROJECT_ID") or None
-        self.holder = InternalClientHolder(
-            user_metadata=user_metadata,
-            project_id=project_id,
-            **kwargs,
-            default_headers=default_headers,
-        )
-        logger.info(f"ServiceClient initialized for session {self.holder._session_id}")
+        self._user_metadata: dict[str, str] | None = user_metadata
+        self._project_id: str | None = project_id
+        self._holder_kwargs: dict[str, Any] = kwargs
+        self._session_holder: InternalClientHolder | None = None
+        self._session_holder_lock: threading.Lock = threading.Lock()
+        self._rest_holder: InternalClientHolder | None = None
+        self._rest_holder_lock: threading.Lock = threading.Lock()
+
+    # The unlocked fast paths below keep event-loop-thread callers from blocking
+    # on the lock while another thread creates a holder.
+
+    def _get_session_holder(self) -> InternalClientHolder:
+        """Lazily create and cache the sessionful holder used by training/sampling."""
+        if self._session_holder is not None:
+            return self._session_holder
+        with self._session_holder_lock:
+            if self._session_holder is None:
+                self._session_holder = InternalClientHolder(
+                    user_metadata=self._user_metadata,
+                    project_id=self._project_id,
+                    **self._holder_kwargs,
+                )
+                logger.info(
+                    f"ServiceClient initialized for session {self._session_holder._session_id}"
+                )
+            return self._session_holder
+
+    def _get_rest_holder(self) -> InternalClientHolder:
+        """Lazily create and cache the session-less holder used by REST clients."""
+        if self._rest_holder is not None:
+            return self._rest_holder
+        with self._rest_holder_lock:
+            if self._rest_holder is None:
+                self._rest_holder = InternalClientHolder(_skip_session=True, **self._holder_kwargs)
+            return self._rest_holder
+
+    @property
+    def holder(self) -> InternalClientHolder:
+        """The sessionful holder. Deprecated: kept for backwards compatibility
+        with callers that reach into ServiceClient internals."""
+        return self._get_session_holder()
 
     def _get_server_capabilities_submit(
         self,
     ) -> AwaitableConcurrentFuture[types.GetServerCapabilitiesResponse]:
+        # Resolve before scheduling: lazy holder creation must not run on the event loop.
+        holder = self._get_rest_holder()
+
         @capture_exceptions(fatal=True)
         async def _get_server_capabilities_async():
+            _ = self  # keep `self` in the closure so capture_exceptions finds telemetry
+
             async def _send_request():
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.service.get_server_capabilities()
 
-            return await self.holder.execute_with_retries(_send_request)
+            return await holder.execute_with_retries(_send_request)
 
-        return self.holder.run_coroutine_threadsafe(_get_server_capabilities_async())
+        return holder.run_coroutine_threadsafe(_get_server_capabilities_async())
 
     @sync_only
     def get_server_capabilities(self) -> types.GetServerCapabilitiesResponse:
@@ -237,19 +278,15 @@ class ServiceClient(TelemetryProvider):
         If weights_access_token is provided, creates a separate ServiceClient
         authenticated with that token.
         """
-        if weights_access_token is not None:
-            # REST-only client under the source token: it only reads weights info,
-            # so skip session creation. Creating a session here would land in the
-            # token's org Default project (we must NOT inherit this client's
-            # project_id, since the token belongs to a different org), which fails
-            # if that Default is read-only.
-            token_client = ServiceClient(
-                api_key=weights_access_token,
-                _skip_session=True,
-                **self.holder._constructor_kwargs,
-            )
-            return token_client.create_rest_client()
-        return self.create_rest_client()
+        if weights_access_token is None:
+            return self.create_rest_client()
+
+        token_client_kwargs: dict[str, Any] = {
+            **self._holder_kwargs,
+            "api_key": weights_access_token,
+        }
+        token_client = ServiceClient(**token_client_kwargs)
+        return token_client.create_rest_client()
 
     @sync_only
     def create_training_client_from_state(
@@ -296,7 +333,7 @@ class ServiceClient(TelemetryProvider):
         )
 
         auth_token = (
-            self.holder.run_coroutine_threadsafe(
+            rest_client.holder.run_coroutine_threadsafe(
                 rest_client.holder._default_auth.get_token()
             ).result()
             if weights_access_token is not None
@@ -506,10 +543,12 @@ class ServiceClient(TelemetryProvider):
         """
         from .rest_client import RestClient
 
-        return RestClient(self.holder)
+        return RestClient(self._get_rest_holder())
 
     def get_telemetry(self) -> Telemetry | None:
-        return self.holder.get_telemetry()
+        # Report from whichever holder exists; don't create one just for telemetry.
+        holder = self._session_holder or self._rest_holder
+        return holder.get_telemetry() if holder is not None else None
 
 
 def _get_default_headers() -> dict[str, str]:

@@ -26,7 +26,7 @@ from tinker.lib._auth_token_provider import (
     AuthTokenProvider,
     resolve_auth_provider,
 )
-from tinker.lib._jwt_auth import JwtAuthProvider
+from tinker.lib._jwt_auth import JwtAuthProvider, jwt_claims
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
@@ -279,7 +279,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
         if _skip_session:
             self._session_heartbeat_task: asyncio.Task[None] | None = None
-            self._telemetry: Telemetry | None = None
+            # Session-less telemetry: exception/user-error events are still
+            # reported under a synthetic "sessionless-" id, without
+            # SESSION_START/SESSION_END events.
+            self._telemetry = init_telemetry(self, session_id=None)
         else:
             assert self._session_id is not None
             if self._loop.is_running() and _current_loop() is self._loop:
@@ -365,6 +368,24 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         if isinstance(self._default_auth, JwtAuthProvider):
             result["_jwt_auth_seed"] = self._default_auth._token
         return result
+
+    async def get_identity_jwt(self) -> str | None:
+        """Return a JWT carrying the caller's identity claims, if one is at hand.
+
+        With JWT auth enabled (the default), the SDK already holds a fresh
+        JWT from the auth exchange (refreshed in the background), so this
+        costs no requests. A directly supplied Tinker-issued JWT credential
+        also carries the claims itself. Returns None otherwise.
+        """
+        if isinstance(self._default_auth, JwtAuthProvider):
+            return await self._default_auth.get_token()
+        if self._api_key and self._api_key.startswith("eyJ"):
+            try:
+                if str(jwt_claims(self._api_key).get("iss", "")).startswith("passport-"):
+                    return self._api_key
+            except ValueError:
+                pass
+        return None
 
     @asynccontextmanager
     async def _sample_dispatch_count_rate_limit(self):

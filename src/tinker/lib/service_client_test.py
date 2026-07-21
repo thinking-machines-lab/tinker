@@ -30,9 +30,40 @@ def test_service_client_accepts_existing_strict_response_validation_kwarg(
 
     monkeypatch.setattr(service_client_module, "InternalClientHolder", fake_holder)
 
-    ServiceClient(base_url="http://127.0.0.1:4010", _strict_response_validation=True)
+    sc = ServiceClient(base_url="http://127.0.0.1:4010", _strict_response_validation=True)
+    _ = sc.holder  # holders are lazy; force creation
 
     assert captured_kwargs["_strict_response_validation"] is True
+
+
+def test_holders_created_lazily_and_split(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No holder at construction; REST gets a session-less holder, training a sessionful one."""
+    from tinker.lib.public_interfaces import service_client as service_client_module
+    from tinker.lib.public_interfaces.service_client import ServiceClient
+
+    calls: list[dict[str, object]] = []
+
+    def fake_holder(**kwargs: object) -> SimpleNamespace:
+        calls.append(kwargs)
+        return SimpleNamespace(_session_id="test-session-id")
+
+    monkeypatch.setattr(service_client_module, "InternalClientHolder", fake_holder)
+
+    sc = ServiceClient(base_url="http://127.0.0.1:4010")
+    assert calls == []
+
+    rest_client = sc.create_rest_client()
+    assert len(calls) == 1
+    assert calls[0].get("_skip_session") is True
+
+    session_holder = sc.holder
+    assert len(calls) == 2
+    assert "_skip_session" not in calls[1]
+
+    # Both holders are cached.
+    assert sc.create_rest_client().holder is rest_client.holder
+    assert sc.holder is session_holder
+    assert len(calls) == 2
 
 
 class _ResultFuture:
@@ -80,9 +111,6 @@ def _build_service_client(
     from tinker.lib.public_interfaces.service_client import ServiceClient
 
     sc = ServiceClient.__new__(ServiceClient)
-    monkeypatch.setattr(
-        sc, "holder", SimpleNamespace(run_coroutine_threadsafe=_run_to_result), raising=False
-    )
     monkeypatch.setattr(sc, "_get_rest_client_for_weights", lambda token: source_rest)
     monkeypatch.setattr(sc, "create_lora_training_client", lambda **kwargs: training_client)
     return sc
@@ -95,7 +123,10 @@ def test_create_training_client_from_state_exchanges_source_token(
     seen: list[str | None] = []
     source_rest = SimpleNamespace(
         get_weights_info_by_tinker_path=lambda path: _ResultFuture(_WEIGHTS_INFO),
-        holder=SimpleNamespace(_default_auth=SimpleNamespace(get_token=_returns("exchanged.jwt"))),
+        holder=SimpleNamespace(
+            run_coroutine_threadsafe=_run_to_result,
+            _default_auth=SimpleNamespace(get_token=_returns("exchanged.jwt")),
+        ),
     )
     training_client = SimpleNamespace(
         load_state=lambda path, weights_access_token: _record(seen, weights_access_token)

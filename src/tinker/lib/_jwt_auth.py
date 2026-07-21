@@ -30,13 +30,25 @@ _REFRESH_ON_DEMAND_SECS = 60  # get_token() refreshes if <= this many seconds le
 _RETRY_DELAY_SECS = 60  # backoff after a failed refresh
 
 
-def _jwt_expiry(jwt: str) -> float:
-    """Return the exp claim of a JWT as a Unix timestamp."""
+def jwt_claims(jwt: str) -> dict:
+    """Decode a JWT's payload claims without verifying the signature.
+
+    The SDK only ever decodes JWTs it received from the Tinker server over
+    TLS, so signature verification is not needed here.
+    """
     try:
         payload = jwt.split(".")[1]
         payload += "=" * (-len(payload) % 4)
-        return float(json.loads(base64.urlsafe_b64decode(payload))["exp"])
+        return json.loads(base64.urlsafe_b64decode(payload))
     except Exception as e:
+        raise ValueError(f"Failed to parse JWT claims: {e}") from e
+
+
+def _jwt_expiry(jwt: str) -> float:
+    """Return the exp claim of a JWT as a Unix timestamp."""
+    try:
+        return float(jwt_claims(jwt)["exp"])
+    except (ValueError, KeyError, TypeError) as e:
         raise ValueError(f"Failed to parse JWT expiry: {e}") from e
 
 

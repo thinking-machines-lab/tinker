@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 from tinker import types
 from tinker._types import NoneType
+from tinker.lib._jwt_auth import jwt_claims
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
@@ -23,6 +24,18 @@ if TYPE_CHECKING:
 # pyright: reportPrivateImportUsage=false
 
 logger = logging.getLogger(__name__)
+
+
+def _whoami_response_from_jwt(jwt: str) -> types.WhoamiResponse:
+    """Build a WhoamiResponse from the claims of an auth-exchange JWT.
+
+    Non-user-backed principals get an empty email claim; report None.
+    """
+    claims = jwt_claims(jwt)
+    return types.WhoamiResponse(
+        user_urn=claims["sub"],
+        email=claims.get("email") or None,
+    )
 
 
 class RestClient(TelemetryProvider):
@@ -42,6 +55,7 @@ class RestClient(TelemetryProvider):
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
     - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
     - assign_session_project() - move a session into a project
+    - whoami() - get the calling principal's user URN and email
 
     Args:
     - `holder`: Internal client managing HTTP connections and async operations
@@ -936,6 +950,42 @@ class RestClient(TelemetryProvider):
     async def assign_session_project_async(self, session_id: str, project_id: str) -> None:
         """Async version of assign_session_project."""
         await self._assign_session_project_submit(session_id, project_id)
+
+    @capture_exceptions(fatal=True)
+    def whoami(self) -> APIFuture[types.WhoamiResponse]:
+        """Get the calling principal's identity.
+
+        Returns the user URN associated with the credential in use,
+        and the user's email when the principal is user-backed.
+
+        The identity is read from the claims of the JWT the SDK already
+        holds from auth (cached and refreshed in the background), so this
+        makes no server requests.
+
+        Returns:
+        - An `APIFuture` containing the `WhoamiResponse`. The future is awaitable.
+
+        Example:
+        ```python
+        # Sync usage
+        response = rest_client.whoami().result()
+        print(f"URN: {response.user_urn}, email: {response.email}")
+
+        # Async usage
+        response = await rest_client.whoami()
+        ```
+        """
+
+        async def _whoami_async() -> types.WhoamiResponse:
+            jwt = await self.holder.get_identity_jwt()
+            if jwt is None:
+                raise RuntimeError(
+                    "whoami requires JWT auth, but the server has it disabled "
+                    "and the credential is a plain API key."
+                )
+            return _whoami_response_from_jwt(jwt)
+
+        return self.holder.run_coroutine_threadsafe(_whoami_async())
 
     @capture_exceptions(fatal=True)
     def get_sampler(self, sampler_id: str) -> APIFuture[types.GetSamplerResponse]:
