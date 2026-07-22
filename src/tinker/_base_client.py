@@ -753,7 +753,16 @@ def _default_pyqwest_transport() -> httpx.AsyncBaseTransport:
     import pyqwest
     from pyqwest.httpx import AsyncPyqwestTransport
 
-    return AsyncPyqwestTransport(transport=pyqwest.HTTPTransport())
+    # pyqwest 0.7.0 added tls_include_system_certs, defaulting to False. That
+    # stops the transport from trusting OS trust-store CAs, which breaks
+    # TLS-intercepting proxies/VPNs with "invalid peer certificate:
+    # UnknownIssuer". Turn it back on where the flag exists; older pyqwest
+    # rejects the kwarg with a TypeError and always includes system certs.
+    try:
+        transport = pyqwest.HTTPTransport(tls_include_system_certs=True)
+    except TypeError:
+        transport = pyqwest.HTTPTransport()
+    return AsyncPyqwestTransport(transport=transport)
 
 
 class _DefaultAsyncHttpxClient(httpx.AsyncClient):
