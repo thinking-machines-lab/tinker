@@ -33,7 +33,7 @@ except ImportError:
 
 
 if TYPE_CHECKING:
-    from transformers.tokenization_utils import PreTrainedTokenizer
+    from transformers import PreTrainedTokenizer
 
     from ..internal_client_holder import InternalClientHolder
 
