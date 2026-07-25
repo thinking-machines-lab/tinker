@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from concurrent.futures import Future as ConcurrentFuture
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
 
 from tinker import types
@@ -1027,3 +1027,87 @@ class RestClient(TelemetryProvider):
     async def get_sampler_async(self, sampler_id: str) -> types.GetSamplerResponse:
         """Async version of get_sampler."""
         return await self.get_sampler(sampler_id)
+
+    def _get_billing_usage_submit(
+        self,
+        starting_on: datetime | str,
+        ending_before: datetime | str,
+    ) -> AwaitableConcurrentFuture[types.BillingUsageResponse]:
+        """Internal method to submit the billing usage request."""
+        # Typed request model: bad arguments fail here with a clear
+        # validation error, and datetimes serialize to RFC 3339 via pydantic
+        # (RFC 3339 strings are accepted and parsed too).
+        request = types.GetBillingUsageRequest.model_validate(
+            {
+                "starting_on": starting_on,
+                "ending_before": ending_before,
+            }
+        )
+
+        async def _get_billing_usage_async() -> types.BillingUsageResponse:
+            async def _send_request() -> types.BillingUsageResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.get(
+                        "/api/v1/billing/usage/events",
+                        options={"params": request.model_dump(mode="json", exclude_none=True)},
+                        cast_to=types.BillingUsageResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_get_billing_usage_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def get_billing_usage(
+        self,
+        starting_on: datetime | str,
+        ending_before: datetime | str,
+    ) -> ConcurrentFuture[types.BillingUsageResponse]:
+        """Get detailed billing usage for your organization.
+
+        Returns hourly-bucketed usage as a list of `BillingUsageEvent`
+        envelopes: the shared attribution (bucket, base model, user, session,
+        project) lives on the envelope, and the usage-kind-specific payload
+        is `event_info` — a union discriminated on `.type` (training /
+        sampling_prefill / sampling_sample / checkpoint / storage), each
+        carrying exactly the fields that apply (token_count, gigabyte_hours,
+        count, the prefill cached flag). Session user_metadata comes once
+        per session in `response.sessions`, keyed by session_id. No dollar
+        amounts. Data lags real time by up to a few hours. Requires billing
+        view access in your organization.
+
+        Args:
+        - `starting_on`: Inclusive window start (RFC 3339 string or datetime),
+          aligned to a UTC hour boundary
+        - `ending_before`: Exclusive window end, aligned to a UTC hour
+          boundary; at most 14 days after `starting_on`; must not start in the future
+
+        Returns:
+        - A `Future` containing the `BillingUsageResponse`
+
+        Example:
+        ```python
+        future = rest_client.get_billing_usage(
+            "2026-07-13T00:00:00Z", "2026-07-14T00:00:00Z"
+        )
+        for event in future.result().data:
+            match event.event_info:
+                case types.StorageBillingEvent() as info:
+                    print(event.bucket_start, "storage", info.gigabyte_hours, "GB-h")
+                case types.CheckpointBillingEvent() as info:
+                    print(event.bucket_start, "checkpoints", info.count)
+                case info:
+                    print(event.bucket_start, info.type, event.base_model, info.token_count)
+        ```
+        """
+        return self._get_billing_usage_submit(starting_on, ending_before).future()
+
+    @capture_exceptions(fatal=True)
+    async def get_billing_usage_async(
+        self,
+        starting_on: datetime | str,
+        ending_before: datetime | str,
+    ) -> types.BillingUsageResponse:
+        """Async version of get_billing_usage."""
+        return await self._get_billing_usage_submit(starting_on, ending_before)
