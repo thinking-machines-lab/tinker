@@ -45,6 +45,24 @@ FLUSH_TIMEOUT: float = 30.0
 MAX_QUEUE_SIZE: int = 10000
 HTTP_TIMEOUT_SECONDS: float = 5.0
 
+_process_uuid: str | None = None
+_process_uuid_pid: int | None = None
+_process_uuid_lock = threading.Lock()
+
+
+def get_process_uuid() -> str:
+    """UUID identifying this process, generated once and reused by every session.
+
+    Keyed on the PID so a forked child gets its own id instead of inheriting
+    the parent's.
+    """
+    global _process_uuid, _process_uuid_pid
+    with _process_uuid_lock:
+        if _process_uuid is None or _process_uuid_pid != os.getpid():
+            _process_uuid = str(uuid4())
+            _process_uuid_pid = os.getpid()
+        return _process_uuid
+
 
 class Telemetry:
     def __init__(self, tinker_provider: AsyncTinkerProvider, session_id: str | None):
@@ -215,6 +233,7 @@ class Telemetry:
             platform=platform.system(),
             sdk_version=__version__,
             session_id=self._session_id,
+            process_uuid=get_process_uuid(),
             events=events,
         )
 

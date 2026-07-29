@@ -9,6 +9,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
 
 from tinker import types
+from tinker._models import BaseModel
 from tinker._types import NoneType
 from tinker.lib._jwt_auth import jwt_claims
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
@@ -24,6 +25,17 @@ if TYPE_CHECKING:
 # pyright: reportPrivateImportUsage=false
 
 logger = logging.getLogger(__name__)
+
+# How often to poll the server while a session trace export is being built.
+_TRACE_EXPORT_POLL_INTERVAL_SECONDS = 5.0
+
+
+class _SessionTraceExportPollResponse(BaseModel):
+    """Wire format of the trace_export poll endpoint; not part of the public API."""
+
+    status: Literal["pending", "ready", "failed"]
+    url: str | None = None
+    error: str | None = None
 
 
 def _whoami_response_from_jwt(jwt: str) -> types.WhoamiResponse:
@@ -56,6 +68,7 @@ class RestClient(TelemetryProvider):
     - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
     - assign_session_project() - move a session into a project
     - whoami() - get the calling principal's user URN and email
+    - export_session_trace() - export a session's timeline as a Perfetto trace and get a signed download URL
 
     Args:
     - `holder`: Internal client managing HTTP connections and async operations
@@ -950,6 +963,83 @@ class RestClient(TelemetryProvider):
     async def assign_session_project_async(self, session_id: str, project_id: str) -> None:
         """Async version of assign_session_project."""
         await self._assign_session_project_submit(session_id, project_id)
+
+    def _export_session_trace_submit(self, session_id: str) -> AwaitableConcurrentFuture[str]:
+        """Internal method to poll the trace export job until it completes."""
+
+        async def _export_session_trace_async() -> str:
+            async def _send_request() -> _SessionTraceExportPollResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.get(
+                        f"/api/v1/sessions/{session_id}/trace_export",
+                        cast_to=_SessionTraceExportPollResponse,
+                    )
+
+            first_poll = True
+            while True:
+                response = await self.holder.execute_with_retries(_send_request)
+                if response.status == "ready":
+                    assert response.url is not None  # guaranteed by the server when ready
+                    return response.url
+                if response.status == "failed":
+                    raise RuntimeError(
+                        f"Trace export failed for session {session_id}: {response.error}"
+                    )
+                if first_poll:
+                    logger.warning(
+                        f"Building trace export for session: {session_id} (this may take a while)"
+                    )
+                    first_poll = False
+                await asyncio.sleep(_TRACE_EXPORT_POLL_INTERVAL_SECONDS)
+
+        return self.holder.run_coroutine_threadsafe(_export_session_trace_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def export_session_trace(self, session_id: str) -> ConcurrentFuture[str]:
+        """Export a session's timeline as a Perfetto trace and get a signed download URL.
+
+        Kicks off (or reuses) an async export job on the server that builds a
+        Perfetto trace (`.pftrace`) of the session's training and sampling
+        requests, polls until the file is uploaded, and returns a signed
+        download URL. The URL expires after about an hour; call this method
+        again to get a fresh one (the trace is not rebuilt if it is already up
+        to date).
+
+        To download the trace, issue a plain HTTPS GET to the URL (no auth
+        headers needed):
+        ```python
+        import urllib.request
+
+        url = rest_client.export_session_trace("session-id").result()
+        urllib.request.urlretrieve(url, "session-id.pftrace")
+        ```
+        or from a shell: `curl -o session.pftrace '<url>'` (quote the URL, it
+        contains query parameters). Open the file in https://ui.perfetto.dev to
+        view the timeline, or use `tinker session export-trace <session-id>`
+        to do all of this from the CLI.
+
+        Args:
+        - `session_id`: The session ID to export a trace for
+
+        Returns:
+        - A `Future` containing the signed download URL for the `.pftrace` file
+
+        Raises:
+            RuntimeError: if the export job fails
+
+        Example:
+        ```python
+        url = rest_client.export_session_trace("session-id").result()
+        print(f"Download URL: {url}")
+        ```
+        """
+        return self._export_session_trace_submit(session_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def export_session_trace_async(self, session_id: str) -> str:
+        """Async version of export_session_trace."""
+        return await self._export_session_trace_submit(session_id)
 
     @capture_exceptions(fatal=True)
     def whoami(self) -> APIFuture[types.WhoamiResponse]:

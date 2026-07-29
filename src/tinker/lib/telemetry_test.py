@@ -25,6 +25,7 @@ from tinker.lib.telemetry import (
     Telemetry,
     _is_telemetry_enabled,
     capture_exceptions,
+    get_process_uuid,
     init_telemetry,
 )
 from tinker.lib.telemetry_provider import TelemetryProvider
@@ -180,6 +181,18 @@ class TestTelemetryClass:
         assert batch.session_id == str(self.telemetry._session_id)
         assert batch.events == events
         assert batch.sdk_version is not None
+        assert batch.process_uuid == get_process_uuid()
+
+    def test_process_uuid_shared_across_sessions(self):
+        """Batches from different sessions in one process carry the same process_uuid."""
+        other = Telemetry(self.tinker_provider, session_id="other-session-id")
+        try:
+            batch = self.telemetry._batch([])
+            other_batch = other._batch([])
+        finally:
+            other.stop()
+        assert batch.process_uuid is not None
+        assert batch.process_uuid == other_batch.process_uuid
 
     def test_log_exception_sync(self):
         try:

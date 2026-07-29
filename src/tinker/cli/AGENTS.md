@@ -63,6 +63,7 @@ class LazyGroup(click.Group):
 - `tinker checkpoint list` - List all checkpoints
 - `tinker checkpoint info <checkpoint-id>` - Show checkpoint details
 - `tinker checkpoint push-hf <checkpoint-path>` - Upload a checkpoint to Hugging Face Hub
+- `tinker session export-trace <session-id>` - Export a session's timeline as a Perfetto trace
 
 ### 4. Output System with Inheritance
 
@@ -217,7 +218,8 @@ cli/
 │   ├── __init__.py       # Command module marker
 │   ├── version.py        # Version command
 │   ├── run.py            # Run commands and output classes
-│   └── checkpoint.py     # Checkpoint commands and output classes
+│   ├── checkpoint.py     # Checkpoint commands and output classes
+│   └── session.py        # Session commands and output classes
 └── CLAUDE.md             # This documentation
 ```
 
@@ -244,6 +246,10 @@ tinker checkpoint info ckpt-xyz789
 
 # Upload checkpoint to Hugging Face Hub
 tinker checkpoint push-hf tinker://run-abc123/sampler_weights/000040 --repo username/my-lora-adapter
+
+# Export a session's timeline as a Perfetto trace (open in ui.perfetto.dev)
+tinker session export-trace session-abc123
+tinker session export-trace session-abc123 --url-only
 
 # JSON output
 tinker --format json run list
