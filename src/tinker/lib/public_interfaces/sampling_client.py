@@ -579,7 +579,7 @@ def _load_tokenizer_from_model_info(
         tokenizer_id = "moonshotai/Kimi-K2.5"
         kwargs = {
             "trust_remote_code": True,
-            "revision": "2426b45b6af0da48d0dcce71bbce6225e5c73adc",
+            "revision": "4d01dfe0332d63057c186e0b262165819efb6611",
         }
 
     if tokenizer_id == "moonshotai/Kimi-K2.6":

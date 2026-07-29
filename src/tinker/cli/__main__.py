@@ -22,6 +22,7 @@ from .lazy_group import LazyGroup
         "billing": "tinker.cli.commands.billing:cli",
         "checkpoint": "tinker.cli.commands.checkpoint:cli",
         "run": "tinker.cli.commands.run:cli",
+        "session": "tinker.cli.commands.session:cli",
         "version": "tinker.cli.commands.version:cli",
     },
     context_settings=dict(help_option_names=["-h", "--help"]),

@@ -16,3 +16,6 @@ class TelemetryBatch(BaseModel):
     """SDK version string"""
 
     session_id: str
+
+    process_uuid: str
+    """UUID identifying the client process, shared by all its sessions"""
