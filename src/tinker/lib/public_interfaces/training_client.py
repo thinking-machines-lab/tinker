@@ -357,16 +357,23 @@ class TrainingClient(TelemetryProvider):
                     )
 
             if parallel and len(requests) > 1:
-                # Send all chunks in parallel, but submit the first chunk
-                # last.  The server won't process later chunks until the
-                # first one arrives (seq_id ordering), so by the time chunk
-                # 1 lands the rest are already queued and the server can
-                # pick the whole batch together.
-                rest_futures = list(
-                    await asyncio.gather(*[_submit_chunk(rid, d) for rid, d in requests[1:]])
-                )
+                # Start the later chunks first so they can queue behind the
+                # first chunk's seq_id. Do not wait for their acknowledgements
+                # before submitting the first chunk: a later submit failure
+                # must not prevent the first chunk from reaching the server.
+                rest_tasks = [asyncio.create_task(_submit_chunk(rid, d)) for rid, d in requests[1:]]
                 first_rid, first_data = requests[0]
-                first_future = await _submit_chunk(first_rid, first_data)
+                first_task = asyncio.create_task(_submit_chunk(first_rid, first_data))
+                tasks = [first_task, *rest_tasks]
+                try:
+                    first_future = await first_task
+                    rest_futures = list(await asyncio.gather(*rest_tasks))
+                except BaseException:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    raise
                 futures = [first_future] + rest_futures
             else:
                 # gather is safe even when serial — _take_turn orders execution.
