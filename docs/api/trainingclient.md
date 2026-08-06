@@ -226,8 +226,8 @@ Async version of optim_step.
 ```python
 def save_state(
         name: str,
-        ttl_seconds: int | None = None
-) -> APIFuture[types.SaveWeightsResponse]
+        ttl_seconds: int | None = None,
+        overwrite: bool = False) -> APIFuture[types.SaveWeightsResponse]
 ```
 
 Save model weights to persistent storage.
@@ -235,6 +235,7 @@ Save model weights to persistent storage.
 Args:
 - `name`: Name for the saved checkpoint
 - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+- `overwrite`: If True, overwrite any existing checkpoint with the same name
 
 Returns:
 - `APIFuture` containing the save response with checkpoint path
@@ -252,8 +253,8 @@ print(f"Saved to: {result.path}")
 ```python
 async def save_state_async(
         name: str,
-        ttl_seconds: int | None = None
-) -> APIFuture[types.SaveWeightsResponse]
+        ttl_seconds: int | None = None,
+        overwrite: bool = False) -> APIFuture[types.SaveWeightsResponse]
 ```
 
 Async version of save_state.
@@ -261,7 +262,10 @@ Async version of save_state.
 #### `load_state`
 
 ```python
-def load_state(path: str) -> APIFuture[types.LoadWeightsResponse]
+def load_state(
+    path: str,
+    weights_access_token: str | None = None
+) -> APIFuture[types.LoadWeightsResponse]
 ```
 
 Load model weights from a saved checkpoint.
@@ -271,6 +275,7 @@ To also restore optimizer state, use load_state_with_optimizer.
 
 Args:
 - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
 Returns:
 - `APIFuture` containing the load response
@@ -286,7 +291,10 @@ await load_future
 #### `load_state_async`
 
 ```python
-async def load_state_async(path: str) -> APIFuture[types.LoadWeightsResponse]
+async def load_state_async(
+    path: str,
+    weights_access_token: str | None = None
+) -> APIFuture[types.LoadWeightsResponse]
 ```
 
 Async version of load_state.
@@ -295,13 +303,16 @@ Async version of load_state.
 
 ```python
 def load_state_with_optimizer(
-        path: str) -> APIFuture[types.LoadWeightsResponse]
+    path: str,
+    weights_access_token: str | None = None
+) -> APIFuture[types.LoadWeightsResponse]
 ```
 
 Load model weights and optimizer state from a checkpoint.
 
 Args:
 - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+- `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
 Returns:
 - `APIFuture` containing the load response
@@ -320,7 +331,9 @@ await load_future
 
 ```python
 async def load_state_with_optimizer_async(
-        path: str) -> APIFuture[types.LoadWeightsResponse]
+    path: str,
+    weights_access_token: str | None = None
+) -> APIFuture[types.LoadWeightsResponse]
 ```
 
 Async version of load_state_with_optimizer.
@@ -458,7 +471,7 @@ def save_weights_and_get_sampling_client(
 Save current weights and create a SamplingClient for inference.
 
 Args:
-- `name`: Optional name for the saved weights (currently ignored for ephemeral saves)
+- `name`: Deprecated, has no effect. Will be removed in a future release.
 - `retry_config`: Optional configuration for retrying failed requests
 
 Returns:

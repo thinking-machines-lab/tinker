@@ -197,6 +197,68 @@ def test_deserialize_proto_response_dispatches_to_fwd_bwd() -> None:
     assert result.metrics == {"k": 1.0}
 
 
+def test_deserialize_ragged_chunks_recover_per_chunk_shapes() -> None:
+    # Ragged (variable-K) outputs arrive as multiple internally-rectangular
+    # chunks; each datum must be reshaped with its own chunk's trailing_shape,
+    # not the first chunk's.
+    chunks = [
+        [
+            np.arange(8, dtype=np.float32).reshape(4, 2),
+            np.arange(6, dtype=np.float32).reshape(3, 2),
+        ],
+        [np.arange(12, dtype=np.float32).reshape(2, 6)],
+        [np.arange(10, dtype=np.float32).reshape(5, 2)],
+    ]
+    msg = public_pb.ForwardBackwardOutput()
+    msg.loss_fn_output_type = "TorchLossReturn"
+    for arrays in chunks:
+        record = msg.loss_fn_outputs.add()
+        record.type_tag = "TorchLossReturn"
+        record.num_datums = len(arrays)
+        bt = record.fields["logprobs"]
+        bt.data = np.concatenate(arrays, axis=0).tobytes()
+        sizes = [a.size * a.itemsize for a in arrays]
+        bt.offsets = np.cumsum([0] + sizes, dtype=np.int64).tobytes()
+        bt.dtype = public_pb.DTYPE_FLOAT32
+        bt.trailing_shape.extend(arrays[0].shape[1:])
+
+    result = deserialize_forward_backward_output(msg.SerializeToString())
+    flat = [a for arrays in chunks for a in arrays]
+    assert len(result.loss_fn_outputs) == len(flat)
+    for orig, datum in zip(flat, result.loss_fn_outputs, strict=True):
+        td = datum["logprobs"]
+        assert td.shape == list(orig.shape)
+        np.testing.assert_array_equal(td.to_numpy(), orig)
+
+
+def test_deserialize_chunks_with_differing_dtypes() -> None:
+    # Chunks may differ in dtype as well as shape; each datum must carry its
+    # own chunk's dtype label, not the first chunk's.
+    chunk_specs = [
+        (np.arange(4, dtype=np.float32).reshape(2, 2), public_pb.DTYPE_FLOAT32, "float32"),
+        (np.arange(6, dtype=np.int64).reshape(3, 2), public_pb.DTYPE_INT64, "int64"),
+    ]
+    msg = public_pb.ForwardBackwardOutput()
+    msg.loss_fn_output_type = "TorchLossReturn"
+    for arr, dtype_enum, _ in chunk_specs:
+        record = msg.loss_fn_outputs.add()
+        record.type_tag = "TorchLossReturn"
+        record.num_datums = 1
+        bt = record.fields["logprobs"]
+        bt.data = arr.tobytes()
+        bt.offsets = np.cumsum([0, arr.size * arr.itemsize], dtype=np.int64).tobytes()
+        bt.dtype = dtype_enum
+        bt.trailing_shape.extend(arr.shape[1:])
+
+    result = deserialize_forward_backward_output(msg.SerializeToString())
+    assert len(result.loss_fn_outputs) == 2
+    for (arr, _, expected_dtype), datum in zip(chunk_specs, result.loss_fn_outputs, strict=True):
+        td = datum["logprobs"]
+        assert td.dtype == expected_dtype
+        assert td.shape == list(arr.shape)
+        np.testing.assert_array_equal(td.to_numpy(), arr)
+
+
 def test_deserialize_num_datums_authoritative_when_all_fields_stripped() -> None:
     # Server-side drop_fwdbwd_logprobs can strip every field on a single-field
     # ArrayRecord (e.g. TorchLossReturn); ArrayRecord.num_datums preserves the

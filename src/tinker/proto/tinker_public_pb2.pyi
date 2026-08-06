@@ -494,6 +494,10 @@ class SamplingParams(google.protobuf.message.Message):
     STOP_TOKENS_FIELD_NUMBER: builtins.int
     max_tokens: builtins.int
     seed: builtins.int
+    """Wide enough for any 64-bit seed an SDK caller sends. The api_server
+    folds the value into [0, 2**63 - 1) when it writes this field, so
+    downstream engines still see an int64-safe seed.
+    """
     temperature: builtins.float
     top_k: builtins.int
     top_p: builtins.float
