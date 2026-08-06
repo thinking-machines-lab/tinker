@@ -21,6 +21,9 @@ Key methods:
 - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
 - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
 - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
+- assign_session_project() - move a session into a project
+- whoami() - get the calling principal's user URN and email
+- export_session_trace() - export a session's timeline as a Perfetto trace and get a signed download URL
 
 Args:
 - `holder`: Internal client managing HTTP connections and async operations
@@ -134,7 +137,8 @@ print(f"Base Model: {response.base_model}, LoRA Rank: {response.lora_rank}")
 def list_training_runs(
     limit: int = 20,
     offset: int = 0,
-    access_scope: Literal["owned", "accessible"] = "owned"
+    access_scope: Literal["owned", "accessible"] = "owned",
+    project_id: str | None = None
 ) -> ConcurrentFuture[types.TrainingRunsResponse]
 ```
 
@@ -143,6 +147,7 @@ List training runs with pagination support.
 Args:
 - `limit`: Maximum number of training runs to return (default 20)
 - `offset`: Offset for pagination (default 0)
+- `project_id`: If provided, only return training runs in this project
 
 Returns:
 - A `Future` containing the `TrainingRunsResponse` with training runs and cursor info
@@ -155,16 +160,18 @@ print(f"Found {len(response.training_runs)} training runs")
 print(f"Total: {response.cursor.total_count}")
 # Get next page
 next_page = rest_client.list_training_runs(limit=50, offset=50)
+# Only runs in a given project
+project_runs = rest_client.list_training_runs(project_id="my-project-id").result()
 ```
 
 #### `list_training_runs_async`
 
 ```python
 async def list_training_runs_async(
-    limit: int = 20,
-    offset: int = 0,
-    access_scope: Literal["owned", "accessible"] = "owned"
-) -> types.TrainingRunsResponse
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
+        project_id: str | None = None) -> types.TrainingRunsResponse
 ```
 
 Async version of list_training_runs.
@@ -275,6 +282,51 @@ async def delete_checkpoint_from_tinker_path_async(tinker_path: str) -> None
 ```
 
 Async version of delete_checkpoint_from_tinker_path.
+
+#### `get_audit_log`
+
+```python
+def get_audit_log(
+        event_type: Literal["all", "checkpoints"] = "all",
+        day: date | None = None) -> ConcurrentFuture[types.AuditLogResponse]
+```
+
+Get an audit log of events for the caller's organization.
+
+Requires the tinker-admin RBAC role (VIEW_AUDIT_LOG capability).
+
+Args:
+- `event_type`: Type of events to include. "all" and "checkpoints"
+    are currently equivalent. Defaults to "all".
+- `day`: The date to query (default: today). The window covers
+    midnight to midnight UTC.
+
+Returns:
+- A `Future` containing the `AuditLogResponse` with audit log entries
+
+Example:
+```python
+from datetime import date
+
+future = rest_client.get_audit_log()
+response = future.result()
+print(f"Found {len(response.entries)} audit entries")
+for entry in response.entries:
+    print(f"  {entry.timestamp}: {entry.event} ({entry.tinker_path})")
+
+# Query a specific day
+future = rest_client.get_audit_log(day=date(2025, 1, 15))
+```
+
+#### `get_audit_log_async`
+
+```python
+async def get_audit_log_async(
+        event_type: Literal["all", "checkpoints"] = "all",
+        day: date | None = None) -> types.AuditLogResponse
+```
+
+Async version of get_audit_log.
 
 #### `get_checkpoint_archive_url_from_tinker_path`
 
@@ -540,6 +592,125 @@ async def list_sessions_async(
 
 Async version of list_sessions.
 
+#### `assign_session_project`
+
+```python
+def assign_session_project(session_id: str,
+                           project_id: str) -> ConcurrentFuture[None]
+```
+
+Move a session (and all of its training runs/samplers) into a project.
+
+Use this to attach a previously-created session to a project, or to move
+a session between projects. Clearing the project is not supported — sessions
+cannot be moved out of a project once placed.
+
+Args:
+- `session_id`: The session ID to move
+- `project_id`: The destination project ID
+
+Returns:
+- A `Future` that completes when the session has been moved
+
+Raises:
+    HTTPException: 400 if `project_id` is missing
+    HTTPException: 403 if the caller lacks access to the destination project
+    HTTPException: 404 if the session is not found or not accessible
+
+Example:
+```python
+future = rest_client.assign_session_project("session-id", "project-id")
+future.result()
+```
+
+#### `assign_session_project_async`
+
+```python
+async def assign_session_project_async(session_id: str,
+                                       project_id: str) -> None
+```
+
+Async version of assign_session_project.
+
+#### `export_session_trace`
+
+```python
+def export_session_trace(session_id: str) -> ConcurrentFuture[str]
+```
+
+Export a session's timeline as a Perfetto trace and get a signed download URL.
+
+Kicks off (or reuses) an async export job on the server that builds a
+Perfetto trace (`.pftrace`) of the session's training and sampling
+requests, polls until the file is uploaded, and returns a signed
+download URL. The URL expires after about an hour; call this method
+again to get a fresh one (the trace is not rebuilt if it is already up
+to date).
+
+To download the trace, issue a plain HTTPS GET to the URL (no auth
+headers needed):
+```python
+import urllib.request
+
+url = rest_client.export_session_trace("session-id").result()
+urllib.request.urlretrieve(url, "session-id.pftrace")
+```
+or from a shell: `curl -o session.pftrace '<url>'` (quote the URL, it
+contains query parameters). Open the file in https://ui.perfetto.dev to
+view the timeline, or use `tinker session export-trace <session-id>`
+to do all of this from the CLI.
+
+Args:
+- `session_id`: The session ID to export a trace for
+
+Returns:
+- A `Future` containing the signed download URL for the `.pftrace` file
+
+Raises:
+    RuntimeError: if the export job fails
+
+Example:
+```python
+url = rest_client.export_session_trace("session-id").result()
+print(f"Download URL: {url}")
+```
+
+#### `export_session_trace_async`
+
+```python
+async def export_session_trace_async(session_id: str) -> str
+```
+
+Async version of export_session_trace.
+
+#### `whoami`
+
+```python
+def whoami() -> APIFuture[types.WhoamiResponse]
+```
+
+Get the calling principal's identity.
+
+Returns the user URN associated with the credential in use,
+and the user's email when the principal is user-backed.
+
+The identity is read from the claims of the JWT the SDK already
+holds from auth (cached and refreshed in the background), so this
+makes no server requests.
+
+Returns:
+- An `APIFuture` containing the `WhoamiResponse`. The future is awaitable.
+
+Example:
+```python
+# Sync usage
+response = rest_client.whoami().result()
+print(f"URN: {response.user_urn}, email: {response.email}")
+
+# Async usage
+response = await rest_client.whoami()
+```
+
 #### `get_sampler`
 
 ```python
@@ -574,3 +745,58 @@ async def get_sampler_async(sampler_id: str) -> types.GetSamplerResponse
 ```
 
 Async version of get_sampler.
+
+#### `get_billing_usage`
+
+```python
+def get_billing_usage(
+    starting_on: datetime | str, ending_before: datetime | str
+) -> ConcurrentFuture[types.BillingUsageResponse]
+```
+
+Get detailed billing usage for your organization.
+
+Returns hourly-bucketed usage as a list of `BillingUsageEvent`
+envelopes: the shared attribution (bucket, base model, user, session,
+project) lives on the envelope, and the usage-kind-specific payload
+is `event_info` — a union discriminated on `.type` (training /
+sampling_prefill / sampling_sample / checkpoint / storage), each
+carrying exactly the fields that apply (token_count, gigabyte_hours,
+count, the prefill cached flag). Session user_metadata comes once
+per session in `response.sessions`, keyed by session_id. No dollar
+amounts. Data lags real time by up to a few hours. Requires billing
+view access in your organization.
+
+Args:
+- `starting_on`: Inclusive window start (RFC 3339 string or datetime),
+  aligned to a UTC hour boundary
+- `ending_before`: Exclusive window end, aligned to a UTC hour
+  boundary; at most 14 days after `starting_on`; must not start in the future
+
+Returns:
+- A `Future` containing the `BillingUsageResponse`
+
+Example:
+```python
+future = rest_client.get_billing_usage(
+    "2026-07-13T00:00:00Z", "2026-07-14T00:00:00Z"
+)
+for event in future.result().data:
+    match event.event_info:
+        case types.StorageBillingEvent() as info:
+            print(event.bucket_start, "storage", info.gigabyte_hours, "GB-h")
+        case types.CheckpointBillingEvent() as info:
+            print(event.bucket_start, "checkpoints", info.count)
+        case info:
+            print(event.bucket_start, info.type, event.base_model, info.token_count)
+```
+
+#### `get_billing_usage_async`
+
+```python
+async def get_billing_usage_async(
+        starting_on: datetime | str,
+        ending_before: datetime | str) -> types.BillingUsageResponse
+```
+
+Async version of get_billing_usage.

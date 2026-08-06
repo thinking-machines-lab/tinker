@@ -288,10 +288,61 @@ class ServiceClient(TelemetryProvider):
         token_client = ServiceClient(**token_client_kwargs)
         return token_client.create_rest_client()
 
+    def _create_training_client_via_load_weights_submit(
+        self,
+        path: str,
+        optimizer: bool,
+        base_model: str | None,
+        user_metadata: dict[str, str] | None,
+        weights_access_token: str | None,
+    ) -> AwaitableConcurrentFuture[TrainingClient]:
+        """Create a TrainingClient with a single LoadWeightsRequest."""
+        session_id = self.holder.get_session_id()
+        model_seq_id = self.holder.get_training_client_id()
+        # Same model id the server derives from (session_id, model_seq_id).
+        model_id = f"{session_id}:train:{model_seq_id}"
+
+        @capture_exceptions(fatal=True)
+        async def _create_via_load_weights_async():
+            start_time = time.time()
+
+            async def _send_request():
+                request = types.LoadWeightsRequest(
+                    session_id=session_id,
+                    model_seq_id=model_seq_id,
+                    base_model=base_model,
+                    user_metadata=user_metadata,
+                    path=path,
+                    optimizer=optimizer,
+                    weights_access_token=weights_access_token,
+                )
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.load(request=request)
+
+            future = await self.holder.execute_with_retries(_send_request)
+            await _APIFuture(
+                types.LoadWeightsResponse,
+                self.holder,
+                future,
+                request_start_time=start_time,
+                request_type="LoadWeights",
+                queue_state_observer=QueueStateLogger(model_id, "Model creation"),
+            ).result_async()
+            from .training_client import TrainingClient
+
+            training_client = TrainingClient(
+                self.holder, model_seq_id=model_seq_id, model_id=model_id
+            )
+            logger.info(f"TrainingClient initialized for model {model_id} via load_weights")
+            return training_client
+
+        return self.holder.run_coroutine_threadsafe(_create_via_load_weights_async())
+
     @sync_only
     def create_training_client_from_state(
         self,
         path: str,
+        base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
     ) -> TrainingClient:
@@ -302,6 +353,8 @@ class ServiceClient(TelemetryProvider):
 
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+        - `base_model`: Optional override of the checkpoint's base model; must be
+          compatible with it (e.g. a different context length)
         - `user_metadata`: Optional metadata to attach to the new training run
         - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
@@ -317,12 +370,21 @@ class ServiceClient(TelemetryProvider):
         # Continue training from the loaded state
         ```
         """
+        if self.holder._client_config.create_model_via_load_weights:
+            return self._create_training_client_via_load_weights_submit(
+                path,
+                optimizer=False,
+                base_model=base_model,
+                user_metadata=user_metadata,
+                weights_access_token=weights_access_token,
+            ).result()
+
         rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
 
         training_client = self.create_lora_training_client(
-            base_model=weights_info.base_model,
+            base_model=base_model or weights_info.base_model,
             rank=weights_info.lora_rank,
             train_unembed=weights_info.train_unembed
             if weights_info.train_unembed is not None
@@ -346,10 +408,20 @@ class ServiceClient(TelemetryProvider):
     async def create_training_client_from_state_async(
         self,
         path: str,
+        base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
     ) -> TrainingClient:
         """Async version of create_training_client_from_state."""
+        if self.holder._client_config.create_model_via_load_weights:
+            return await self._create_training_client_via_load_weights_submit(
+                path,
+                optimizer=False,
+                base_model=base_model,
+                user_metadata=user_metadata,
+                weights_access_token=weights_access_token,
+            ).result_async()
+
         rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = await rest_client.get_weights_info_by_tinker_path(path)
@@ -358,7 +430,7 @@ class ServiceClient(TelemetryProvider):
         assert weights_info.is_lora and weights_info.lora_rank is not None
 
         training_client = await self.create_lora_training_client_async(
-            base_model=weights_info.base_model,
+            base_model=base_model or weights_info.base_model,
             rank=weights_info.lora_rank,
             train_unembed=weights_info.train_unembed
             if weights_info.train_unembed is not None
@@ -378,6 +450,7 @@ class ServiceClient(TelemetryProvider):
     def create_training_client_from_state_with_optimizer(
         self,
         path: str,
+        base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
     ) -> TrainingClient:
@@ -389,6 +462,8 @@ class ServiceClient(TelemetryProvider):
 
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
+        - `base_model`: Optional override of the checkpoint's base model; must be
+          compatible with it (e.g. a different context length)
         - `user_metadata`: Optional metadata to attach to the new training run
         - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
@@ -404,12 +479,21 @@ class ServiceClient(TelemetryProvider):
         # Continue training with restored optimizer momentum
         ```
         """
+        if self.holder._client_config.create_model_via_load_weights:
+            return self._create_training_client_via_load_weights_submit(
+                path,
+                optimizer=True,
+                base_model=base_model,
+                user_metadata=user_metadata,
+                weights_access_token=weights_access_token,
+            ).result()
+
         rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
 
         training_client = self.create_lora_training_client(
-            base_model=weights_info.base_model,
+            base_model=base_model or weights_info.base_model,
             rank=weights_info.lora_rank,
             train_unembed=weights_info.train_unembed
             if weights_info.train_unembed is not None
@@ -427,10 +511,20 @@ class ServiceClient(TelemetryProvider):
     async def create_training_client_from_state_with_optimizer_async(
         self,
         path: str,
+        base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
     ) -> TrainingClient:
         """Async version of create_training_client_from_state_with_optimizer."""
+        if self.holder._client_config.create_model_via_load_weights:
+            return await self._create_training_client_via_load_weights_submit(
+                path,
+                optimizer=True,
+                base_model=base_model,
+                user_metadata=user_metadata,
+                weights_access_token=weights_access_token,
+            ).result_async()
+
         rest_client = self._get_rest_client_for_weights(weights_access_token)
         # Use weights info endpoint which allows access to models with public checkpoints
         weights_info = await rest_client.get_weights_info_by_tinker_path(path)
@@ -439,7 +533,7 @@ class ServiceClient(TelemetryProvider):
         assert weights_info.is_lora and weights_info.lora_rank is not None
 
         training_client = await self.create_lora_training_client_async(
-            base_model=weights_info.base_model,
+            base_model=base_model or weights_info.base_model,
             rank=weights_info.lora_rank,
             train_unembed=weights_info.train_unembed
             if weights_info.train_unembed is not None
