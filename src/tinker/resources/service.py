@@ -9,6 +9,7 @@ from .._types import NOT_GIVEN, Body, Headers, NotGiven, Query
 from ..types.auth_token_response import AuthTokenResponse
 from ..types.client_config_request import ClientConfigRequest
 from ..types.client_config_response import ClientConfigResponse
+from ..types.client_dynamic_config_response import ClientDynamicConfigResponse
 from ..types.create_sampling_session_request import CreateSamplingSessionRequest
 from ..types.create_sampling_session_response import CreateSamplingSessionResponse
 from ..types.create_session_request import CreateSessionRequest
@@ -112,6 +113,33 @@ class AsyncServiceResource(AsyncAPIResource):
                 timeout=timeout,
             ),
             cast_to=ClientConfigResponse,
+        )
+
+    async def client_dynamic_config(
+        self,
+        *,
+        request: ClientConfigRequest,
+        extra_headers: Headers | None = None,
+        extra_query: Query | None = None,
+        extra_body: Body | None = None,
+        timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
+        max_retries: int | NotGiven = NOT_GIVEN,
+    ) -> ClientDynamicConfigResponse:
+        """Fetch the server-side flags that are refreshed periodically."""
+        options = make_request_options(
+            extra_headers=extra_headers,
+            extra_query=extra_query,
+            extra_body=extra_body,
+            timeout=timeout,
+        )
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
+        return await self._post(
+            "/api/v1/client/dynamic_config",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            options=options,
+            cast_to=ClientDynamicConfigResponse,
         )
 
     async def create_session(

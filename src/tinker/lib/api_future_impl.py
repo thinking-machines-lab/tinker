@@ -398,7 +398,7 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             "X-Tinker-Request-Type": self.request_type,
         }
         if self.model_cls in PROTO_SUPPORTED_TYPES:
-            headers["Accept"] = "application/x-protobuf, application/json"
+            headers["Accept"] = "application/x-protobuf"
         if iteration == 0:
             headers["X-Tinker-Create-Promise-Roundtrip-Time"] = str(
                 self.request_queue_roundtrip_time
@@ -535,6 +535,12 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     f"and expected type {self.model_cls=}"
                 ) from e
         # _SuccessJson
+        if self.model_cls in PROTO_SUPPORTED_TYPES:
+            raise ValueError(
+                f"Server returned a JSON payload for {self.model_cls=} ({self.request_id=}), "
+                "which this SDK version only supports as proto. The server predates proto "
+                "response serialization for this type."
+            )
         try:
             self._cached_result = deserialize_json_response(outcome.result_dict, self.model_cls)
             return cast(T, self._cached_result)

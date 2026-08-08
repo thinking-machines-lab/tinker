@@ -191,6 +191,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         session_id: str | None = None,
         api_key: str | None = None,
         _client_config: dict[str, str | int | bool] | None = None,
+        _client_dynamic_config: dict[str, str | int | bool] | None = None,
         _jwt_auth_seed: str | None = None,
         _skip_session: bool = False,
         **kwargs: Any,
@@ -227,6 +228,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(
             self._client_config.sample_dispatch_bytes_semaphore_size
         )
+        self._fwdbwd_dispatch_bytes_semaphore: BytesSemaphore = BytesSemaphore(
+            self._client_config.fwdbwd_dispatch_bytes_semaphore_size
+        )
         self._inflight_response_bytes_semaphore: BytesSemaphore = BytesSemaphore(
             self._client_config.inflight_response_bytes_semaphore_size
         )
@@ -254,6 +258,21 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                     self.execute_with_retries(self._default_auth.init)
                 ).result()
 
+        # Dynamic config follows the same shape as the startup config above —
+        # fetched for primary holders, passed via kwargs for shadows — but
+        # runs after auth setup so the fetch (and the background task started
+        # below that periodically re-fetches it) goes through the standard
+        # session pool.
+        if _client_dynamic_config is not None:
+            self._client_dynamic_config = types.ClientDynamicConfigResponse.model_validate(
+                _client_dynamic_config
+            )
+        else:
+            self._assert_not_on_event_loop("fetch dynamic client config")
+            self._client_dynamic_config = self.run_coroutine_threadsafe(
+                self._fetch_initial_client_dynamic_config()
+            ).result()
+
         if _skip_session:
             # Session-less mode: used for raw REST clients (e.g. weights-info
             # lookups under a different token) that never need a session. We skip
@@ -279,6 +298,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
         if _skip_session:
             self._session_heartbeat_task: asyncio.Task[None] | None = None
+            self._client_dynamic_config_refresh_task: asyncio.Task[None] | None = None
             # Session-less telemetry: exception/user-error events are still
             # reported under a synthetic "sessionless-" id, without
             # SESSION_START/SESSION_END events.
@@ -287,13 +307,19 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             assert self._session_id is not None
             if self._loop.is_running() and _current_loop() is self._loop:
                 # Already on the event loop thread — .result() would deadlock.
-                # Create the heartbeat task directly instead of via run_coroutine_threadsafe.
+                # Create the tasks directly instead of via run_coroutine_threadsafe.
                 self._session_heartbeat_task = asyncio.create_task(
                     self._session_heartbeat(self._session_id)
+                )
+                self._client_dynamic_config_refresh_task = asyncio.create_task(
+                    self._client_dynamic_config_refresh_loop()
                 )
             else:
                 self._session_heartbeat_task = self.run_coroutine_threadsafe(
                     self._start_heartbeat()
+                ).result()
+                self._client_dynamic_config_refresh_task = self.run_coroutine_threadsafe(
+                    self._start_client_dynamic_config_refresh()
                 ).result()
             self._telemetry = init_telemetry(self, session_id=self._session_id)
 
@@ -364,6 +390,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             **self._constructor_kwargs,
             "api_key": self._api_key,
             "_client_config": self._client_config.model_dump(),
+            "_client_dynamic_config": self._client_dynamic_config.model_dump(),
         }
         if isinstance(self._default_auth, JwtAuthProvider):
             result["_jwt_auth_seed"] = self._default_auth._token
@@ -409,6 +436,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             # Rate limit more aggressively if we received backoff response recently
             bytes *= 20
         async with self._sample_dispatch_bytes_semaphore.acquire(bytes):
+            yield
+
+    @asynccontextmanager
+    async def fwdbwd_dispatch_rate_limit(self, estimated_bytes_count: int):
+        async with self._fwdbwd_dispatch_bytes_semaphore.acquire(estimated_bytes_count):
             yield
 
     @asynccontextmanager
@@ -475,6 +507,35 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         assert self._session_id is not None
         return asyncio.create_task(self._session_heartbeat(self._session_id))
 
+    async def _start_client_dynamic_config_refresh(self) -> asyncio.Task[None]:
+        """Start the dynamic client config refresh task."""
+        return asyncio.create_task(self._client_dynamic_config_refresh_loop())
+
+    async def _client_dynamic_config_refresh_loop(self) -> None:
+        MIN_REFRESH_INTERVAL_SEC = 10
+        # The constructor fetched the initial values, so sleep first.
+        while True:
+            await asyncio.sleep(
+                max(self._client_dynamic_config.refresh_interval_sec, MIN_REFRESH_INTERVAL_SEC)
+            )
+            await self._refresh_client_dynamic_config_once()
+
+    async def _refresh_client_dynamic_config_once(self) -> None:
+        """Fetch /api/v1/client/dynamic_config and swap in the new flags.
+
+        Keeps the last-known-good values on any failure, so a transient
+        outage (or a server that predates the endpoint) leaves the client
+        on its current configuration.
+        """
+        try:
+            new_config = await self._fetch_client_dynamic_config()
+        except Exception as e:
+            logger.debug(f"Dynamic client config refresh failed: {type(e).__name__}: {e}")
+            return
+        if new_config != self._client_dynamic_config:
+            logger.debug(f"Dynamic client config updated: {new_config.model_dump()}")
+        self._client_dynamic_config = new_config
+
     async def _fetch_client_config(self, auth: AuthTokenProvider) -> types.ClientConfigResponse:
         """Call /api/v1/client/config and return server feature flags.
 
@@ -497,6 +558,30 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 )
 
         return await self.execute_with_retries(_once)
+
+    async def _fetch_client_dynamic_config(self) -> types.ClientDynamicConfigResponse:
+        """Call /api/v1/client/dynamic_config once via the standard session pool."""
+        with self.aclient(ClientConnectionPoolType.SESSION) as client:
+            return await client.service.client_dynamic_config(
+                request=types.ClientConfigRequest(sdk_version=tinker_sdk_version),
+                max_retries=0,
+                timeout=10,
+            )
+
+    async def _fetch_initial_client_dynamic_config(self) -> types.ClientDynamicConfigResponse:
+        """Fetch the initial dynamic flags, with retries.
+
+        Falls back to the SDK defaults when the server predates the endpoint
+        (404); any other persistent failure propagates and fails client
+        construction, like the startup config fetch.
+        """
+        try:
+            return await self.execute_with_retries(self._fetch_client_dynamic_config)
+        except APIStatusError as e:
+            if e.status_code == 404:
+                logger.debug("Server does not support /api/v1/client/dynamic_config")
+                return types.ClientDynamicConfigResponse()
+            raise
 
     async def _create_session(
         self,
@@ -568,6 +653,14 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def get_client_config(self) -> types.ClientConfigResponse:
         return self._client_config
 
+    def get_client_dynamic_config(self) -> types.ClientDynamicConfigResponse:
+        """The latest periodically refreshed server flags.
+
+        Read this per request rather than caching the result: the background
+        refresh task replaces the object when the server-side config changes.
+        """
+        return self._client_dynamic_config
+
     def get_training_client_id(self) -> int:
         # get_training_client_id can only be called via a ServiceClient.
         # ServiceClient will never have a shadow holder, so we can safely assert.
@@ -607,6 +700,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._session_heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._session_heartbeat_task
+        if self._client_dynamic_config_refresh_task:
+            self._client_dynamic_config_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._client_dynamic_config_refresh_task
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

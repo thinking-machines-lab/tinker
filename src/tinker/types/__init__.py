@@ -48,6 +48,9 @@ from .checkpoint_archive_url_response import (
 from .checkpoints_list_response import CheckpointsListResponse as CheckpointsListResponse
 from .client_config_request import ClientConfigRequest as ClientConfigRequest
 from .client_config_response import ClientConfigResponse as ClientConfigResponse
+from .client_dynamic_config_response import (
+    ClientDynamicConfigResponse as ClientDynamicConfigResponse,
+)
 from .create_model_request import CreateModelRequest as CreateModelRequest
 from .create_model_response import CreateModelResponse as CreateModelResponse
 from .create_sampling_session_request import (
