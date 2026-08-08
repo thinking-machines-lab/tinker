@@ -272,11 +272,10 @@ def test_unsupported_dtype_raises() -> None:
 
 def _async_tinker_with_proto_config(
     *,
-    proto_write_fwdbwd: bool = True,
     proto_compress_fwdbwd: bool = False,
     http_client=None,
 ):
-    """Build an AsyncTinker pinned to the proto path for fwd/bwd."""
+    """Build an AsyncTinker with an explicit fwd/bwd client config."""
     from tinker._client import AsyncTinker
     from tinker.types.client_config_response import ClientConfigResponse
 
@@ -285,7 +284,6 @@ def _async_tinker_with_proto_config(
         api_key="tml-test-api-key",
         http_client=http_client,
         _client_config=ClientConfigResponse(
-            proto_write_fwdbwd=proto_write_fwdbwd,
             proto_compress_fwdbwd=proto_compress_fwdbwd,
         ),
     )
@@ -293,8 +291,8 @@ def _async_tinker_with_proto_config(
 
 @pytest.mark.asyncio
 async def test_forward_backward_proto_path_uses_protobuf_content_type() -> None:
-    """With proto_write_fwdbwd=True, forward_backward() POSTs raw proto bytes
-    with Content-Type: application/x-protobuf."""
+    """forward_backward() POSTs raw proto bytes with
+    Content-Type: application/x-protobuf."""
     from unittest.mock import AsyncMock
 
     request = _make_request(

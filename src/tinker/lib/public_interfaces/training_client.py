@@ -42,9 +42,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# FwdBwdChunkSize
-MAX_CHUNK_LEN = 1024
-MAX_CHUNK_BYTES_COUNT = 5000000
+# fwd/bwd requests are serialized as proto (proto/request_conv.py): tokens
+# pack as int32, sparse CSR crow/col indices as int64.
+_PROTO_BYTES_PER_TOKEN = 4
+_SPARSE_INDEX_BYTES = 8
+
+
+def _estimate_chunk_bytes_count_proto(chunk: types.ModelInputChunk) -> int:
+    if isinstance(chunk, types.DmelChunk):
+        return len(chunk.dmel)
+    if isinstance(chunk, types.ImageChunk):
+        return len(chunk.data)
+    if isinstance(chunk, types.ImageAssetPointerChunk):
+        return len(chunk.location)
+    return chunk.length * _PROTO_BYTES_PER_TOKEN
+
+
+def _estimate_tensor_bytes_count_proto(td: types.TensorData) -> int:
+    # _numpy is stored in the declared dtype, so nbytes matches the dense
+    # proto payload exactly.
+    bytes_count = td._numpy.nbytes
+    if td.sparse_crow_indices is not None:
+        bytes_count += _SPARSE_INDEX_BYTES * len(td.sparse_crow_indices)
+    if td.sparse_col_indices is not None:
+        bytes_count += _SPARSE_INDEX_BYTES * len(td.sparse_col_indices)
+    return bytes_count
+
+
+def _estimate_datum_bytes_count_proto(datum: types.Datum) -> int:
+    return sum(
+        _estimate_chunk_bytes_count_proto(chunk) for chunk in datum.model_input.chunks
+    ) + sum(_estimate_tensor_bytes_count_proto(td) for td in datum.loss_fn_inputs.values())
+
+
 MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initializing the TrainingClient with a model_id by either calling create_lora_training_client on the ServiceClient, or initiliazing the TrainingClient with an existing model_id."
 
 # Type alias for custom loss functions.
@@ -147,24 +177,21 @@ class TrainingClient(TelemetryProvider):
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
         return self.model_id
 
-    def _estimate_bytes_count(self, datum: types.Datum) -> int:
-        return self.holder.estimate_bytes_count_in_model_input(datum.model_input) + sum(
-            len(value.data) * 10 for _, value in datum.loss_fn_inputs.items()
-        )
-
     def _chunked_requests_generator(
         self, data: List[types.Datum]
-    ) -> Generator[List[types.Datum], None, None]:
+    ) -> Generator[tuple[List[types.Datum], int], None, None]:
+        cfg = self.holder._client_config
         current_chunk: List[types.Datum] = []
         current_chunk_bytes_count = 0
 
         for datum in data:
-            estimated_bytes_count = self._estimate_bytes_count(datum)
+            estimated_bytes_count = _estimate_datum_bytes_count_proto(datum)
             if (
                 len(current_chunk) > 0
-                and current_chunk_bytes_count + estimated_bytes_count > MAX_CHUNK_BYTES_COUNT
-            ) or (len(current_chunk) == MAX_CHUNK_LEN):
-                yield current_chunk
+                and current_chunk_bytes_count + estimated_bytes_count
+                > cfg.fwdbwd_max_chunk_bytes_count
+            ) or (len(current_chunk) == cfg.fwdbwd_max_chunk_len):
+                yield current_chunk, current_chunk_bytes_count
                 current_chunk = []
                 current_chunk_bytes_count = 0
 
@@ -172,10 +199,15 @@ class TrainingClient(TelemetryProvider):
             current_chunk_bytes_count += estimated_bytes_count
 
         if len(current_chunk) > 0:
-            yield current_chunk
+            yield current_chunk, current_chunk_bytes_count
 
-    def _chunked_requests(self, data: List[types.Datum]) -> List[tuple[int, List[types.Datum]]]:
-        return [(self._get_request_id(), chunk) for chunk in self._chunked_requests_generator(data)]
+    def _chunked_requests(
+        self, data: List[types.Datum]
+    ) -> List[tuple[int, List[types.Datum], int]]:
+        return [
+            (self._get_request_id(), chunk, chunk_bytes_count)
+            for chunk, chunk_bytes_count in self._chunked_requests_generator(data)
+        ]
 
     def forward(
         self,
@@ -204,48 +236,7 @@ class TrainingClient(TelemetryProvider):
         print(f"Loss: {result.loss}")
         ```
         """
-        cfg = self.holder._client_config
-        if cfg.fwd_via_fwdbwd and cfg.proto_write_fwdbwd:
-            # Route through /forward_backward. Falls through to the legacy /forward
-            # JSON path when either flag is off.
-            return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=True)
-        requests = self._chunked_requests(data)
-
-        @capture_exceptions(fatal=True)
-        async def _forward_async():
-            start_time = time.time()
-
-            async def _send_request(request_id: int, data: List[types.Datum]):
-                request = types.ForwardRequest(
-                    forward_input=types.ForwardBackwardInput(
-                        data=data, loss_fn=loss_fn, loss_fn_config=loss_fn_config
-                    ),
-                    model_id=self._guaranteed_model_id(),
-                    seq_id=request_id + 1,
-                )
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.training.forward(
-                        request=request,
-                    )
-
-            futures = []
-            for request_id, data in requests:
-                async with self._take_turn(request_id):
-                    untyped_future = await self.holder.execute_with_retries(
-                        _send_request, request_id, data
-                    )
-                api_future = _APIFuture(
-                    types.ForwardBackwardOutput,
-                    self.holder,
-                    untyped_future,
-                    request_start_time=start_time,
-                    request_type="Forward",
-                    queue_state_observer=self._queue_state_logger,
-                )
-                futures.append(api_future)
-            return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
-
-        return self.holder.run_coroutine_threadsafe(_forward_async())
+        return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=True)
 
     async def forward_async(
         self,
@@ -303,13 +294,8 @@ class TrainingClient(TelemetryProvider):
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Shared implementation for /forward_backward submissions.
 
-        Drives chunking, optional parallel submit. ``forward_only=True``
-        is only allowed when proto_write_fwdbwd flag in client config is true.
+        Drives chunking and optional parallel submit.
         """
-        assert not forward_only or self.holder._client_config.proto_write_fwdbwd, (
-            "forward_only is only allowed when proto_write_fwdbwd is true"
-        )
-
         requests = self._chunked_requests(data)
         if not requests:
             raise ValueError("No data provided")
@@ -339,14 +325,15 @@ class TrainingClient(TelemetryProvider):
                     )
 
             async def _submit_chunk(
-                request_id: int, data: List[types.Datum]
+                request_id: int, data: List[types.Datum], estimated_bytes_count: int
             ) -> APIFuture[types.ForwardBackwardOutput]:
                 turn_min = min_rid if parallel else request_id
                 turn_max = max_rid if parallel else None
                 async with self._take_turn(turn_min, turn_max):
-                    untyped_future = await self.holder.execute_with_retries(
-                        _send_request, request_id, data
-                    )
+                    async with self.holder.fwdbwd_dispatch_rate_limit(estimated_bytes_count):
+                        untyped_future = await self.holder.execute_with_retries(
+                            _send_request, request_id, data
+                        )
                     return _APIFuture(
                         types.ForwardBackwardOutput,
                         self.holder,
@@ -363,16 +350,19 @@ class TrainingClient(TelemetryProvider):
                 # 1 lands the rest are already queued and the server can
                 # pick the whole batch together.
                 rest_futures = list(
-                    await asyncio.gather(*[_submit_chunk(rid, d) for rid, d in requests[1:]])
+                    await asyncio.gather(*[_submit_chunk(rid, d, b) for rid, d, b in requests[1:]])
                 )
-                first_rid, first_data = requests[0]
-                first_future = await _submit_chunk(first_rid, first_data)
+                first_rid, first_data, first_bytes = requests[0]
+                first_future = await _submit_chunk(first_rid, first_data, first_bytes)
                 futures = [first_future] + rest_futures
             else:
                 # gather is safe even when serial — _take_turn orders execution.
                 futures = list(
                     await asyncio.gather(
-                        *[_submit_chunk(request_id, data) for request_id, data in requests]
+                        *[
+                            _submit_chunk(request_id, data, estimated_bytes_count)
+                            for request_id, data, estimated_bytes_count in requests
+                        ]
                     )
                 )
 
