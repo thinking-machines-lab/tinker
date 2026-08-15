@@ -44,6 +44,8 @@ FLUSH_INTERVAL: float = 10.0
 FLUSH_TIMEOUT: float = 30.0
 MAX_QUEUE_SIZE: int = 10000
 HTTP_TIMEOUT_SECONDS: float = 5.0
+MAX_SEND_ATTEMPTS: int = 3
+SEND_RETRY_DELAY_SECONDS: float = 1.0
 
 _process_uuid: str | None = None
 _process_uuid_pid: int | None = None
@@ -67,11 +69,11 @@ def get_process_uuid() -> str:
 class Telemetry:
     def __init__(self, tinker_provider: AsyncTinkerProvider, session_id: str | None):
         """session_id=None enables session-less mode (e.g. REST-only clients):
-        batches carry a synthetic "sessionless-<uuid>" id and no
+        batches carry a synthetic UUID session id and no
         SESSION_START/SESSION_END events are emitted."""
         self._tinker_provider: AsyncTinkerProvider = tinker_provider
         self._sessionless: bool = session_id is None
-        self._session_id: str = session_id if session_id is not None else f"sessionless-{uuid4()}"
+        self._session_id: str = session_id if session_id is not None else str(uuid4())
         self._session_start: datetime = datetime.now(timezone.utc)
         self._session_index: int = 0
         self._session_index_lock: threading.Lock = threading.Lock()
@@ -150,14 +152,36 @@ class Telemetry:
         except (TimeoutError, asyncio.CancelledError):
             return False
 
-    async def _send_batch_with_retry(self, batch: TelemetryBatch) -> TelemetryResponse:
-        while True:
+    async def _send_batch_with_retry(self, batch: TelemetryBatch) -> TelemetryResponse | None:
+        for attempt in range(1, MAX_SEND_ATTEMPTS + 1):
             try:
                 return await self._send_batch(batch)
             except APIError as e:
-                logger.warning("Failed to send telemetry batch", exc_info=e)
-                await asyncio.sleep(1)
-                continue
+                status_code = getattr(e, "status_code", None)
+                if (
+                    isinstance(status_code, int)
+                    and 400 <= status_code < 500
+                    and status_code not in (408, 429)
+                ):
+                    logger.warning(
+                        "Dropping telemetry batch due to client error %s: %s", status_code, e
+                    )
+                    return None
+                if attempt >= MAX_SEND_ATTEMPTS:
+                    logger.warning(
+                        "Dropping telemetry batch after %d failed send attempts",
+                        attempt,
+                        exc_info=e,
+                    )
+                    return None
+                logger.warning(
+                    "Failed to send telemetry batch; retrying (attempt %d/%d)",
+                    attempt,
+                    MAX_SEND_ATTEMPTS,
+                    exc_info=e,
+                )
+                await asyncio.sleep(SEND_RETRY_DELAY_SECONDS)
+        return None
 
     async def _send_batch(self, batch: TelemetryBatch) -> TelemetryResponse:
         with self._tinker_provider.aclient(ClientConnectionPoolType.TELEMETRY) as client:
