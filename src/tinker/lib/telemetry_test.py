@@ -19,9 +19,12 @@ from tinker._exceptions import (
 )
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from uuid import UUID
+
 from tinker.lib.telemetry import (
     MAX_BATCH_SIZE,
     MAX_QUEUE_SIZE,
+    MAX_SEND_ATTEMPTS,
     Telemetry,
     _is_telemetry_enabled,
     capture_exceptions,
@@ -429,9 +432,17 @@ class TestSessionlessTelemetry:
     def teardown_method(self):
         self.telemetry.stop()
 
-    def test_synthetic_session_id_and_no_session_start(self):
-        assert self.telemetry._session_id.startswith("sessionless-")
+    def test_synthetic_session_id_is_valid_uuid_and_no_session_start(self):
+        parsed = UUID(self.telemetry._session_id)
+        assert parsed.version == 4
+        assert str(parsed) == self.telemetry._session_id
         assert len(self.telemetry._queue) == 0
+
+    def test_sessionless_batch_carries_valid_uuid(self):
+        batch = self.telemetry._batch([])
+        parsed = UUID(batch.session_id)
+        assert parsed.version == 4
+        assert str(parsed) == batch.session_id
 
     def test_log_fatal_exception_sync_no_session_end(self):
         try:
@@ -731,6 +742,48 @@ class TestTelemetryFlush:
         ):
             asyncio.run(self.telemetry._flush())
         assert self.telemetry._flush_counter >= initial_push + 3
+
+    @pytest.mark.asyncio
+    async def test_send_batch_with_retry_drops_on_client_error_without_retry(self):
+        request = httpx.Request("POST", "https://example.com/api/v1/telemetry")
+        response = httpx.Response(422, request=request)
+        error = UnprocessableEntityError("invalid session_id", response=response, body={"detail": "invalid uuid"})
+        batch = self.telemetry._batch([self.telemetry._session_end_event()])
+
+        with patch.object(self.telemetry, "_send_batch", new_callable=AsyncMock, side_effect=error) as mock_send:
+            result = await self.telemetry._send_batch_with_retry(batch)
+
+        assert result is None
+        assert mock_send.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_send_batch_with_retry_drops_after_bounded_api_errors(self):
+        request = httpx.Request("POST", "https://example.com/api/v1/telemetry")
+        response = httpx.Response(500, request=request)
+        error = APIStatusError("server unavailable", response=response, body="no healthy upstream")
+        batch = self.telemetry._batch([self.telemetry._session_end_event()])
+
+        with patch.object(self.telemetry, "_send_batch", new_callable=AsyncMock, side_effect=error) as mock_send:
+            with patch("tinker.lib.telemetry.SEND_RETRY_DELAY_SECONDS", 0):
+                result = await self.telemetry._send_batch_with_retry(batch)
+
+        assert result is None
+        assert mock_send.call_count == MAX_SEND_ATTEMPTS
+
+    def test_flush_continues_after_dropped_batch(self):
+        for _ in range(MAX_BATCH_SIZE + 1):
+            _ = self.telemetry._log(self.telemetry._session_end_event())
+
+        with patch.object(
+            self.telemetry,
+            "_send_batch_with_retry",
+            new_callable=AsyncMock,
+            side_effect=[None, TelemetryResponse(status="accepted")],
+        ) as mock_send:
+            asyncio.run(self.telemetry._flush())
+
+        assert len(self.telemetry._queue) == 0
+        assert mock_send.call_count == 2
 
     @pytest.mark.asyncio
     async def test_log_exception_sync_from_event_loop_protection(self):
