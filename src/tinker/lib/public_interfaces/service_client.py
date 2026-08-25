@@ -151,6 +151,22 @@ class ServiceClient(TelemetryProvider):
         """Async version of get_server_capabilities."""
         return await self._get_server_capabilities_submit()
 
+    def _check_accessible(self) -> None:
+        """Make a single request to a billing-gated endpoint, raising on failure.
+
+        This deliberately skips `execute_with_retries`: an account without
+        billing set up gets a 402, which that path treats as a pause-and-retry
+        condition and sits on for minutes. Callers of this check want the
+        error itself, so every failure propagates as an exception instead.
+        """
+        holder = self._get_rest_holder()
+
+        async def _send_request() -> None:
+            with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                await client.service.get_server_capabilities()
+
+        holder.run_coroutine_threadsafe(_send_request()).result()
+
     def _create_lora_training_client_submit(
         self,
         base_model: str,

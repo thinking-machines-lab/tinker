@@ -480,6 +480,8 @@ class TrainingClient(TelemetryProvider):
                 types.Datum(
                     model_input=datum.model_input,
                     loss_fn_inputs=loss_fn_inputs,
+                    model_input_spans=datum.model_input_spans,
+                    loss_fn_input_spans=datum.loss_fn_input_spans,
                 )
             )
 
@@ -539,6 +541,8 @@ class TrainingClient(TelemetryProvider):
                 types.Datum(
                     model_input=datum.model_input,
                     loss_fn_inputs=forward_loss_fn_inputs,
+                    model_input_spans=datum.model_input_spans,
+                    loss_fn_input_spans=datum.loss_fn_input_spans,
                 )
             )
 

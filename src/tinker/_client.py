@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any, Mapping, Union
 
 import httpx
@@ -26,7 +25,8 @@ from ._types import (
 )
 from ._utils import get_async_library, is_given
 from ._version import __version__
-from .lib._auth_token_provider import ApiKeyAuthProvider, AuthTokenProvider
+from .lib._auth_token_provider import AuthTokenProvider, resolve_auth_provider
+from .lib.base_url import resolve_base_url
 from .types.client_config_response import ClientConfigResponse
 
 if TYPE_CHECKING:
@@ -83,16 +83,11 @@ class AsyncTinker(AsyncAPIClient):
         if _auth is not None:
             self._auth = _auth
         else:
-            self._auth = ApiKeyAuthProvider(api_key=api_key)
-
-        if base_url is None:
-            base_url = os.environ.get("TINKER_BASE_URL")
-        if base_url is None or base_url == "":
-            base_url = "https://tinker.thinkingmachines.dev/services/tinker-prod"
+            self._auth = resolve_auth_provider(api_key, enforce_cmd=False)
 
         super().__init__(
             version=__version__,
-            base_url=base_url,
+            base_url=resolve_base_url(base_url),
             max_retries=max_retries,
             timeout=timeout,
             http_client=http_client,
@@ -238,6 +233,9 @@ class AsyncTinker(AsyncAPIClient):
 
         if response.status_code == 401:
             return _exceptions.AuthenticationError(err_msg, response=response, body=body)
+
+        if response.status_code == 402:
+            return _exceptions.BillingError(err_msg, response=response, body=body)
 
         if response.status_code == 403:
             return _exceptions.PermissionDeniedError(err_msg, response=response, body=body)

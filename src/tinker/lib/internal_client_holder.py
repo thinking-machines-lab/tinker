@@ -19,9 +19,11 @@ import httpx
 
 from tinker import types
 from tinker._client import AsyncTinker
-from tinker._exceptions import APIConnectionError, APIStatusError
+from tinker._exceptions import APIConnectionError, APIStatusError, TinkerError
+from tinker._types import NoneType
 from tinker._version import __version__ as tinker_sdk_version
 from tinker.lib._auth_token_provider import (
+    MISSING_API_KEY_MESSAGE,
     ApiKeyAuthProvider,
     AuthTokenProvider,
     resolve_auth_provider,
@@ -29,6 +31,7 @@ from tinker.lib._auth_token_provider import (
 from tinker.lib._jwt_auth import JwtAuthProvider, jwt_claims
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.credentials import JsonCredentialStore, default_credentials_path
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
@@ -199,6 +202,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         # Resolve from env now so shadow_kwargs carries the actual credential
         # across pickle boundaries (workers may not have the env var set).
         self._api_key = api_key or os.environ.get("TINKER_API_KEY")
+        if self._api_key is None and not os.environ.get("TINKER_CREDENTIAL_CMD"):
+            # Same reason: workers may not have ~/.tinker/credentials.json.
+            # TINKER_CREDENTIAL_CMD takes precedence over the stored default.
+            record = JsonCredentialStore(default_credentials_path()).get_default_key()
+            self._api_key = None if record is None else record.key
         self._constructor_kwargs = dict(kwargs)
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
@@ -235,10 +243,17 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._client_config.inflight_response_bytes_semaphore_size
         )
 
+        self._cancel_queue: asyncio.Queue[str] = asyncio.Queue()
+
         if not self._client_config.pjwt_auth_enabled:
             # Without JWT exchange, only API keys are accepted by the server.
             # Replace any cmd-based provider with a plain API key provider.
-            self._default_auth = ApiKeyAuthProvider(api_key=self._api_key)
+            # _api_key was resolved eagerly above; it is only None when
+            # TINKER_CREDENTIAL_CMD is the sole credential source, which cannot
+            # satisfy an API-key-only server.
+            if self._api_key is None:
+                raise TinkerError(MISSING_API_KEY_MESSAGE)
+            self._default_auth = ApiKeyAuthProvider(self._api_key)
         else:
             # Create a dedicated pool for JWT exchange with the appropriate
             # credential provider.  The lambda captures the pool so it stays alive.
@@ -299,6 +314,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         if _skip_session:
             self._session_heartbeat_task: asyncio.Task[None] | None = None
             self._client_dynamic_config_refresh_task: asyncio.Task[None] | None = None
+            self._cancel_drain_task: asyncio.Task[None] | None = None
             # Session-less telemetry: exception/user-error events are still
             # reported under a synthetic "sessionless-" id, without
             # SESSION_START/SESSION_END events.
@@ -314,12 +330,16 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 self._client_dynamic_config_refresh_task = asyncio.create_task(
                     self._client_dynamic_config_refresh_loop()
                 )
+                self._cancel_drain_task = asyncio.create_task(self._cancel_drain_loop())
             else:
                 self._session_heartbeat_task = self.run_coroutine_threadsafe(
                     self._start_heartbeat()
                 ).result()
                 self._client_dynamic_config_refresh_task = self.run_coroutine_threadsafe(
                     self._start_client_dynamic_config_refresh()
+                ).result()
+                self._cancel_drain_task = self.run_coroutine_threadsafe(
+                    self._start_cancel_drain()
                 ).result()
             self._telemetry = init_telemetry(self, session_id=self._session_id)
 
@@ -510,6 +530,46 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     async def _start_client_dynamic_config_refresh(self) -> asyncio.Task[None]:
         """Start the dynamic client config refresh task."""
         return asyncio.create_task(self._client_dynamic_config_refresh_loop())
+
+    async def _start_cancel_drain(self) -> asyncio.Task[None]:
+        """Start the sampling-cancel drain task."""
+        return asyncio.create_task(self._cancel_drain_loop())
+
+    def enqueue_cancel(self, request_id: str) -> None:
+        """Schedule an explicit server-side cancel for an abandoned sampling
+        request. No-op when disabled via dynamic config. Must be called on the
+        event-loop thread — ``put_nowait`` is not cross-thread safe.
+        """
+        if not self._client_dynamic_config.sample_cancel_enabled:
+            return
+        self._cancel_queue.put_nowait(request_id)
+
+    async def _cancel_drain_loop(self) -> None:
+        while True:
+            batch = [await self._cancel_queue.get()]
+            max_batch_size = self._client_dynamic_config.sample_cancel_max_batch_size
+            while len(batch) < max_batch_size and not self._cancel_queue.empty():
+                batch.append(self._cancel_queue.get_nowait())
+            await asyncio.gather(*(self._process_one_cancel(request_id) for request_id in batch))
+
+    async def _process_one_cancel(self, request_id: str) -> None:
+        try:
+            await self.execute_with_retries(self._send_cancel_request, request_id)
+        except Exception as e:
+            # Log rather than re-enqueue: the server's SDK-heartbeat fallback
+            # still stops the work, and re-enqueueing a non-retryable failure
+            # would spin forever.
+            logger.error(f"Failed to cancel sampling request {request_id}: {e}")
+
+    async def _send_cancel_request(self, request_id: str) -> None:
+        with self.aclient(ClientConnectionPoolType.RETRIEVE_PROMISE) as client:
+            # execute_with_retries owns retries, so disable the client's own.
+            await client.post(
+                "/api/v1/cancel_future",
+                body={"request_id": request_id},
+                cast_to=NoneType,
+                options={"max_retries": 0, "timeout": 30},
+            )
 
     async def _client_dynamic_config_refresh_loop(self) -> None:
         MIN_REFRESH_INTERVAL_SEC = 10
@@ -704,6 +764,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._client_dynamic_config_refresh_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._client_dynamic_config_refresh_task
+        if self._cancel_drain_task:
+            self._cancel_drain_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cancel_drain_task
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

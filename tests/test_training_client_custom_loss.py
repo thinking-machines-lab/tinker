@@ -232,3 +232,32 @@ async def test_forward_backward_custom_rejects_unexpected_loss_fn_input_keys():
             custom_loss,
             loss_type_input="logprobs",
         )
+
+
+@pytest.mark.asyncio
+async def test_forward_backward_custom_preserves_provenance_spans():
+    """Both rebuilds (the weights-less forward datum and the linear-loss
+    backward datum) must carry the spans; dropping them silently would strip
+    provenance from the surrogate passes."""
+    client = _FakeTrainingClient()
+    spans = [types.PromptProvenanceSpan(sequence_id="req:0", length=2)]
+    datum = types.Datum(
+        model_input=types.ModelInput.from_ints([1, 2]),
+        loss_fn_inputs={"target_tokens": [101, 102]},
+        model_input_spans=spans,
+        loss_fn_input_spans=spans,
+    )
+
+    def custom_loss(
+        data: list[types.Datum], logprobs_list: list[torch.Tensor]
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        del data
+        return logprobs_list[0].sum(), {}
+
+    await client.forward_backward_custom_async([datum], custom_loss, loss_type_input="logprobs")
+
+    ((forward_data, _, _),) = client.forward_calls
+    ((linear_data, _, _),) = client.backward_calls
+    for rebuilt in (*forward_data, *linear_data):
+        assert rebuilt.model_input_spans == spans
+        assert rebuilt.loss_fn_input_spans == spans

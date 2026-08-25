@@ -39,6 +39,7 @@ class _MockHolder:
         self._default_auth = MagicMock(spec=AuthTokenProvider)
         self._loop = asyncio.get_event_loop()
         self._client_dynamic_config = _ClientDynamicConfigResponse()
+        self._cancel_queue: asyncio.Queue[str] = asyncio.Queue()
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
         return self._loop
@@ -55,6 +56,10 @@ class _MockHolder:
     _fetch_client_dynamic_config = InternalClientHolder._fetch_client_dynamic_config
     _fetch_initial_client_dynamic_config = InternalClientHolder._fetch_initial_client_dynamic_config
     _refresh_client_dynamic_config_once = InternalClientHolder._refresh_client_dynamic_config_once
+    enqueue_cancel = InternalClientHolder.enqueue_cancel
+    _cancel_drain_loop = InternalClientHolder._cancel_drain_loop
+    _process_one_cancel = InternalClientHolder._process_one_cancel
+    _send_cancel_request = InternalClientHolder._send_cancel_request
 
 
 def _patch_pool(monkeypatch: pytest.MonkeyPatch, holder: _MockHolder) -> None:
@@ -304,3 +309,73 @@ def test_rest_support_redirect_pool_disables_pyqwest_when_enabled_by_config() ->
     assert redirect_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is False
     assert train_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is True
     assert sample_pool._constructor_kwargs["_client_config"].use_pyqwest_transport is True
+
+
+# ---------------------------------------------------------------------------
+# sampling cancel drain
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_cancel_enqueues_when_enabled() -> None:
+    holder = _MockHolder(_ClientConfigResponse())
+    holder._client_dynamic_config = _ClientDynamicConfigResponse(sample_cancel_enabled=True)
+
+    holder.enqueue_cancel("sess:sample:0:1")
+
+    assert holder._cancel_queue.get_nowait() == "sess:sample:0:1"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_cancel_disabled_is_noop() -> None:
+    holder = _MockHolder(_ClientConfigResponse())
+    holder._client_dynamic_config = _ClientDynamicConfigResponse(sample_cancel_enabled=False)
+
+    holder.enqueue_cancel("sess:sample:0:1")
+
+    assert holder._cancel_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_send_cancel_request_posts_cancel_future() -> None:
+    holder = _MockHolder(_ClientConfigResponse())
+    client = holder._cm.__enter__.return_value
+    client.post = AsyncMock(return_value=None)
+
+    await holder._send_cancel_request("sess:sample:0:1")
+
+    client.post.assert_awaited_once()
+    _, kwargs = client.post.call_args
+    assert client.post.call_args.args[0] == "/api/v1/cancel_future"
+    assert kwargs["body"] == {"request_id": "sess:sample:0:1"}
+
+
+@pytest.mark.asyncio
+async def test_process_one_cancel_swallows_error() -> None:
+    holder = _MockHolder(_ClientConfigResponse())
+    client = holder._cm.__enter__.return_value
+    client.post = AsyncMock(side_effect=RuntimeError("boom"))
+
+    # Error is logged, not raised.
+    await holder._process_one_cancel("sess:sample:0:1")
+
+
+@pytest.mark.asyncio
+async def test_cancel_drain_loop_dispatches_batch() -> None:
+    holder = _MockHolder(_ClientConfigResponse())
+    holder._client_dynamic_config = _ClientDynamicConfigResponse(sample_cancel_enabled=True)
+    client = holder._cm.__enter__.return_value
+    posted: list[str] = []
+    client.post = AsyncMock(side_effect=lambda *a, **k: posted.append(k["body"]["request_id"]))
+
+    holder.enqueue_cancel("sess:sample:0:1")
+    holder.enqueue_cancel("sess:sample:0:2")
+
+    drain = asyncio.create_task(holder._cancel_drain_loop())
+    while len(posted) < 2:
+        await asyncio.sleep(0)
+    drain.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await drain
+
+    assert sorted(posted) == ["sess:sample:0:1", "sess:sample:0:2"]

@@ -19,6 +19,7 @@ from .lazy_group import LazyGroup
 @click.group(
     cls=LazyGroup,
     lazy_subcommands={
+        "auth": "tinker.cli.commands.auth:cli",
         "billing": "tinker.cli.commands.billing:cli",
         "checkpoint": "tinker.cli.commands.checkpoint:cli",
         "run": "tinker.cli.commands.run:cli",

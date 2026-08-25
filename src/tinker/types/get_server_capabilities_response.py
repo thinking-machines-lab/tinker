@@ -14,6 +14,12 @@ class SupportedModel(BaseModel):
     max_context_length: Optional[int] = None
     """The maximum context length (in tokens) supported by this model."""
 
+    trainable: Optional[bool] = None
+    """Whether training runs can be created on this model."""
+
+    sampleable: Optional[bool] = None
+    """Whether this model has sampling capacity."""
+
 
 class GetServerCapabilitiesResponse(BaseModel):
     """Response containing the server's supported models and capabilities."""

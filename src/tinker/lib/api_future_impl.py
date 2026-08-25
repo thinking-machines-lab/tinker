@@ -238,21 +238,31 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         iteration = -1
         state = _LoopState()
 
-        async with contextlib.AsyncExitStack() as stack:
-            while True:
-                iteration += 1
-                self._check_timeout(timeout, iteration, start_time)
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                while True:
+                    iteration += 1
+                    self._check_timeout(timeout, iteration, start_time)
 
-                fetched = await self._fetch_via_rest(state, iteration)
-                if isinstance(fetched, _TransportError):
-                    await self._handle_transport_error(fetched, state, iteration, start_time)
-                    continue
+                    fetched = await self._fetch_via_rest(state, iteration)
+                    if isinstance(fetched, _TransportError):
+                        await self._handle_transport_error(fetched, state, iteration, start_time)
+                        continue
 
-                result = await self._handle_outcome(fetched, state, stack, iteration, start_time)
-                if result is None:
-                    # Business-level retry (try_again / metadata-only peek).
-                    continue
-                return result
+                    result = await self._handle_outcome(
+                        fetched, state, stack, iteration, start_time
+                    )
+                    if result is None:
+                        # Business-level retry (try_again / metadata-only peek).
+                        continue
+                    return result
+        except asyncio.CancelledError:
+            # Polling was abandoned; tell the server to stop the sampling work
+            # rather than waiting for the SDK-heartbeat to lapse. Only sampling
+            # supports an explicit server-side cancel.
+            if self.request_type == "Sample":
+                self.holder.enqueue_cancel(self.request_id)
+            raise
 
         # Unreachable: the while-True either returns or raises.
         raise AssertionError("unreachable")

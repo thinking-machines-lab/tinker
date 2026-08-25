@@ -78,6 +78,7 @@ def handle_api_errors(func: F) -> F:
             APITimeoutError,
             AuthenticationError,
             BadRequestError,
+            BillingError,
             InternalServerError,
             NotFoundError,
             PermissionDeniedError,
@@ -95,6 +96,13 @@ def handle_api_errors(func: F) -> F:
             if hasattr(e, "message"):
                 details += f"\nDetails: {e.message}"
             raise TinkerCliError("Authentication failed", details)
+        except BillingError as e:
+            details = (
+                "There is a billing issue with your account. Please check that billing is set up."
+            )
+            if hasattr(e, "message"):
+                details += f"\nDetails: {e.message}"
+            raise TinkerCliError("Billing issue", details)
         except PermissionDeniedError as e:
             details = "You don't have permission to access this resource."
             if hasattr(e, "message"):

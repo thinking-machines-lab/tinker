@@ -85,6 +85,29 @@ class _ComputeLogprobsRPC(SidecarRPC):
         return target.compute_logprobs(prompt=self.prompt)
 
 
+def _attach_sequence_ids(
+    response: types.SampleResponse, sample_sequence_ids: list[str] | None
+) -> types.SampleResponse:
+    """Stamp the submission-time ids onto the returned sequences.
+
+    The server fixes sequence identity when the request is submitted (the
+    asample promise carries one id per sample); the final response does not
+    repeat them. A retried sample is a new submission, so the ids of the
+    attempt that produced this response are the ones attached.
+    """
+    assert sample_sequence_ids is not None, "asample promises always carry sample_sequence_ids"
+    assert len(sample_sequence_ids) == len(response.sequences), (
+        f"{len(sample_sequence_ids)} sequence ids for {len(response.sequences)} sequences"
+    )
+    return dataclasses.replace(
+        response,
+        sequences=[
+            dataclasses.replace(seq, sequence_id=sequence_id)
+            for seq, sequence_id in zip(response.sequences, sample_sequence_ids, strict=True)
+        ],
+    )
+
+
 class SamplingClient(TelemetryProvider, QueueStateObserver):
     """Client for text generation and inference from trained or base models.
 
@@ -286,7 +309,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 self.holder._sample_backoff_until = time.monotonic() + backoff_duration
                 continue
 
-        return await _APIFuture(
+        response = await _APIFuture(
             types.SampleResponse,
             self.holder,
             untyped_future,
@@ -294,6 +317,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             request_type="Sample",
             queue_state_observer=self,
         ).result_async()
+        return _attach_sequence_ids(response, untyped_future.sample_sequence_ids)
 
     def sample(
         self,

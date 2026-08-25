@@ -17,6 +17,7 @@ from tinker.types.forward_backward_request import ForwardBackwardRequest
 from tinker.types.image_chunk import ImageChunk
 from tinker.types.model_input_chunk import ModelInputChunk
 from tinker.types.tensor_data import TensorData
+from tinker.types.provenance_spans import SampledProvenanceSpan, PromptProvenanceSpan
 
 # Public TensorDtype → proto DType. Public wire collapses to {float32, int64};
 # bfloat16/int32 are not exposed to SDK users, so we don't need to encode them.
@@ -111,5 +112,24 @@ def forward_backward_request_to_proto(
             _write_chunk(datum_msg.model_input.add(), chunk)
         for name, td in datum.loss_fn_inputs.items():
             datum_msg.loss_fn_inputs[name].CopyFrom(_tensor_data_to_proto(td))
+        if datum.model_input_spans is not None:
+            for span in datum.model_input_spans:
+                _write_provenance_span(datum_msg.model_input_spans.add(), span)
+        if datum.loss_fn_input_spans is not None:
+            for span in datum.loss_fn_input_spans:
+                _write_provenance_span(datum_msg.loss_fn_input_spans.add(), span)
 
     return msg
+
+
+def _write_provenance_span(
+    span_msg: public_pb.ProvenanceSpan, span: PromptProvenanceSpan | SampledProvenanceSpan
+) -> None:
+    arm = (
+        span_msg.sampled_tokens
+        if isinstance(span, SampledProvenanceSpan)
+        else span_msg.prompt_tokens
+    )
+    arm.length = span.length
+    arm.sequence_id = span.sequence_id
+    arm.offset = span.offset

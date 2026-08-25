@@ -73,6 +73,14 @@ class AuthenticationError(APIStatusError)
 
 HTTP 401: Authentication credentials are missing or invalid.
 
+## `BillingError` Objects
+
+```python
+class BillingError(APIStatusError)
+```
+
+HTTP 402: The account has a billing issue, e.g. billing is not set up.
+
 ## `PermissionDeniedError` Objects
 
 ```python
