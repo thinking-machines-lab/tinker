@@ -18,12 +18,10 @@ def get_tinker_token() -> str | None:
     This is a local-only lookup and does not execute ``TINKER_CREDENTIAL_CMD``.
     """
     try:
-        provider = resolve_auth_provider(api_key=None, enforce_cmd=False)
+        provider = ApiKeyAuthProvider.create_or_env() or ApiKeyAuthProvider.create_from_stored()
     except (OSError, TinkerError, ValueError):
         return None
-    if not isinstance(provider, ApiKeyAuthProvider):
-        return None
-    return provider.api_key
+    return provider.api_key if provider is not None else None
 
 
 def tinker_has_credentials() -> bool:
