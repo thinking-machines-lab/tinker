@@ -31,8 +31,11 @@ def test_get_tinker_token_returns_none_when_unconfigured() -> None:
     assert tinker.auth.get_tinker_token() is None
 
 
-def test_get_tinker_token_finds_environment_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_tinker_token_finds_environment_key_with_credential_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("TINKER_API_KEY", "tml-environment")
+    monkeypatch.setenv("TINKER_CREDENTIAL_CMD", "command-that-does-not-exist")
     assert tinker.auth.get_tinker_token() == "tml-environment"
 
 
@@ -44,7 +47,7 @@ def test_get_tinker_token_finds_stored_default(isolated_credentials: Path) -> No
     assert tinker.auth.get_tinker_token() == "tml-stored"
 
 
-def test_get_tinker_token_returns_none_for_credential_command(
+def test_get_tinker_token_finds_stored_default_with_credential_command(
     isolated_credentials: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = JsonCredentialStore(isolated_credentials)
@@ -52,7 +55,7 @@ def test_get_tinker_token_returns_none_for_credential_command(
     store.set_default("test")
     monkeypatch.setenv("TINKER_CREDENTIAL_CMD", "command-that-does-not-exist")
 
-    assert tinker.auth.get_tinker_token() is None
+    assert tinker.auth.get_tinker_token() == "tml-stored"
 
 
 def test_tinker_has_credentials_returns_false_when_unconfigured() -> None:
