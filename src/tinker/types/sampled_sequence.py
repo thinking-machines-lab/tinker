@@ -26,6 +26,10 @@ class SampledSequence:
     stop_reason: StopReason
     """Reason why sampling stopped."""
 
+    sequence_id: str
+    """Session-scoped identifier, distinct per sequence; use it wherever a
+    later request needs to reference this exact sequence."""
+
     tokens_np: Optional[np.ndarray] = field(default=None, repr=False)
     """Generated token IDs as a 1-D int32 numpy array, shape ``(num_tokens,)``."""
 

@@ -386,19 +386,118 @@ class Datum(google.protobuf.message.Message):
 
     MODEL_INPUT_FIELD_NUMBER: builtins.int
     LOSS_FN_INPUTS_FIELD_NUMBER: builtins.int
+    MODEL_INPUT_SPANS_FIELD_NUMBER: builtins.int
+    LOSS_FN_INPUT_SPANS_FIELD_NUMBER: builtins.int
     @property
     def model_input(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Chunk]: ...
     @property
     def loss_fn_inputs(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, Global___Tensor]: ...
+    @property
+    def model_input_spans(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___ProvenanceSpan]:
+        """Provenance of the input tokens as assembled: consecutive runs tiling
+        model_input (counts sum to its token length; position comes from
+        order, overlap is unrepresentable). Consumed by forward-pass features.
+        """
+
+    @property
+    def loss_fn_input_spans(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___ProvenanceSpan]:
+        """Attribution of the loss rows: consecutive runs tiling
+        loss_fn_inputs["target_tokens"] (counts sum to its length).
+        """
+
     def __init__(
         self,
         *,
         model_input: collections.abc.Iterable[Global___Chunk] | None = ...,
         loss_fn_inputs: collections.abc.Mapping[builtins.str, Global___Tensor] | None = ...,
+        model_input_spans: collections.abc.Iterable[Global___ProvenanceSpan] | None = ...,
+        loss_fn_input_spans: collections.abc.Iterable[Global___ProvenanceSpan] | None = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["loss_fn_inputs", b"loss_fn_inputs", "model_input", b"model_input"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["loss_fn_input_spans", b"loss_fn_input_spans", "loss_fn_inputs", b"loss_fn_inputs", "model_input", b"model_input", "model_input_spans", b"model_input_spans"]) -> None: ...
 
 Global___Datum: typing_extensions.TypeAlias = Datum
+
+@typing.final
+class ProvenanceSpan(google.protobuf.message.Message):
+    """One provenance claim: where a run of datum tokens came from. Offsets are
+    local to the arm's type.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    PROMPT_TOKENS_FIELD_NUMBER: builtins.int
+    SAMPLED_TOKENS_FIELD_NUMBER: builtins.int
+    @property
+    def prompt_tokens(self) -> Global___PromptProvenanceSpan: ...
+    @property
+    def sampled_tokens(self) -> Global___SampledProvenanceSpan: ...
+    def __init__(
+        self,
+        *,
+        prompt_tokens: Global___PromptProvenanceSpan | None = ...,
+        sampled_tokens: Global___SampledProvenanceSpan | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["prompt_tokens", b"prompt_tokens", "sampled_tokens", b"sampled_tokens", "span", b"span"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["prompt_tokens", b"prompt_tokens", "sampled_tokens", b"sampled_tokens", "span", b"span"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["span", b"span"]) -> typing.Literal["prompt_tokens", "sampled_tokens"] | None: ...
+
+Global___ProvenanceSpan: typing_extensions.TypeAlias = ProvenanceSpan
+
+@typing.final
+class PromptProvenanceSpan(google.protobuf.message.Message):
+    """A run of tokens that were provided as sampling input: positions
+    [offset, offset+length) of the named sequence's request prompt.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SEQUENCE_ID_FIELD_NUMBER: builtins.int
+    OFFSET_FIELD_NUMBER: builtins.int
+    LENGTH_FIELD_NUMBER: builtins.int
+    sequence_id: builtins.str
+    """SampledSequence.sequence_id of a request whose prompt contained
+    this run.
+    """
+    offset: builtins.int
+    """Position of the run within that request's prompt."""
+    length: builtins.int
+    def __init__(
+        self,
+        *,
+        sequence_id: builtins.str = ...,
+        offset: builtins.int = ...,
+        length: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["length", b"length", "offset", b"offset", "sequence_id", b"sequence_id"]) -> None: ...
+
+Global___PromptProvenanceSpan: typing_extensions.TypeAlias = PromptProvenanceSpan
+
+@typing.final
+class SampledProvenanceSpan(google.protobuf.message.Message):
+    """A run of tokens produced by one sampled sequence: positions
+    [offset, offset+length) of the sequence's sampled tokens.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SEQUENCE_ID_FIELD_NUMBER: builtins.int
+    OFFSET_FIELD_NUMBER: builtins.int
+    LENGTH_FIELD_NUMBER: builtins.int
+    sequence_id: builtins.str
+    """SampledSequence.sequence_id of the sequence this run reproduces."""
+    offset: builtins.int
+    """Position of the run within that sequence's sampled tokens."""
+    length: builtins.int
+    def __init__(
+        self,
+        *,
+        sequence_id: builtins.str = ...,
+        offset: builtins.int = ...,
+        length: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["length", b"length", "offset", b"offset", "sequence_id", b"sequence_id"]) -> None: ...
+
+Global___SampledProvenanceSpan: typing_extensions.TypeAlias = SampledProvenanceSpan
 
 @typing.final
 class Chunk(google.protobuf.message.Message):

@@ -67,6 +67,10 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
         sequences.append(
             SampledSequence(
                 stop_reason=stop_reason,
+                # Identity comes from the submission; the client stamps it
+                # before the response reaches callers, making the field's
+                # str contract true.
+                sequence_id=None,  # type: ignore[arg-type]
                 tokens_np=tokens_np,
                 logprobs_np=logprobs_np,
             )

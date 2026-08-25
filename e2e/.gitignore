@@ -1,0 +1,3 @@
+# Live-run artifacts — never commit
+test-results/
+.pytest_cache/

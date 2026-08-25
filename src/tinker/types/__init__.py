@@ -97,6 +97,8 @@ from .model_input_chunk import ModelInputChunk as ModelInputChunk
 from .optim_step_request import AdamParams as AdamParams
 from .optim_step_request import OptimStepRequest as OptimStepRequest
 from .optim_step_response import OptimStepResponse as OptimStepResponse
+from .provenance_spans import PromptProvenanceSpan as PromptProvenanceSpan
+from .provenance_spans import SampledProvenanceSpan as SampledProvenanceSpan
 from .request_error_category import RequestErrorCategory as RequestErrorCategory
 from .request_failed_response import RequestFailedResponse as RequestFailedResponse
 from .request_id import RequestID as RequestID

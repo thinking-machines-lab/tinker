@@ -110,12 +110,12 @@ def _make_sample_response() -> types.SampleResponse:
     return types.SampleResponse(
         sequences=[
             types.SampledSequence(
+                sequence_id="req:0",
                 stop_reason="length",
-                tokens=[1, 2, 3],
-                logprobs=[0.1, 0.2, 0.3],
+                _tokens_list=[1, 2, 3],
+                _logprobs_list=[0.1, 0.2, 0.3],
             )
         ],
-        type="sample",
     )
 
 

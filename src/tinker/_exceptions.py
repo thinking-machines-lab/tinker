@@ -7,6 +7,7 @@ import httpx
 __all__ = [
     "BadRequestError",
     "AuthenticationError",
+    "BillingError",
     "PermissionDeniedError",
     "NotFoundError",
     "ConflictError",
@@ -132,6 +133,12 @@ class AuthenticationError(APIStatusError):
     """HTTP 401: Authentication credentials are missing or invalid."""
 
     status_code: int = 401
+
+
+class BillingError(APIStatusError):
+    """HTTP 402: The account has a billing issue, e.g. billing is not set up."""
+
+    status_code: int = 402
 
 
 class PermissionDeniedError(APIStatusError):
