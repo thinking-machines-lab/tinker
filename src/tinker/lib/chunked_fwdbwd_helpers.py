@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Sequence, Set, cast
+from typing import Dict, List, Sequence
 
 import numpy as np
 
@@ -30,19 +30,8 @@ def _combine_loss_fn_outputs(results: Sequence[ForwardBackwardOutput]) -> List[L
     return [output for result in results for output in result.loss_fn_outputs]
 
 
-def _order_insensitive_hash(xs: Sequence[Set[Any]] | Sequence[float]) -> int:
-    """Combine hash values in an order-insensitive way.
-
-    Args:
-        xs: Either a sequence of sets (original data) or a sequence of already-computed hash values
-    """
-    # If we have sets, flatten and hash them (original behavior)
-    if xs and isinstance(xs[0], set):
-        return hash(tuple(sorted([y for x in xs for y in cast(Set[Any], x)])))
-
-    # If we have already-computed hash values, combine them deterministically
-    # Sort them to ensure order-insensitive combination
-    return hash(tuple(sorted(int(cast(float, x)) for x in xs)))
+def _hash2(xs: Sequence[float | int]) -> int:
+    return sum(int(value) & 0xFFFF_FFFF_FFFF_FFFF for value in xs) & 0xFFFF_FFFF_FFFF_FFFF
 
 
 def _mean(xs: Sequence[float | int], weights: Sequence[float] | None = None) -> float:
@@ -86,7 +75,7 @@ REDUCE_MAP = {
     "min": _min,
     "max": _max,
     "slack": _slack,
-    "hash_unordered": _order_insensitive_hash,
+    "hash2": _hash2,
     "unique": _unique,
 }
 

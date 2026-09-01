@@ -331,12 +331,31 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
         ) -> None: ...
         def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
 
+    @typing.final
+    class LossFnConfigV2Entry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> Global___LossConfigValue: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: Global___LossConfigValue | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
     MODEL_ID_FIELD_NUMBER: builtins.int
     SEQ_ID_FIELD_NUMBER: builtins.int
     DATA_FIELD_NUMBER: builtins.int
     LOSS_FN_FIELD_NUMBER: builtins.int
     LOSS_FN_CONFIG_FIELD_NUMBER: builtins.int
     FORWARD_ONLY_FIELD_NUMBER: builtins.int
+    LOSS_FN_CONFIG_V2_FIELD_NUMBER: builtins.int
     model_id: builtins.str
     seq_id: builtins.int
     loss_fn: builtins.str
@@ -347,7 +366,16 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
     @property
     def data(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Datum]: ...
     @property
-    def loss_fn_config(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.float]: ...
+    def loss_fn_config(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.float]:
+        """DEPRECATED: legacy float-only loss config. New SDKs mirror float kwargs
+        here for servers that predate loss_fn_config_v2; servers prefer v2 when
+        it is set.
+        """
+
+    @property
+    def loss_fn_config_v2(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, Global___LossConfigValue]:
+        """Loss constructor kwargs. Supersedes loss_fn_config."""
+
     def __init__(
         self,
         *,
@@ -357,10 +385,35 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
         loss_fn: builtins.str = ...,
         loss_fn_config: collections.abc.Mapping[builtins.str, builtins.float] | None = ...,
         forward_only: builtins.bool = ...,
+        loss_fn_config_v2: collections.abc.Mapping[builtins.str, Global___LossConfigValue] | None = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["data", b"data", "forward_only", b"forward_only", "loss_fn", b"loss_fn", "loss_fn_config", b"loss_fn_config", "model_id", b"model_id", "seq_id", b"seq_id"]) -> None: ...
+    def ClearField(self, field_name: typing.Literal["data", b"data", "forward_only", b"forward_only", "loss_fn", b"loss_fn", "loss_fn_config", b"loss_fn_config", "loss_fn_config_v2", b"loss_fn_config_v2", "model_id", b"model_id", "seq_id", b"seq_id"]) -> None: ...
 
 Global___ForwardBackwardRequest: typing_extensions.TypeAlias = ForwardBackwardRequest
+
+@typing.final
+class LossConfigValue(google.protobuf.message.Message):
+    """Tagged loss-config value: a narrow union rather than google.protobuf.Value,
+    with room to grow arms (bool/int64) if a loss ever needs them.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NUMBER_FIELD_NUMBER: builtins.int
+    TEXT_FIELD_NUMBER: builtins.int
+    number: builtins.float
+    text: builtins.str
+    def __init__(
+        self,
+        *,
+        number: builtins.float = ...,
+        text: builtins.str = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["number", b"number", "text", b"text", "value", b"value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["number", b"number", "text", b"text", "value", b"value"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["value", b"value"]) -> typing.Literal["number", "text"] | None: ...
+
+Global___LossConfigValue: typing_extensions.TypeAlias = LossConfigValue
 
 @typing.final
 class Datum(google.protobuf.message.Message):

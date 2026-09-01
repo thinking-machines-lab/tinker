@@ -82,6 +82,14 @@ class TestMetricsReductionWithUnique:
         reduced = _metrics_reduction(results)
         assert reduced == {}
 
+    def test_hash2_reduction_wraps_as_u64(self):
+        results = [
+            self.create_forward_backward_output({"fingerprint:hash2": 2**64 - 1}),
+            self.create_forward_backward_output({"fingerprint:hash2": 2}),
+        ]
+
+        assert _metrics_reduction(results) == {"fingerprint:hash2": 1}
+
     def test_unique_reduction_missing_metric(self):
         """Test unique reduction when some results don't have the metric."""
         results = [

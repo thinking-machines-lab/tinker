@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from .datum import Datum
 from .loss_fn_type import LossFnType
@@ -17,5 +17,5 @@ class ForwardBackwardInput:
     loss_fn: LossFnType
     """Fully qualified function path for the loss function"""
 
-    loss_fn_config: Optional[Dict[str, float]] = field(default=None)
+    loss_fn_config: Optional[Dict[str, Union[float, str]]] = field(default=None)
     """Optional configuration parameters for the loss function (e.g., PPO clip thresholds, DPO beta)"""

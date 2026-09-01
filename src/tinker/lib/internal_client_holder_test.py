@@ -67,6 +67,35 @@ def _patch_pool(monkeypatch: pytest.MonkeyPatch, holder: _MockHolder) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Session heartbeat
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_heartbeat_stops_when_session_is_gone() -> None:
+    holder = _MockHolder(_ClientConfigResponse())
+    heartbeat = AsyncMock(
+        side_effect=APIStatusError(
+            "session finished",
+            response=httpx.Response(
+                410,
+                request=httpx.Request("POST", "https://example.com/api/v1/session_heartbeat"),
+            ),
+            body={"detail": "This ServiceClient is poisoned."},
+        ),
+    )
+    holder._cm.__enter__.return_value.service.session_heartbeat = heartbeat
+
+    with patch(
+        "tinker.lib.internal_client_holder.asyncio.sleep",
+        new_callable=AsyncMock,
+    ):
+        await InternalClientHolder._session_heartbeat(holder, "session-1")  # type: ignore[arg-type]
+
+    heartbeat.assert_awaited_once_with(session_id="session-1", max_retries=0, timeout=10)
+
+
+# ---------------------------------------------------------------------------
 # _fetch_client_config
 # ---------------------------------------------------------------------------
 

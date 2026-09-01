@@ -22,6 +22,7 @@ from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
 from ..retry_handler import RetryConfig, RetryHandler
+from ..session_futures_poller import SessionFuturesPoller
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizer
@@ -48,6 +49,7 @@ class _SamplingClientPickleState:
     sampling_session_id: str
     constructor_kwargs: dict[str, Any]
     subprocess_sampling: bool
+    record_stability_info: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -156,16 +158,23 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         shadow: bool = False,
         retry_config: RetryConfig | None = None,
         subprocess_sampling: bool | None = None,
+        record_stability_info: bool = False,
     ):
+        self._record_stability_info: bool = record_stability_info
         self.holder = holder
 
-        # The limit on concurrent sampling requests is server-controlled via the
-        # client config and always overrides max_connections, even on a
-        # caller-provided retry_config.
-        retry_config = dataclasses.replace(
-            retry_config or RetryConfig(),
-            max_connections=holder._client_config.sample_max_concurrent_requests,
-        )
+        if holder.get_client_config().sample_use_retrieve_futures:
+            # With the session poller, in-flight samples no longer each hold a
+            # retrieve_future connection, so the concurrency limit isn't needed.
+            retry_config = dataclasses.replace(retry_config or RetryConfig(), max_connections=None)
+        else:
+            # The limit on concurrent sampling requests is server-controlled via
+            # the client config and always overrides max_connections, even on a
+            # caller-provided retry_config.
+            retry_config = dataclasses.replace(
+                retry_config or RetryConfig(),
+                max_connections=holder.get_client_config().sample_max_concurrent_requests,
+            )
 
         if not holder._client_config.sample_enable_stuck_detection:
             retry_config = dataclasses.replace(retry_config, enable_stuck_detection=False)
@@ -190,6 +199,11 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             # We use 1B as the base and mod for uuid because the maximum int value is 2^63-1 and 1B*1B is less than 2^63-1.
             self._request_id_counter = 1_000_000_000 * (int(uuid.uuid4()) % 1_000_000_000 + 1)
 
+        # Constant across this client's seq_ids (all in one 1B block); matches
+        # the server's request_metadata_hash_tag (seq_id // 1_000_000_000).
+        self._cloned_sampler_id: int = self._request_id_counter // 1_000_000_000
+        self._futures_poller: SessionFuturesPoller | None = None
+
         # Subprocess isolation: read env var if not explicitly set
         if subprocess_sampling is None:
             subprocess_sampling = os.environ.get("TINKER_SUBPROCESS_SAMPLING", "").lower() in (
@@ -213,13 +227,17 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         base_model: str | None,
         sampling_session_id: str | None,
         retry_config: RetryConfig | None,
+        record_stability_info: bool,
     ) -> SamplingClient:
         if sampling_session_id is None:
             sampling_session_id = await holder._create_sampling_session(
                 model_path=model_path, base_model=base_model
             )
         return SamplingClient(
-            holder, sampling_session_id=sampling_session_id, retry_config=retry_config
+            holder,
+            sampling_session_id=sampling_session_id,
+            retry_config=retry_config,
+            record_stability_info=record_stability_info,
         )
 
     @staticmethod
@@ -230,6 +248,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         base_model: str | None = None,
         sampling_session_id: str | None = None,
         retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> APIFuture[SamplingClient]:
         return holder.run_coroutine_threadsafe(
             SamplingClient._create_impl(
@@ -238,6 +257,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 base_model=base_model,
                 sampling_session_id=sampling_session_id,
                 retry_config=retry_config,
+                record_stability_info=record_stability_info,
             )
         )
 
@@ -259,6 +279,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 sampling_params=sampling_params,
                 prompt_logprobs=include_prompt_logprobs,
                 topk_prompt_logprobs=topk_prompt_logprobs,
+                record_stability_info=self._record_stability_info,
             )
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
                 return await client.sampling.asample(
@@ -316,8 +337,25 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             request_start_time=time.time(),
             request_type="Sample",
             queue_state_observer=self,
+            futures_poller=self._get_futures_poller(),
         ).result_async()
         return _attach_sequence_ids(response, untyped_future.sample_sequence_ids)
+
+    def _get_futures_poller(self) -> SessionFuturesPoller | None:
+        """The session's retrieve_futures poller, or None when the flag is off.
+
+        Lazily created on first use (on the holder's event loop, where sampling
+        runs) so a client that never samples starts no background task.
+        """
+        if not self.holder.get_client_config().sample_use_retrieve_futures:
+            return None
+        if self._futures_poller is None:
+            self._futures_poller = SessionFuturesPoller(
+                self.holder,
+                sampling_session_id=self._sampling_session_id,
+                cloned_sampler_id=self._cloned_sampler_id,
+            )
+        return self._futures_poller
 
     def sample(
         self,
@@ -501,6 +539,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     sampling_session_id=self._sampling_session_id,
                     constructor_kwargs=self.holder.shadow_kwargs,
                     subprocess_sampling=self._sampling_client_sidecar_handle is not None,
+                    record_stability_info=self._record_stability_info,
                 ),
             ),
         )
@@ -541,6 +580,7 @@ def _unpickle_sampling_client(state: _SamplingClientPickleState) -> SamplingClie
         sampling_session_id=state.sampling_session_id,
         shadow=True,
         subprocess_sampling=state.subprocess_sampling,
+        record_stability_info=state.record_stability_info,
     )
 
 

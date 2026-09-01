@@ -62,17 +62,34 @@ def login(api_key: bool) -> None:
 
 
 def _login_with_api_key() -> None:
-    """Prompt for an existing API key and store it."""
+    """Prompt for an existing API key, verify it, and store its metadata."""
     # Lazy import to keep CLI startup fast.
+    import httpx
+
     from tinker.lib.credentials import JsonCredentialStore, ManualKey, default_credentials_path
+
+    from ..auth_api import AuthApiError, TinkerAuthApi
 
     key = click.prompt("API key", hide_input=True).strip()
     if not key:
         raise TinkerCliError("The API key must not be empty")
 
+    try:
+        with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+            api_key = TinkerAuthApi(client).get_self_api_key(key)
+    except AuthApiError as e:
+        raise TinkerCliError("Could not validate the API key", str(e)) from e
+
+    key_id = str(api_key.key_id)
+    record = ManualKey(
+        key=key,
+        name=api_key.name,
+        note=api_key.note,
+        details=api_key.details,
+    )
     store = JsonCredentialStore(default_credentials_path())
-    store.add_key("manual", ManualKey(key=key, name="Manually added api key"))
-    store.set_default("manual")
+    store.add_key(key_id, record)
+    store.set_default(key_id)
     click.echo("Successfully set API key")
 
 
@@ -115,6 +132,8 @@ def logout() -> None:
     # Lazy import to keep CLI startup fast.
     from tinker.lib.credentials import GeneratedKey, JsonCredentialStore, default_credentials_path
 
+    from ..auth_api import AuthApiError
+
     store = JsonCredentialStore(default_credentials_path())
     key_id = store.get_default_key_id()
     record = store.get_default_key()
@@ -125,11 +144,24 @@ def logout() -> None:
         )
 
     delete = isinstance(record, GeneratedKey)
+    delete_error: AuthApiError | None = None
     if delete:
-        _delete_key_on_server(record.key)
+        try:
+            _delete_key_on_server(record.key)
+        except AuthApiError as e:
+            delete_error = e
     # Removing the key also clears the default, which pointed at it.
     store.delete_key(key_id)
 
+    if delete_error is not None:
+        raise TinkerCliError(
+            "Could not delete the API key on the server",
+            f"Removed the local credential.\n"
+            f"API key name: {record.name}\n"
+            f"API key ID: {key_id}\n"
+            "You can manually delete this key from the Tinker Console: "
+            "https://tinker.thinkingmachines.ai/keys",
+        ) from delete_error
     if delete:
         click.echo(f"Removed credential '{record.name}' and deleted its API key on the server.")
     else:
@@ -141,16 +173,10 @@ def _delete_key_on_server(key: str) -> None:
     # Lazy import to keep CLI startup fast.
     import httpx
 
-    from ..auth_api import AuthApiError, TinkerAuthApi
+    from ..auth_api import TinkerAuthApi
 
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-            TinkerAuthApi(client).delete_self_api_key(key)
-    except AuthApiError as e:
-        raise TinkerCliError(
-            "Could not delete the API key on the server",
-            f"{e}\nThe stored credential was left in place, so you can retry the logout.",
-        ) from e
+    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+        TinkerAuthApi(client).delete_self_api_key(key)
 
 
 @cli.command()

@@ -6,6 +6,7 @@ progress tracking, and exponential backoff.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
 import time
@@ -43,8 +44,10 @@ class RetryConfig:
     for automatic request retries.
     """
 
-    max_connections: int = DEFAULT_CONNECTION_LIMITS.max_connections or 100
-    """Maximum number of concurrent connections allowed."""
+    max_connections: int | None = DEFAULT_CONNECTION_LIMITS.max_connections or 100
+    """Maximum number of concurrent connections allowed. ``None`` disables the
+    concurrency semaphore entirely, for callers whose in-flight requests don't
+    each hold a connection so bounding concurrency isn't needed."""
 
     progress_timeout: float = 120 * 60  # Very long straggler
     """Timeout in seconds before failing if no progress is made."""
@@ -75,7 +78,7 @@ class RetryConfig:
     """Exception types that should trigger a retry."""
 
     def __post_init__(self):
-        if self.max_connections <= 0:
+        if self.max_connections is not None and self.max_connections <= 0:
             raise ValueError(f"max_connections must be positive, got {self.max_connections}")
 
     def __hash__(self):
@@ -128,16 +131,22 @@ class RetryHandler(Generic[T]):  # noqa: UP046
 
         self._errors_since_last_retry: defaultdict[str, int] = defaultdict(int)
 
-        # The semaphore is used to limit the number of concurrent requests.
-        # Without a semaphore, progress can grind to a halt as requests fight
-        # for limited httpx connections.
-        self._semaphore = asyncio.Semaphore(config.max_connections)
+        # The semaphore limits the number of concurrent requests: without one,
+        # progress can grind to a halt as requests fight for limited httpx
+        # connections. Disabled when ``max_connections`` is None (callers whose
+        # in-flight requests don't each hold a connection).
+        self._semaphore = (
+            asyncio.Semaphore(config.max_connections)
+            if config.max_connections is not None
+            else None
+        )
 
     async def execute(self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any) -> T:
         """Use as a direct function call."""
 
         self._waiting_at_semaphore_count += 1
-        async with self._semaphore:
+        semaphore_cm = self._semaphore if self._semaphore is not None else contextlib.nullcontext()
+        async with semaphore_cm:
             self._waiting_at_semaphore_count -= 1
             if self._in_retry_loop_count == 0:
                 self._last_global_progress = time.time()

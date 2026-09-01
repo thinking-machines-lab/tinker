@@ -489,9 +489,13 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                         session_id=session_id, max_retries=0, timeout=10
                     )
                 last_heartbeat_time = time.monotonic()
+            except APIStatusError as e:
+                if e.status_code == 410:
+                    logger.info(f"Session {session_id} has finished; stopping its heartbeat loop.")
+                    return
+                last_exception = f"{type(e).__name__}: {str(e)}"
             except Exception as e:
                 last_exception = f"{type(e).__name__}: {str(e)}"
-                pass
             if (
                 time.monotonic() - last_heartbeat_time
                 > SESSION_MISSED_HEARTBEAT_WARNING_THRESHOLD_SEC

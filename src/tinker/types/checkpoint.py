@@ -27,6 +27,9 @@ class Checkpoint(BaseModel):
     public: bool = False
     """Whether the checkpoint is publicly accessible"""
 
+    user_metadata: dict[str, str] | None = None
+    """Optional user-provided metadata attached to the checkpoint"""
+
     expires_at: datetime | None = None
     """When this checkpoint expires (None = never expires)"""
 

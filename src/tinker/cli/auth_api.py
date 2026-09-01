@@ -5,6 +5,8 @@
 - POST /api/v1/auth/apikey, which mints an API key for the caller. It accepts
   exactly one kind of credential: a WorkOS access token, sent as a bearer
   token — API keys deliberately cannot mint further API keys.
+- GET /api/v1/auth/apikey/me, which verifies the API key presented in the
+  X-API-Key header and returns its public metadata.
 - DELETE /api/v1/auth/apikey/me, which deletes the API key presented in the
   X-API-Key header (and nothing else — it deliberately cannot delete other
   keys). Logout uses it to revoke the stored key it is about to discard.
@@ -42,6 +44,15 @@ class CreatedApiKey(BaseModel):
     details: ApiKeyDetails
 
 
+class SelfApiKeyResponse(BaseModel):
+    """The response of the current API key endpoint."""
+
+    key_id: int
+    name: str
+    note: str
+    details: ApiKeyDetails
+
+
 class _AuthConfigResponse(BaseModel):
     # The server serializes this field as `clientId`; accept either spelling.
     client_id: str = Field(validation_alias=AliasChoices("clientId", "client_id"))
@@ -75,6 +86,11 @@ class TinkerAuthApi:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         return self._parse(response, CreatedApiKey)
+
+    def get_self_api_key(self, api_key: str) -> SelfApiKeyResponse:
+        """Verify `api_key` and return its public metadata."""
+        response = self._request("GET", "/api/v1/auth/apikey/me", headers={"X-API-Key": api_key})
+        return self._parse(response, SelfApiKeyResponse)
 
     def delete_self_api_key(self, api_key: str) -> None:
         """Delete `api_key` itself on the server, revoking it everywhere."""

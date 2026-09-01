@@ -213,7 +213,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None = None,
+        loss_fn_config: Dict[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Compute forward pass without gradients.
 
@@ -242,7 +242,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None = None,
+        loss_fn_config: Dict[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward."""
         return self.forward(data, loss_fn, loss_fn_config)
@@ -251,7 +251,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None = None,
+        loss_fn_config: Dict[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Compute forward pass and backward pass to calculate gradients.
 
@@ -288,7 +288,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None,
+        loss_fn_config: Dict[str, float | str] | None,
         *,
         forward_only: bool,
     ) -> APIFuture[types.ForwardBackwardOutput]:
@@ -374,7 +374,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float] | None = None,
+        loss_fn_config: Dict[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward_backward."""
         return self.forward_backward(data, loss_fn, loss_fn_config)
@@ -921,7 +921,10 @@ class TrainingClient(TelemetryProvider):
         return _get_tokenizer(self._guaranteed_model_id(), self.holder)
 
     def create_sampling_client(
-        self, model_path: str, retry_config: RetryConfig | None = None
+        self,
+        model_path: str,
+        retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> SamplingClient:
         """Create a SamplingClient from saved weights.
 
@@ -941,19 +944,31 @@ class TrainingClient(TelemetryProvider):
         ```
         """
         return SamplingClient.create(
-            self.holder, model_path=model_path, retry_config=retry_config
+            self.holder,
+            model_path=model_path,
+            retry_config=retry_config,
+            record_stability_info=record_stability_info,
         ).result()
 
     async def create_sampling_client_async(
-        self, model_path: str, retry_config: RetryConfig | None = None
+        self,
+        model_path: str,
+        retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> SamplingClient:
         """Async version of create_sampling_client."""
         return await SamplingClient.create(
-            self.holder, model_path=model_path, retry_config=retry_config
+            self.holder,
+            model_path=model_path,
+            retry_config=retry_config,
+            record_stability_info=record_stability_info,
         )
 
     def save_weights_and_get_sampling_client(
-        self, name: str | None = None, retry_config: RetryConfig | None = None
+        self,
+        name: str | None = None,
+        retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> SamplingClient:
         """Save current weights and create a SamplingClient for inference.
 
@@ -992,10 +1007,14 @@ class TrainingClient(TelemetryProvider):
             self.holder,
             sampling_session_id=sampling_session_id,
             retry_config=retry_config,
+            record_stability_info=record_stability_info,
         ).result()
 
     async def save_weights_and_get_sampling_client_async(
-        self, name: str | None = None, retry_config: RetryConfig | None = None
+        self,
+        name: str | None = None,
+        retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> SamplingClient:
         """Async version of save_weights_and_get_sampling_client."""
         if name is not None:
@@ -1015,6 +1034,7 @@ class TrainingClient(TelemetryProvider):
             self.holder,
             sampling_session_id=sampling_session_id,
             retry_config=retry_config,
+            record_stability_info=record_stability_info,
         )
 
     def get_telemetry(self) -> Telemetry | None:
