@@ -31,7 +31,7 @@ def _make_request(
     *,
     data: list[types.Datum],
     loss_fn: types.LossFnType = "cross_entropy",
-    loss_fn_config: dict[str, float] | None = None,
+    loss_fn_config: dict[str, float | str] | None = None,
     model_id: str = "m-test",
     seq_id: int | None = 7,
 ) -> types.ForwardBackwardRequest:
@@ -104,12 +104,19 @@ def _request(draw: DrawFn) -> types.ForwardBackwardRequest:
     n_datums = draw(st.integers(min_value=1, max_value=3))
     data = [draw(_datum()) for _ in range(n_datums)]
     include_seq_id = draw(st.booleans())
-    include_config = draw(st.booleans())
     loss_fn = draw(_LOSS_FN)
     return _make_request(
         data=data,
         loss_fn=loss_fn,
-        loss_fn_config={"clip_low": 0.8, "clip_high": 1.2} if include_config else None,
+        loss_fn_config=draw(
+            st.sampled_from(
+                [
+                    None,
+                    {"clip_low": 0.8, "clip_high": 1.2},
+                    {"kl_estimator": "k3", "kl_coeff": 0.01},
+                ]
+            )
+        ),
         seq_id=draw(st.integers(min_value=0, max_value=999)) if include_seq_id else None,
     )
 
@@ -134,10 +141,15 @@ def test_request_to_proto_preserves_envelope_and_data(
     assert msg.seq_id == (request.seq_id if request.seq_id is not None else 0)
     fbi = request.forward_backward_input
     assert msg.loss_fn == fbi.loss_fn
-    if fbi.loss_fn_config is None:
-        assert dict(msg.loss_fn_config) == {}
-    else:
-        assert dict(msg.loss_fn_config) == fbi.loss_fn_config
+    # Dual-write for compatibility during the migration: floats mirror into
+    # the legacy map; strings exist only on v2.
+    config = fbi.loss_fn_config or {}
+    assert dict(msg.loss_fn_config) == {k: v for k, v in config.items() if not isinstance(v, str)}
+    decoded_config = {
+        k: (val.text if val.WhichOneof("value") == "text" else val.number)
+        for k, val in msg.loss_fn_config_v2.items()
+    }
+    assert decoded_config == config
     assert len(msg.data) == len(fbi.data)
 
     for orig_datum, datum_msg in zip(fbi.data, msg.data, strict=True):

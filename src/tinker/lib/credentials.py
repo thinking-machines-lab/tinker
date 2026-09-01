@@ -19,14 +19,6 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field
 
 
-class ManualKey(BaseModel):
-    """An API key the user pasted in via `tinker auth login --api-key`."""
-
-    type: Literal["manual"] = "manual"
-    key: str
-    name: str
-
-
 class ApiKeyOrgDetails(BaseModel):
     """The organization a key was minted under."""
 
@@ -48,6 +40,20 @@ class ApiKeyDetails(BaseModel):
 
     org_details: ApiKeyOrgDetails
     user_details: ApiKeyUserDetails
+
+
+class ManualKey(BaseModel):
+    """An API key the user pasted in via `tinker auth login --api-key`.
+
+    `note` and `details` are optional only so credentials written before
+    manual keys were verified against the server remain readable.
+    """
+
+    type: Literal["manual"] = "manual"
+    key: str
+    name: str
+    note: str | None = None
+    details: ApiKeyDetails | None = None
 
 
 class GeneratedKey(BaseModel):
@@ -177,7 +183,7 @@ class JsonCredentialStore(CredentialStore):
         fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{self._path.name}.")
         try:
             with os.fdopen(fd, "w") as f:
-                f.write(credentials.model_dump_json(indent=2))
+                f.write(credentials.model_dump_json(indent=2, exclude_none=True))
             os.chmod(tmp_name, file_mode)
             os.replace(tmp_name, self._path)
         except BaseException:

@@ -158,6 +158,32 @@ class TestJsonCredentialStore:
         assert record.details.org_details.name == "Acme"
         assert record.details.user_details.email == "user@acme.test"
 
+    def test_reads_legacy_manual_key_from_disk(
+        self, store: JsonCredentialStore, store_path: Path
+    ) -> None:
+        store_path.parent.mkdir(parents=True)
+        legacy = {
+            "version": 1,
+            "default": "manual",
+            "keys": {
+                "manual": {
+                    "type": "manual",
+                    "key": "tml-secret",
+                    "name": "Manually added api key",
+                }
+            },
+        }
+        store_path.write_text(json.dumps(legacy))
+
+        record = store.get_default_key()
+
+        assert isinstance(record, ManualKey)
+        assert record.key == "tml-secret"
+        assert record.note is None
+        assert record.details is None
+        store.set_default("manual")
+        assert json.loads(store_path.read_text()) == legacy
+
     def test_corrupt_file_raises(self, store: JsonCredentialStore, store_path: Path) -> None:
         store_path.parent.mkdir(parents=True)
         store_path.write_text('{"version": 999}')

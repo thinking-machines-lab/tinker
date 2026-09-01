@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from .._compat import model_copy, model_dump
 from .._resource import AsyncAPIResource
+from ..types.copy_weights_request import CopyWeightsRequest
+from ..types.copy_weights_response import CopyWeightsResponse
 from ..types.create_model_request import CreateModelRequest
 from ..types.get_info_request import GetInfoRequest
 from ..types.get_info_response import GetInfoResponse
@@ -29,6 +31,23 @@ class AsyncModelsResource(AsyncAPIResource):
             "/api/v1/create_model",
             body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             cast_to=UntypedAPIFuture,
+        )
+
+    async def copy_weights(
+        self,
+        *,
+        request: CopyWeightsRequest,
+    ) -> CopyWeightsResponse:
+        """
+        Copies weights into the caller's project
+
+        Args:
+          request: The copy request containing session_id, model_seq_id and source_path
+        """
+        return await self._post(
+            "/api/v1/copy_weights",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            cast_to=CopyWeightsResponse,
         )
 
     async def get_info(

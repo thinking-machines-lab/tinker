@@ -51,3 +51,10 @@ class ClientConfigResponse(BaseModel):
     session addressing (session_id + model_seq_id) that creates the model
     server-side, configured from the checkpoint's owning model. Requires a
     server with load-weights-first support."""
+    sample_use_retrieve_futures: bool = False
+    """When true, each SamplingClient runs a single background task that polls
+    ``/api/v1/retrieve_futures`` for its whole sampling session; a sample's
+    result future waits for that poller to signal its request complete (and
+    carries the completion metadata) before doing the normal payload fetch,
+    instead of polling ``/api/v1/retrieve_future`` per request. Requires a
+    server exposing the retrieve_futures endpoint."""

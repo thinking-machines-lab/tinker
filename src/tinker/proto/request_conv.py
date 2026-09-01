@@ -103,8 +103,15 @@ def forward_backward_request_to_proto(
 
     msg.loss_fn = request.forward_backward_input.loss_fn
     if request.forward_backward_input.loss_fn_config is not None:
+        # Dual-write for forward/backward compatibility during the migration:
+        # float kwargs mirror into the legacy map old servers understand.
+        # Strings only exist on v2; servers prefer v2 when set.
         for k, v in request.forward_backward_input.loss_fn_config.items():
-            msg.loss_fn_config[k] = float(v)
+            if isinstance(v, str):
+                msg.loss_fn_config_v2[k].text = v
+            else:
+                msg.loss_fn_config[k] = float(v)
+                msg.loss_fn_config_v2[k].number = float(v)
 
     for datum in request.forward_backward_input.data:
         datum_msg = msg.data.add()

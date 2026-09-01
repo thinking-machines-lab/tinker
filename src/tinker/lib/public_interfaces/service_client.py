@@ -354,6 +354,68 @@ class ServiceClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_create_via_load_weights_async())
 
+    def _copy_weights_submit(
+        self,
+        path: str,
+        ttl_seconds: int | None,
+        weights_access_token: str | None,
+    ) -> AwaitableConcurrentFuture[str]:
+        """Copy weights with a single CopyWeightsRequest."""
+        session_id = self.holder.get_session_id()
+        model_seq_id = self.holder.get_training_client_id()
+
+        @capture_exceptions(fatal=True)
+        async def _copy_weights_async() -> str:
+            request = types.CopyWeightsRequest(
+                session_id=session_id,
+                model_seq_id=model_seq_id,
+                source_path=path,
+                ttl_seconds=ttl_seconds,
+                weights_access_token=weights_access_token,
+            )
+
+            async def _send_request():
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.models.copy_weights(request=request)
+
+            # No _APIFuture: copy is synchronous, since nothing is queued.
+            response = await self.holder.execute_with_retries(_send_request)
+            logger.info(f"Copied {path} to {response.tinker_path}")
+            return response.tinker_path
+
+        return self.holder.run_coroutine_threadsafe(_copy_weights_async())
+
+    def copy_weights(
+        self,
+        path: str,
+        *,
+        ttl_seconds: int | None = None,
+        weights_access_token: str | None = None,
+    ) -> AwaitableConcurrentFuture[str]:
+        """Copy weights into this client's project.
+
+        Storage is shared with the source, so no bytes are duplicated. Either kind
+        of weights can be copied, and the copy keeps that kind. A new training
+        run is created to hold it, which cannot be trained on.
+
+        Args:
+        - `path`: Tinker path of the weights to copy
+        - `ttl_seconds`: Seconds until the copy expires, or None for no expiry
+        - `weights_access_token`: Optional access token for copying weights readable
+          under a different account
+
+        Returns:
+        - A future for the tinker path of the copy. Await it, or call `.result()`.
+
+        Example:
+        ```python
+        # The copy lands in this client's project.
+        archive = tinker.ServiceClient(project_id="proj-archive")
+        archived_path = archive.copy_weights("tinker://run-id/weights/step-400").result()
+        ```
+        """
+        return self._copy_weights_submit(path, ttl_seconds, weights_access_token)
+
     @sync_only
     def create_training_client_from_state(
         self,
@@ -570,6 +632,7 @@ class ServiceClient(TelemetryProvider):
         model_path: str | None = None,
         base_model: str | None = None,
         retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> SamplingClient:
         """Create a SamplingClient for text generation.
 
@@ -606,6 +669,7 @@ class ServiceClient(TelemetryProvider):
             model_path=model_path,
             base_model=base_model,
             retry_config=retry_config,
+            record_stability_info=record_stability_info,
         ).result()
 
     async def create_sampling_client_async(
@@ -613,6 +677,7 @@ class ServiceClient(TelemetryProvider):
         model_path: str | None = None,
         base_model: str | None = None,
         retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False,
     ) -> SamplingClient:
         """Async version of create_sampling_client."""
         from .sampling_client import SamplingClient
@@ -624,6 +689,7 @@ class ServiceClient(TelemetryProvider):
             model_path=model_path,
             base_model=base_model,
             retry_config=retry_config,
+            record_stability_info=record_stability_info,
         )
 
     def create_rest_client(self) -> RestClient:

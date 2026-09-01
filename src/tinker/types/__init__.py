@@ -51,6 +51,8 @@ from .client_config_response import ClientConfigResponse as ClientConfigResponse
 from .client_dynamic_config_response import (
     ClientDynamicConfigResponse as ClientDynamicConfigResponse,
 )
+from .copy_weights_request import CopyWeightsRequest as CopyWeightsRequest
+from .copy_weights_response import CopyWeightsResponse as CopyWeightsResponse
 from .create_model_request import CreateModelRequest as CreateModelRequest
 from .create_model_response import CreateModelResponse as CreateModelResponse
 from .create_sampling_session_request import (
@@ -70,8 +72,14 @@ from .forward_backward_input import ForwardBackwardInput as ForwardBackwardInput
 from .forward_backward_output import ForwardBackwardOutput as ForwardBackwardOutput
 from .forward_backward_request import ForwardBackwardRequest as ForwardBackwardRequest
 from .forward_request import ForwardRequest as ForwardRequest
+from .future_completion import FutureCompletion as FutureCompletion
+from .future_completion import FutureFailed as FutureFailed
+from .future_completion import FutureFinished as FutureFinished
 from .future_retrieve_request import FutureRetrieveRequest as FutureRetrieveRequest
 from .future_retrieve_response import FutureRetrieveResponse as FutureRetrieveResponse
+from .futures_retrieve_request import FuturesRetrieveRequest as FuturesRetrieveRequest
+from .futures_retrieve_request import SamplingSessionFuturesTarget as SamplingSessionFuturesTarget
+from .futures_retrieve_response import FuturesRetrieveResponse as FuturesRetrieveResponse
 from .get_info_request import GetInfoRequest as GetInfoRequest
 from .get_info_response import GetInfoResponse as GetInfoResponse
 from .get_info_response import ModelData as ModelData

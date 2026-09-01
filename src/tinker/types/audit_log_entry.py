@@ -14,13 +14,16 @@ class AuditLogEntry(BaseModel):
     """When the event occurred."""
 
     event: str
-    """The event type identifier."""
+    """`<resource>_<action>`, e.g. `checkpoint_read`, `project_grant_set`."""
+
+    event_details: dict[str, object] = {}
+    """Who did it, what it was about, and whatever else this event records."""
 
     model_id: str | None = None
-    """The model ID associated with the event, if any."""
+    """Deprecated: read `event_details`. Set on checkpoint events only."""
 
     tinker_path: str | None = None
-    """The tinker path associated with the event, if any."""
+    """Deprecated: read `event_details`. Set on checkpoint events only."""
 
     purpose: str | None = None
-    """The purpose of the event, if any."""
+    """Deprecated: read `event_details`. Set on checkpoint reads only."""
