@@ -191,6 +191,36 @@ class TestDeleteCLIValidation:
         assert deleted_paths == [checkpoint_path]
         assert '"deleted_count": 1' in result.output
 
+    def test_run_id_no_matches_prints_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from tinker.cli.commands import checkpoint
+        from tinker.cli.context import CLIContext
+
+        class _ListResult:
+            def result(self):
+                return type("Response", (), {"checkpoints": []})()
+
+        class _Client:
+            def list_checkpoints(self, run_id: str) -> _ListResult:
+                assert run_id == "run-1"
+                return _ListResult()
+
+        def create_rest_client() -> _Client:
+            return _Client()
+
+        monkeypatch.setattr(checkpoint, "create_rest_client", create_rest_client)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            checkpoint.cli,
+            ["delete", "-y", "--run-id", "run-1"],
+            obj=CLIContext(format="json"),
+        )
+
+        assert result.exit_code == 0, result.output
+        assert '"deleted_count": 0' in result.output
+        assert '"matched_count": 0' in result.output
+        assert '"run_id": "run-1"' in result.output
+
     def test_paths_and_run_id_conflict(self) -> None:
         from tinker.cli.commands.checkpoint import cli
 
