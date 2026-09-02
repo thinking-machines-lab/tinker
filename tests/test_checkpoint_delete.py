@@ -191,6 +191,57 @@ class TestDeleteCLIValidation:
         assert deleted_paths == [checkpoint_path]
         assert '"deleted_count": 1' in result.output
 
+    def test_concurrency_one_deletes_multiple_paths(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from tinker.cli.commands import checkpoint
+        from tinker.cli.context import CLIContext
+
+        paths = [
+            "tinker://run-1/weights/0001",
+            "tinker://run-1/weights/0002",
+            "tinker://run-1/sampler_weights/0001",
+        ]
+        deleted_paths: list[str] = []
+
+        class _Result:
+            def result(self) -> None:
+                return None
+
+        class _Client:
+            def delete_checkpoint_from_tinker_path(self, path: str) -> _Result:
+                deleted_paths.append(path)
+                return _Result()
+
+        monkeypatch.setattr(checkpoint, "create_rest_client", lambda: _Client())
+
+        runner = CliRunner()
+        result = runner.invoke(
+            checkpoint.cli,
+            ["delete", "-y", "--concurrency", "1", *paths],
+            obj=CLIContext(format="json"),
+        )
+
+        assert result.exit_code == 0, result.output
+        assert sorted(deleted_paths) == sorted(paths)
+        assert '"deleted_count": 3' in result.output
+
+    def test_concurrency_zero_rejected(self) -> None:
+        from tinker.cli.commands.checkpoint import cli
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["delete", "-y", "tinker://run-1/weights/0001", "--concurrency", "0"]
+        )
+        assert result.exit_code != 0
+
+    def test_concurrency_negative_rejected(self) -> None:
+        from tinker.cli.commands.checkpoint import cli
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["delete", "-y", "tinker://run-1/weights/0001", "--concurrency", "-1"]
+        )
+        assert result.exit_code != 0
+
     def test_paths_and_run_id_conflict(self) -> None:
         from tinker.cli.commands.checkpoint import cli
 
