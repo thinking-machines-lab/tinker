@@ -57,7 +57,7 @@ data = [types.Datum(
 )]
 future = training_client.forward(data, "cross_entropy")
 result = await future
-print(f"Loss: {result.loss}")
+print(f"Loss: {result.metrics['loss:sum']}")
 ```
 
 #### `forward_async`
@@ -108,7 +108,7 @@ optim_future = training_client.optim_step(
 )
 
 fwdbwd_result = await fwdbwd_future
-print(f"Loss: {fwdbwd_result.loss}")
+print(f"Loss: {fwdbwd_result.metrics['loss:sum']}")
 ```
 
 #### `forward_backward_async`
@@ -157,7 +157,6 @@ def custom_loss(data, logprobs_list):
 
 future = training_client.forward_backward_custom(data, custom_loss)
 result = future.result()
-print(f"Custom loss: {result.loss}")
 print(f"Metrics: {result.metrics}")
 ```
 
