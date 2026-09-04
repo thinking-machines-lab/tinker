@@ -11,7 +11,9 @@ class SamplingParams(BaseModel):
     """Random seed for reproducible generation"""
 
     stop: Union[str, Sequence[str], Sequence[int], None] = None
-    """Stop sequences for generation"""
+    """Stop sequences for generation. ``None`` keeps implicit EOS stopping;
+    ``[]`` disables all stop tokens, including EOS, and generation continues
+    until ``max_tokens``."""
 
     temperature: float = 1
     """Sampling temperature"""

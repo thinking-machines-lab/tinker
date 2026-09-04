@@ -16,7 +16,6 @@ import tinker
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
-from tinker.lib.sidecar import SidecarHandle, SidecarRPC, create_sidecar_handle
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
@@ -48,43 +47,7 @@ class _SamplingClientPickleState:
     session_id: str
     sampling_session_id: str
     constructor_kwargs: dict[str, Any]
-    subprocess_sampling: bool
     record_stability_info: bool = False
-
-
-# ---------------------------------------------------------------------------
-# Typed RPCs for subprocess-isolated sampling
-# ---------------------------------------------------------------------------
-
-
-@dataclasses.dataclass
-class _SampleRPC(SidecarRPC):
-    """Typed RPC for SamplingClient.sample()."""
-
-    prompt: types.ModelInput
-    num_samples: int
-    sampling_params: types.SamplingParams
-    include_prompt_logprobs: bool
-    topk_prompt_logprobs: int
-
-    async def execute(self, target: Any) -> Any:
-        return target.sample(
-            prompt=self.prompt,
-            num_samples=self.num_samples,
-            sampling_params=self.sampling_params,
-            include_prompt_logprobs=self.include_prompt_logprobs,
-            topk_prompt_logprobs=self.topk_prompt_logprobs,
-        )
-
-
-@dataclasses.dataclass
-class _ComputeLogprobsRPC(SidecarRPC):
-    """Typed RPC for SamplingClient.compute_logprobs()."""
-
-    prompt: types.ModelInput
-
-    async def execute(self, target: Any) -> Any:
-        return target.compute_logprobs(prompt=self.prompt)
 
 
 def _attach_sequence_ids(
@@ -142,12 +105,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     If you are using Tinker SDK with more than one process you should always create SamplingClient from
     the main process and then pass it to the other processes/workers.
     ServiceClient and TrainingClient should always be managed from the main process.
-
-    Subprocess isolation:
-    Set ``TINKER_SUBPROCESS_SAMPLING=1`` to run sample() and compute_logprobs() in a dedicated
-    subprocess, preventing GIL contention from CPU-heavy user code (grading, environment
-    interactions) from stalling networking IO and heartbeats. This is transparent — the same
-    API works with or without it.
     """
 
     def __init__(
@@ -157,7 +114,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_session_id: str,
         shadow: bool = False,
         retry_config: RetryConfig | None = None,
-        subprocess_sampling: bool | None = None,
         record_stability_info: bool = False,
     ):
         self._record_stability_info: bool = record_stability_info
@@ -203,20 +159,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         # the server's request_metadata_hash_tag (seq_id // 1_000_000_000).
         self._cloned_sampler_id: int = self._request_id_counter // 1_000_000_000
         self._futures_poller: SessionFuturesPoller | None = None
-
-        # Subprocess isolation: read env var if not explicitly set
-        if subprocess_sampling is None:
-            subprocess_sampling = os.environ.get("TINKER_SUBPROCESS_SAMPLING", "").lower() in (
-                "1",
-                "true",
-                "yes",
-            )
-        self._sampling_client_sidecar_handle: SidecarHandle | None = None
-        if subprocess_sampling:
-            from tinker.lib.sidecar import _inside_sidecar
-
-            if not _inside_sidecar:
-                self._sampling_client_sidecar_handle = create_sidecar_handle(self)
 
     @staticmethod
     @capture_exceptions(fatal=True)
@@ -387,16 +329,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             print(tokenizer.decode(sample.tokens))
         ```
         """
-        if self._sampling_client_sidecar_handle is not None:
-            return self._sampling_client_sidecar_handle.submit_rpc(
-                _SampleRPC(
-                    prompt=prompt,
-                    num_samples=num_samples,
-                    sampling_params=sampling_params,
-                    include_prompt_logprobs=include_prompt_logprobs,
-                    topk_prompt_logprobs=topk_prompt_logprobs,
-                )
-            )
 
         async def _sample_async():
             return await self._sample_async_impl(
@@ -464,10 +396,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 print(f"Token {i}: logprob = {logprob:.4f}")
         ```
         """
-        if self._sampling_client_sidecar_handle is not None:
-            return self._sampling_client_sidecar_handle.submit_rpc(
-                _ComputeLogprobsRPC(prompt=prompt)
-            )
 
         async def _compute_logprobs_async() -> list[float | None]:
             sample_res = await self._sample_async_impl(
@@ -523,13 +451,9 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         return self.holder.get_telemetry()
 
     def __reduce__(self) -> tuple[Any, tuple[_SamplingClientPickleState]]:
-        """Enable pickling of SamplingClient for subprocess use.
+        """Enable pickling of SamplingClient for multi-process use.
 
-        Serializes into a ``_SamplingClientPickleState`` dataclass. The
-        ``_sampling_client_sidecar_handle`` handle is deliberately omitted — only a
-        bool flag is stored. The unpickled copy creates its own handle via
-        the per-process sidecar singleton. Do not add ``__getstate__``
-        without preserving this behavior.
+        Serializes into a ``_SamplingClientPickleState`` dataclass.
         """
         return (
             _unpickle_sampling_client,
@@ -538,7 +462,6 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     session_id=self.holder.get_session_id(),
                     sampling_session_id=self._sampling_session_id,
                     constructor_kwargs=self.holder.shadow_kwargs,
-                    subprocess_sampling=self._sampling_client_sidecar_handle is not None,
                     record_stability_info=self._record_stability_info,
                 ),
             ),
@@ -570,7 +493,6 @@ def _unpickle_sampling_client(state: _SamplingClientPickleState) -> SamplingClie
     """Reconstruct a SamplingClient from pickled state.
 
     Creates a shadow InternalClientHolder and builds a new SamplingClient.
-    Subprocess enablement is handled by the constructor.
     """
     from ..internal_client_holder import InternalClientHolder
 
@@ -579,7 +501,6 @@ def _unpickle_sampling_client(state: _SamplingClientPickleState) -> SamplingClie
         holder,
         sampling_session_id=state.sampling_session_id,
         shadow=True,
-        subprocess_sampling=state.subprocess_sampling,
         record_stability_info=state.record_stability_info,
     )
 

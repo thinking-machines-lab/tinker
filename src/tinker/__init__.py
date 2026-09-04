@@ -17,10 +17,6 @@ from ._exceptions import (
     PermissionDeniedError,
     RateLimitError,
     RequestFailedError,
-    SidecarDiedError,
-    SidecarError,
-    SidecarIPCError,
-    SidecarStartupError,
     TinkerError,
     UnprocessableEntityError,
 )
@@ -110,10 +106,6 @@ __all__ = [
     "UnprocessableEntityError",
     "RateLimitError",
     "InternalServerError",
-    "SidecarError",
-    "SidecarStartupError",
-    "SidecarDiedError",
-    "SidecarIPCError",
     # Keep types module for advanced use
     "types",
     # Version info

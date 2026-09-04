@@ -123,6 +123,39 @@ async def create_lora_training_client_async(
 
 Async version of create_lora_training_client.
 
+#### `copy_weights`
+
+```python
+def copy_weights(
+        path: str,
+        *,
+        ttl_seconds: int | None = None,
+        weights_access_token: str | None = None
+) -> AwaitableConcurrentFuture[str]
+```
+
+Copy weights into this client's project.
+
+Storage is shared with the source, so no bytes are duplicated. Either kind
+of weights can be copied, and the copy keeps that kind. A new training
+run is created to hold it, which cannot be trained on.
+
+Args:
+- `path`: Tinker path of the weights to copy
+- `ttl_seconds`: Seconds until the copy expires, or None for no expiry
+- `weights_access_token`: Optional access token for copying weights readable
+  under a different account
+
+Returns:
+- A future for the tinker path of the copy. Await it, or call `.result()`.
+
+Example:
+```python
+# The copy lands in this client's project.
+archive = tinker.ServiceClient(project_id="proj-archive")
+archived_path = archive.copy_weights("tinker://run-id/weights/step-400").result()
+```
+
 #### `create_training_client_from_state`
 
 ```python
@@ -222,7 +255,8 @@ Async version of create_training_client_from_state_with_optimizer.
 def create_sampling_client(
         model_path: str | None = None,
         base_model: str | None = None,
-        retry_config: RetryConfig | None = None) -> SamplingClient
+        retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False) -> SamplingClient
 ```
 
 Create a SamplingClient for text generation.
@@ -257,7 +291,8 @@ sampling_client = service_client.create_sampling_client(
 async def create_sampling_client_async(
         model_path: str | None = None,
         base_model: str | None = None,
-        retry_config: RetryConfig | None = None) -> SamplingClient
+        retry_config: RetryConfig | None = None,
+        record_stability_info: bool = False) -> SamplingClient
 ```
 
 Async version of create_sampling_client.

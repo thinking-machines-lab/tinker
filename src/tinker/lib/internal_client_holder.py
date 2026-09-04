@@ -115,19 +115,6 @@ class InternalClientHolderThreadSingleton:
         assert self._loop is not None, "Loop must not be None"
         self._loop.run_forever()
 
-    def _set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Inject an external event loop (e.g. the sidecar subprocess loop).
-
-        Must be called before any InternalClientHolder is created.
-        Prevents _ensure_started from spawning a background thread — the
-        caller's loop is used directly.
-        """
-        with self._lifecycle_lock:
-            if self._started:
-                raise RuntimeError("Cannot set_loop after singleton has started")
-            self._loop = loop
-            self._started = True  # prevent _ensure_started from creating a thread
-
     def get_loop(self) -> asyncio.AbstractEventLoop:
         self._ensure_started()
         assert self._loop is not None, "Loop must not be None"

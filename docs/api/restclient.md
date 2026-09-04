@@ -287,7 +287,8 @@ Async version of delete_checkpoint_from_tinker_path.
 
 ```python
 def get_audit_log(
-        event_type: Literal["all", "checkpoints"] = "all",
+        event_type: Literal["all", "checkpoints", "projects", "teams",
+                            "organizations"] = "all",
         day: date | None = None) -> ConcurrentFuture[types.AuditLogResponse]
 ```
 
@@ -296,8 +297,8 @@ Get an audit log of events for the caller's organization.
 Requires the tinker-admin RBAC role (VIEW_AUDIT_LOG capability).
 
 Args:
-- `event_type`: Type of events to include. "all" and "checkpoints"
-    are currently equivalent. Defaults to "all".
+- `event_type`: Which resource's events to include: "checkpoints",
+    "projects", "teams", "organizations", or "all". Defaults to "all".
 - `day`: The date to query (default: today). The window covers
     midnight to midnight UTC.
 
@@ -312,7 +313,7 @@ future = rest_client.get_audit_log()
 response = future.result()
 print(f"Found {len(response.entries)} audit entries")
 for entry in response.entries:
-    print(f"  {entry.timestamp}: {entry.event} ({entry.tinker_path})")
+    print(f"  {entry.timestamp}: {entry.event} {entry.event_details}")
 
 # Query a specific day
 future = rest_client.get_audit_log(day=date(2025, 1, 15))
@@ -322,7 +323,8 @@ future = rest_client.get_audit_log(day=date(2025, 1, 15))
 
 ```python
 async def get_audit_log_async(
-        event_type: Literal["all", "checkpoints"] = "all",
+        event_type: Literal["all", "checkpoints", "projects", "teams",
+                            "organizations"] = "all",
         day: date | None = None) -> types.AuditLogResponse
 ```
 

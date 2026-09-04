@@ -46,8 +46,6 @@ class ModuleAnalyzer:
                             and isinstance(node.value, ast.List)
                         ):
                             return [
-                                elt.s for elt in node.value.elts if isinstance(elt, ast.Str)
-                            ] or [
                                 elt.value
                                 for elt in node.value.elts
                                 if isinstance(elt, ast.Constant) and isinstance(elt.value, str)

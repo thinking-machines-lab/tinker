@@ -38,12 +38,6 @@ If you are using Tinker SDK with more than one process you should always create 
 the main process and then pass it to the other processes/workers.
 ServiceClient and TrainingClient should always be managed from the main process.
 
-Subprocess isolation:
-Set ``TINKER_SUBPROCESS_SAMPLING=1`` to run sample() and compute_logprobs() in a dedicated
-subprocess, preventing GIL contention from CPU-heavy user code (grading, environment
-interactions) from stalling networking IO and heartbeats. This is transparent — the same
-API works with or without it.
-
 #### `sample`
 
 ```python
@@ -158,10 +152,6 @@ Async version of get_base_model.
 def __reduce__() -> tuple[Any, tuple[_SamplingClientPickleState]]
 ```
 
-Enable pickling of SamplingClient for subprocess use.
+Enable pickling of SamplingClient for multi-process use.
 
-Serializes into a ``_SamplingClientPickleState`` dataclass. The
-``_sampling_client_sidecar_handle`` handle is deliberately omitted — only a
-bool flag is stored. The unpickled copy creates its own handle via
-the per-process sidecar singleton. Do not add ``__getstate__``
-without preserving this behavior.
+Serializes into a ``_SamplingClientPickleState`` dataclass.

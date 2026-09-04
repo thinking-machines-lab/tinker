@@ -22,6 +22,9 @@ class SaveWeightsForSamplerRequest(StrictBase):
     ttl_seconds: Optional[int] = None
     """TTL in seconds for this checkpoint (None = never expires)"""
 
+    user_metadata: Optional[dict[str, str]] = None
+    """Optional user-provided metadata to attach to the checkpoint"""
+
     type: Literal["save_weights_for_sampler"] = "save_weights_for_sampler"
 
     if PYDANTIC_V2:
