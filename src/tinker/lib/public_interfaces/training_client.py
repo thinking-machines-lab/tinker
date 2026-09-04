@@ -8,10 +8,11 @@ import threading
 import time
 import warnings
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Mapping, Tuple
 
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.console_urls import training_run_console_url
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
@@ -177,6 +178,10 @@ class TrainingClient(TelemetryProvider):
         assert self.model_id is not None, MODEL_ID_NOT_SET_ERROR
         return self.model_id
 
+    def get_console_url(self) -> str:
+        """Return the Tinker Console URL for this training run."""
+        return training_run_console_url(self._guaranteed_model_id())
+
     def _chunked_requests_generator(
         self, data: List[types.Datum]
     ) -> Generator[tuple[List[types.Datum], int], None, None]:
@@ -213,7 +218,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float | str] | None = None,
+        loss_fn_config: Mapping[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Compute forward pass without gradients.
 
@@ -242,7 +247,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float | str] | None = None,
+        loss_fn_config: Mapping[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward."""
         return self.forward(data, loss_fn, loss_fn_config)
@@ -251,7 +256,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float | str] | None = None,
+        loss_fn_config: Mapping[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Compute forward pass and backward pass to calculate gradients.
 
@@ -288,7 +293,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float | str] | None,
+        loss_fn_config: Mapping[str, float | str] | None,
         *,
         forward_only: bool,
     ) -> APIFuture[types.ForwardBackwardOutput]:
@@ -374,7 +379,7 @@ class TrainingClient(TelemetryProvider):
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
-        loss_fn_config: Dict[str, float | str] | None = None,
+        loss_fn_config: Mapping[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward_backward."""
         return self.forward_backward(data, loss_fn, loss_fn_config)
@@ -617,14 +622,21 @@ class TrainingClient(TelemetryProvider):
         return self.optim_step(adam_params)
 
     def save_state(
-        self, name: str, ttl_seconds: int | None = None, overwrite: bool = False
+        self,
+        name: str,
+        ttl_seconds: int | None = None,
+        overwrite: bool = False,
+        user_metadata: dict[str, str] | None = None,
     ) -> APIFuture[types.SaveWeightsResponse]:
         """Save model weights to persistent storage.
 
         Args:
         - `name`: Name for the saved checkpoint
         - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
-        - `overwrite`: If True, overwrite any existing checkpoint with the same name
+        - `overwrite`: If True, overwrite any existing checkpoint with the same name. This
+          replaces the entire existing `user_metadata` mapping; if `user_metadata` is not
+          provided, the previous user metadata is deleted.
+        - `user_metadata`: Optional user-provided metadata to attach to the checkpoint
 
         Returns:
         - `APIFuture` containing the save response with checkpoint path
@@ -650,6 +662,7 @@ class TrainingClient(TelemetryProvider):
                     seq_id=request_id + 1,
                     ttl_seconds=ttl_seconds,
                     overwrite=overwrite,
+                    user_metadata=user_metadata,
                 )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.save(
@@ -672,10 +685,19 @@ class TrainingClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_save_state_async())
 
     async def save_state_async(
-        self, name: str, ttl_seconds: int | None = None, overwrite: bool = False
+        self,
+        name: str,
+        ttl_seconds: int | None = None,
+        overwrite: bool = False,
+        user_metadata: dict[str, str] | None = None,
     ) -> APIFuture[types.SaveWeightsResponse]:
         """Async version of save_state."""
-        return self.save_state(name, ttl_seconds=ttl_seconds, overwrite=overwrite)
+        return self.save_state(
+            name,
+            ttl_seconds=ttl_seconds,
+            overwrite=overwrite,
+            user_metadata=user_metadata,
+        )
 
     def _load_state_impl(
         self, path: str, optimizer: bool, weights_access_token: str | None
@@ -778,7 +800,10 @@ class TrainingClient(TelemetryProvider):
         return self.load_state_with_optimizer(path, weights_access_token=weights_access_token)
 
     def _save_weights_for_sampler_impl(
-        self, name: str | None, ttl_seconds: int | None
+        self,
+        name: str | None,
+        ttl_seconds: int | None,
+        user_metadata: dict[str, str] | None,
     ) -> APIFuture[types.SaveWeightsForSamplerResponse | str]:
         request_id = self._get_request_id()
 
@@ -793,6 +818,7 @@ class TrainingClient(TelemetryProvider):
                         path=name,
                         seq_id=request_id + 1,
                         ttl_seconds=ttl_seconds,
+                        user_metadata=user_metadata,
                     )
                 else:
                     # Training client can never be created from a shadow holder, so we can safely assert
@@ -804,6 +830,7 @@ class TrainingClient(TelemetryProvider):
                         seq_id=request_id + 1,
                         sampling_session_seq_id=sampling_session_seq_id,
                         ttl_seconds=ttl_seconds,
+                        user_metadata=user_metadata,
                     )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.save_for_sampler(
@@ -832,13 +859,17 @@ class TrainingClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
     def save_weights_for_sampler(
-        self, name: str, ttl_seconds: int | None = None
+        self,
+        name: str,
+        ttl_seconds: int | None = None,
+        user_metadata: dict[str, str] | None = None,
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         """Save model weights for use with a SamplingClient.
 
         Args:
         - `name`: Name for the saved sampler weights
         - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+        - `user_metadata`: Optional user-provided metadata to attach to the checkpoint
 
         Returns:
         - `APIFuture` containing the save response with sampler path
@@ -858,17 +889,24 @@ class TrainingClient(TelemetryProvider):
         """
 
         async def _save_weights_for_sampler_async() -> types.SaveWeightsForSamplerResponse:
-            result = await self._save_weights_for_sampler_impl(name, ttl_seconds)
+            result = await self._save_weights_for_sampler_impl(name, ttl_seconds, user_metadata)
             assert isinstance(result, types.SaveWeightsForSamplerResponse)
             return result
 
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
     async def save_weights_for_sampler_async(
-        self, name: str, ttl_seconds: int | None = None
+        self,
+        name: str,
+        ttl_seconds: int | None = None,
+        user_metadata: dict[str, str] | None = None,
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
         """Async version of save_weights_for_sampler."""
-        return self.save_weights_for_sampler(name, ttl_seconds=ttl_seconds)
+        return self.save_weights_for_sampler(
+            name,
+            ttl_seconds=ttl_seconds,
+            user_metadata=user_metadata,
+        )
 
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
         @capture_exceptions(fatal=True)
@@ -1001,7 +1039,7 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        sampling_session_id = self._save_weights_for_sampler_impl(None, None).result()
+        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None).result()
         assert isinstance(sampling_session_id, str)
         return SamplingClient.create(
             self.holder,
@@ -1028,7 +1066,7 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        sampling_session_id = self._save_weights_for_sampler_impl(None, None).result()
+        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None).result()
         assert isinstance(sampling_session_id, str)
         return await SamplingClient.create(
             self.holder,

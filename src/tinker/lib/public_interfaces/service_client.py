@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.console_urls import session_console_url, sessions_console_url
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
@@ -112,6 +113,12 @@ class ServiceClient(TelemetryProvider):
         """The sessionful holder. Deprecated: kept for backwards compatibility
         with callers that reach into ServiceClient internals."""
         return self._get_session_holder()
+
+    def get_console_url(self) -> str:
+        """Return the Tinker Console URL for this session."""
+        if self._session_holder is None or self._session_holder._session_id is None:
+            return sessions_console_url()
+        return session_console_url(self._session_holder._session_id)
 
     def _get_server_capabilities_submit(
         self,

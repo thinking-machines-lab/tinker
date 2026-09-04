@@ -15,10 +15,6 @@ __all__ = [
     "RateLimitError",
     "InternalServerError",
     "RequestFailedError",
-    "SidecarError",
-    "SidecarStartupError",
-    "SidecarDiedError",
-    "SidecarIPCError",
 ]
 
 if TYPE_CHECKING:
@@ -175,22 +171,6 @@ class InternalServerError(APIStatusError):
     """HTTP 500+: An error occurred on the server."""
 
     pass
-
-
-class SidecarError(TinkerError):
-    """Base exception for subprocess sidecar errors."""
-
-
-class SidecarStartupError(SidecarError):
-    """Raised when the sidecar subprocess fails to start or times out."""
-
-
-class SidecarDiedError(SidecarError):
-    """Raised when the sidecar subprocess exits unexpectedly while requests are pending."""
-
-
-class SidecarIPCError(SidecarError):
-    """Raised when communication with the sidecar subprocess fails."""
 
 
 class RequestFailedError(TinkerError):

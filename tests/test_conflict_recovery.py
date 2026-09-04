@@ -44,6 +44,7 @@ def _make_mock_holder() -> Mock:
         return asyncio.ensure_future(coro)
 
     holder.run_coroutine_threadsafe = fake_run_coroutine_threadsafe
+    holder._mock_client = mock_client
     return holder
 
 
@@ -58,6 +59,19 @@ async def test_save_state_returns_synthetic_path_on_conflict() -> None:
 
 
 @pytest.mark.asyncio
+async def test_save_state_passes_user_metadata() -> None:
+    holder = _make_mock_holder()
+    client = TrainingClient(holder, model_seq_id=0, model_id="model-123")
+
+    user_metadata = {"experiment": "test"}
+    with pytest.raises(ConflictError):
+        await client.save_state("ckpt-001", user_metadata=user_metadata)
+
+    request = holder._mock_client.weights.save.await_args.kwargs["request"]
+    assert request.user_metadata == user_metadata
+
+
+@pytest.mark.asyncio
 async def test_save_weights_for_sampler_returns_synthetic_path_on_conflict() -> None:
     """save_weights_for_sampler catches 409 and returns response with synthetic path."""
     holder = _make_mock_holder()
@@ -66,6 +80,20 @@ async def test_save_weights_for_sampler_returns_synthetic_path_on_conflict() -> 
 
     result = await client.save_weights_for_sampler("ckpt-001")
     assert result.path == "tinker://model-789/sampler_weights/ckpt-001"
+
+
+@pytest.mark.asyncio
+async def test_save_weights_for_sampler_passes_user_metadata() -> None:
+    holder = _make_mock_holder()
+    holder._sampling_client_counter = 0
+    client = TrainingClient(holder, model_seq_id=0, model_id="model-789")
+
+    user_metadata = {"experiment": "test"}
+    with pytest.raises(ConflictError):
+        await client.save_weights_for_sampler("ckpt-001", user_metadata=user_metadata)
+
+    request = holder._mock_client.weights.save_for_sampler.await_args.kwargs["request"]
+    assert request.user_metadata == user_metadata
 
 
 @pytest.mark.asyncio

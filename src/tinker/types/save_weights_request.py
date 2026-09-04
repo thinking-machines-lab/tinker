@@ -23,6 +23,9 @@ class SaveWeightsRequest(StrictBase):
     overwrite: bool = False
     """If True, overwrite any existing checkpoint with the same name"""
 
+    user_metadata: Optional[dict[str, str]] = None
+    """Optional user-provided metadata to attach to the checkpoint"""
+
     type: Literal["save_weights"] = "save_weights"
 
     if PYDANTIC_V2:
