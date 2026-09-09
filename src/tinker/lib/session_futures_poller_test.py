@@ -55,6 +55,11 @@ class _FakeHolder:
         # Bound the billing pause so the loop eventually gives up like the real
         # holder does once the max-pause window is exceeded.
         self._max_pause_calls = 2
+        self.tracked_tasks: set[asyncio.Task[None]] = set()
+
+    def track_futures_poller_task(self, task: asyncio.Task[None]) -> None:
+        self.tracked_tasks.add(task)
+        task.add_done_callback(self.tracked_tasks.discard)
 
     @contextmanager
     def aclient(self, _pool_type: ClientConnectionPoolType) -> Iterator[_FakeClient]:
@@ -317,7 +322,6 @@ async def test_idles_until_a_waiter_registers() -> None:
         cloned_sampler_id=0,
     )
     try:
-        poller._ensure_running()
         for _ in range(20):
             await asyncio.sleep(0)
         assert futures.seen_cursors == []  # idle: nothing polled yet

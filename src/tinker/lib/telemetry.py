@@ -79,6 +79,7 @@ class Telemetry:
         self._queue_lock: threading.Lock = threading.Lock()
         self._task: asyncio.Task[None] | None = None
         self._flush_event: asyncio.Event | None = None
+        self._closed: bool = False
         self._push_counter: int = 0
         self._flush_counter: int = 0
         self._counter_lock: threading.Lock = threading.Lock()
@@ -88,6 +89,8 @@ class Telemetry:
 
     def _start(self):
         def cb():
+            if self._closed:
+                return
             self._flush_event = asyncio.Event()
             self._task = asyncio.create_task(self._periodic_flush(), name="tinker-telemetry")
 
@@ -99,6 +102,22 @@ class Telemetry:
                 _ = task.cancel()
 
         _ = self._tinker_provider.get_loop().call_soon_threadsafe(cb)
+
+    async def close(self) -> None:
+        self._closed = True
+        if self._task is None:
+            try:
+                await asyncio.wait_for(self._flush(), timeout=FLUSH_TIMEOUT)
+            except TimeoutError:
+                logger.warning("Timed out draining telemetry during shutdown")
+        else:
+            self._trigger_flush()
+            if not await self._wait_until_drained():
+                logger.warning("Timed out draining telemetry during shutdown")
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
 
     async def _periodic_flush(self):
         while True:

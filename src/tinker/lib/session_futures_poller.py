@@ -34,8 +34,9 @@ class SessionFuturesPoller:
     sample's result future calls :meth:`wait_for` to block until its request
     completes instead of polling ``retrieve_future`` itself.
 
-    Lives entirely on the holder's event loop; every method must be awaited from
-    that loop.
+    Lives entirely on the holder's event loop; it must be constructed there and
+    every method must be awaited from that loop. The poll task starts at
+    construction and idles until the first waiter registers.
     """
 
     def __init__(
@@ -53,21 +54,16 @@ class SessionFuturesPoller:
         self._events: dict[str, asyncio.Event] = {}
         # request_id -> its completion metadata, kept until a waiter consumes it.
         self._completions: dict[str, FutureCompletion] = {}
-        self._task: asyncio.Task[None] | None = None
         # Set once the poll loop hits a non-retryable error. Terminal: every
         # current and future waiter fails with this message.
         self._failure: str | None = None
         # Signals the poll loop that there is at least one waiter to poll for,
         # so it can idle instead of long-polling while no requests are active.
         self._has_work: asyncio.Event = asyncio.Event()
-
-    def _ensure_running(self) -> None:
-        if self._failure is not None:
-            return
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(
-                self._poll_loop(), name="tinker_session_futures_poller"
-            )
+        self._task: asyncio.Task[None] = asyncio.create_task(
+            self._poll_loop(), name="tinker_session_futures_poller"
+        )
+        holder.track_futures_poller_task(self._task)
 
     async def wait_for(self, request_id: str) -> FutureCompletion:
         """Block until ``request_id`` completes, returning its metadata.
@@ -87,7 +83,6 @@ class SessionFuturesPoller:
             return completion
         if self._failure is not None:
             raise TinkerError(self._failure)
-        self._ensure_running()
 
         # Each request has exactly one waiter, and its id is unique, so there is
         # never a pre-existing registration to reuse.
@@ -188,6 +183,4 @@ class SessionFuturesPoller:
 
     def close(self) -> None:
         """Cancel the background poll task (best effort)."""
-        if self._task is not None and not self._task.done():
-            self._task.cancel()
-            self._task = None
+        self._task.cancel()

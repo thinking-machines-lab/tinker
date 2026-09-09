@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import time
@@ -107,6 +108,13 @@ class JwtAuthProvider(AuthTokenProvider):
         """
         token = self._token if self._token else await self._fetch()
         self._refresh_task = asyncio.create_task(self._refresh_loop(token))
+
+    async def close(self) -> None:
+        refresh_task = getattr(self, "_refresh_task", None)
+        if refresh_task is not None:
+            refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await refresh_task
 
     async def _fetch(self) -> str:
         """Exchange the current credential for a JWT via /api/v1/auth/token."""
