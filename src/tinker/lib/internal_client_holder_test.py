@@ -66,6 +66,57 @@ def _patch_pool(monkeypatch: pytest.MonkeyPatch, holder: _MockHolder) -> None:
     monkeypatch.setattr(ClientConnectionPool, "aclient", lambda self: holder._cm)
 
 
+@pytest.mark.asyncio
+async def test_client_connection_pool_close_closes_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clients: list[MagicMock] = []
+
+    def create_client(**kwargs: Any) -> MagicMock:
+        _ = kwargs
+        client = MagicMock()
+        client.close = AsyncMock()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("tinker.lib.internal_client_holder.AsyncTinker", create_client)
+    pool = ClientConnectionPool(asyncio.get_running_loop(), 1, {})
+
+    with pool.aclient():
+        with pool.aclient():
+            pass
+
+    await pool.close()
+
+    assert len(clients) == 2
+    for client in clients:
+        client.close.assert_awaited_once()
+    with pytest.raises(RuntimeError, match="Client connection pool is closed"):
+        with pool.aclient():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_async_cleanup_closes_pools_when_telemetry_fails() -> None:
+    holder = InternalClientHolder.__new__(InternalClientHolder)
+    holder._session_heartbeat_task = None
+    holder._client_dynamic_config_refresh_task = None
+    holder._cancel_drain_task = None
+    holder._futures_poller_tasks = set()
+    holder._default_auth = ApiKeyAuthProvider("tml-test-key")
+    holder._telemetry = MagicMock()
+    holder._telemetry.close = AsyncMock(side_effect=RuntimeError("telemetry failed"))
+    pool = MagicMock()
+    pool.close = AsyncMock()
+    holder._client_pools = {ClientConnectionPoolType.TRAIN: pool}
+    holder._auth_pool = None
+
+    await holder._async_cleanup()
+
+    holder._telemetry.close.assert_awaited_once()
+    pool.close.assert_awaited_once()
+
+
 # ---------------------------------------------------------------------------
 # Session heartbeat
 # ---------------------------------------------------------------------------
@@ -233,6 +284,16 @@ def _make_holder(
         holder._session_heartbeat_task = MagicMock()
         holder._client_dynamic_config_refresh_task = MagicMock()
         return holder
+
+
+def test_close_is_idempotent() -> None:
+    holder = _make_holder(api_key="tml-test")
+    holder._session_heartbeat_task = None
+    holder._client_dynamic_config_refresh_task = None
+    holder._cancel_drain_task = None
+    holder.close()
+    holder.close()
+    assert holder._closed
 
 
 def test_sampling_client_pickle_roundtrip_without_env_var(

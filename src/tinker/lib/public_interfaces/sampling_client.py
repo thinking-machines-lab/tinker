@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import os
 import time
 import uuid
+import weakref
 from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar, cast
@@ -297,6 +299,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 sampling_session_id=self._sampling_session_id,
                 cloned_sampler_id=self._cloned_sampler_id,
             )
+            # The poll task otherwise outlives this client only as an
+            # unreachable cycle (task -> poller -> idle Event -> task), which the
+            # GC destroys while pending. The finalizer may run on any thread,
+            # including the holder loop, so it must not block on the loop.
+            weakref.finalize(
+                self, _close_poller_threadsafe, self.holder.get_loop(), self._futures_poller
+            ).atexit = False
         return self._futures_poller
 
     def sample(
@@ -487,6 +496,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         logger.warning(
             f"Sampling is paused for sampler {self._sampling_session_id}. Reason: {queue_state_reason}"
         )
+
+
+def _close_poller_threadsafe(loop: asyncio.AbstractEventLoop, poller: SessionFuturesPoller) -> None:
+    # The loop is never closed, but at interpreter exit its self-pipe may be
+    # gone; there is nothing left to cancel by then.
+    with contextlib.suppress(RuntimeError):
+        loop.call_soon_threadsafe(poller.close)
 
 
 def _unpickle_sampling_client(state: _SamplingClientPickleState) -> SamplingClient:

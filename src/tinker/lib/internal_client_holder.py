@@ -60,9 +60,12 @@ class ClientConnectionPool:
         self._clients: list[AsyncTinker] = []
         self._client_active_refcount: list[int] = []
         self._connection_error_retries_remaining: int = MAX_CONNECTION_ERROR_RETRIES
+        self._closed: bool = False
 
     @contextmanager
     def aclient(self) -> Generator[AsyncTinker, None, None]:
+        if self._closed:
+            raise RuntimeError("Client connection pool is closed")
         assert _current_loop() is self._loop, "AsyncTinker client called from incorrect event loop"
         client_idx = -1
         for i, ref_count in enumerate(self._client_active_refcount):
@@ -90,6 +93,17 @@ class ClientConnectionPool:
             raise e
         finally:
             self._client_active_refcount[client_idx] -= 1
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        results = await asyncio.gather(
+            *(client.close() for client in self._clients), return_exceptions=True
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("Failed to close Tinker HTTP client: %s", result)
 
 
 class InternalClientHolderThreadSingleton:
@@ -197,6 +211,15 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._constructor_kwargs = dict(kwargs)
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
+        self._auth_pool: ClientConnectionPool | None = None
+        self._close_lock: threading.Lock = threading.Lock()
+        self._closed: bool = True
+        self._session_heartbeat_task: asyncio.Task[None] | None = None
+        self._client_dynamic_config_refresh_task: asyncio.Task[None] | None = None
+        self._cancel_drain_task: asyncio.Task[None] | None = None
+        # Strong references to every live SessionFuturesPoller task; the loop
+        # itself only holds them weakly. Each task removes itself on completion.
+        self._futures_poller_tasks: set[asyncio.Task[None]] = set()
         self._sample_backoff_until: float | None = None
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
@@ -247,7 +270,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             use_cmd = self._client_config.credential_default_source == "credential_cmd"
             auth_pool_auth = resolve_auth_provider(self._api_key, use_cmd)
             auth_kwargs = {**self._constructor_kwargs, "_auth": auth_pool_auth}
-            auth_pool = ClientConnectionPool(self.get_loop(), 1, auth_kwargs)
+            auth_pool = self._auth_pool = ClientConnectionPool(self.get_loop(), 1, auth_kwargs)
             auth_aclient = lambda: auth_pool.aclient()  # noqa: E731
             self._default_auth = JwtAuthProvider(auth_aclient, seed_token=_jwt_auth_seed)
             if _jwt_auth_seed:
@@ -259,6 +282,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 self.run_coroutine_threadsafe(
                     self.execute_with_retries(self._default_auth.init)
                 ).result()
+
+        self._closed = False
 
         # Dynamic config follows the same shape as the startup config above —
         # fetched for primary holders, passed via kwargs for shadows — but
@@ -299,9 +324,6 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._sampling_client_counter = 0
 
         if _skip_session:
-            self._session_heartbeat_task: asyncio.Task[None] | None = None
-            self._client_dynamic_config_refresh_task: asyncio.Task[None] | None = None
-            self._cancel_drain_task: asyncio.Task[None] | None = None
             # Session-less telemetry: exception/user-error events are still
             # reported under a synthetic "sessionless-" id, without
             # SESSION_START/SESSION_END events.
@@ -724,6 +746,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def aclient(
         self, client_pool_type: ClientConnectionPoolType
     ) -> AbstractContextManager[AsyncTinker]:
+        if self._closed and client_pool_type != ClientConnectionPoolType.TELEMETRY:
+            raise RuntimeError("Internal client holder is closed")
         return self._get_client_connection_pool(client_pool_type).aclient()
 
     def get_loop(self) -> asyncio.AbstractEventLoop:
@@ -738,10 +762,23 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     ) -> AwaitableConcurrentFuture[T]:
         return AwaitableConcurrentFuture(asyncio.run_coroutine_threadsafe(coro, self.get_loop()))
 
-    def close(self):
-        self.run_coroutine_threadsafe(self._async_cleanup())
-        if telemetry := getattr(self, "_telemetry", None):
-            telemetry.stop()
+    def _begin_close(self) -> bool:
+        close_lock = getattr(self, "_close_lock", None)
+        if close_lock is None:
+            return False
+        with close_lock:
+            if getattr(self, "_closed", True):
+                return False
+            self._closed = True
+            return True
+
+    def close(self) -> None:
+        if self._begin_close():
+            self.run_coroutine_threadsafe(self._async_cleanup())
+
+    async def aclose(self) -> None:
+        if self._begin_close():
+            await self._async_cleanup()
 
     def __del__(self):
         self.close()
@@ -759,6 +796,26 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._cancel_drain_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._cancel_drain_task
+        poller_tasks = list(self._futures_poller_tasks)
+        for task in poller_tasks:
+            task.cancel()
+        await asyncio.gather(*poller_tasks, return_exceptions=True)
+        if isinstance(self._default_auth, JwtAuthProvider):
+            await self._default_auth.close()
+        pools = list(self._client_pools.values())
+        if self._auth_pool is not None:
+            pools.append(self._auth_pool)
+        try:
+            if self._telemetry is not None:
+                await self._telemetry.close()
+        except Exception:
+            logger.warning("Failed to drain telemetry during shutdown", exc_info=True)
+        finally:
+            await asyncio.gather(*(pool.close() for pool in pools))
+
+    def track_futures_poller_task(self, task: asyncio.Task[None]) -> None:
+        self._futures_poller_tasks.add(task)
+        task.add_done_callback(self._futures_poller_tasks.discard)
 
     @staticmethod
     def _is_retryable_status_code(status_code: int) -> bool:

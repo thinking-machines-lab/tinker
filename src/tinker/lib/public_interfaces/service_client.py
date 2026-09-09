@@ -6,9 +6,11 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from concurrent.futures import Future as ConcurrentFuture
+from typing import TYPE_CHECKING, Any, Literal
 
 from tinker import types
+from tinker._types import NoneType
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.console_urls import session_console_url, sessions_console_url
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
@@ -37,6 +39,7 @@ class ServiceClient(TelemetryProvider):
     - Generate TrainingClient instances for model training workflows
     - Generate SamplingClient instances for text generation and inference
     - Generate RestClient instances for REST API operations like listing weights
+    - Close the client by finishing the current session when the training script is done
 
     Args:
         user_metadata: Optional metadata attached to the created session.
@@ -79,34 +82,50 @@ class ServiceClient(TelemetryProvider):
         self._session_holder_lock: threading.Lock = threading.Lock()
         self._rest_holder: InternalClientHolder | None = None
         self._rest_holder_lock: threading.Lock = threading.Lock()
+        self._lifecycle_lock: threading.Lock = threading.Lock()
+        self._closed: bool = False
 
     # The unlocked fast paths below keep event-loop-thread callers from blocking
     # on the lock while another thread creates a holder.
 
     def _get_session_holder(self) -> InternalClientHolder:
         """Lazily create and cache the sessionful holder used by training/sampling."""
-        if self._session_holder is not None:
-            return self._session_holder
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("ServiceClient is closed")
+            if self._session_holder is not None:
+                return self._session_holder
         with self._session_holder_lock:
-            if self._session_holder is None:
-                self._session_holder = InternalClientHolder(
-                    user_metadata=self._user_metadata,
-                    project_id=self._project_id,
-                    **self._holder_kwargs,
-                )
-                logger.info(
-                    f"ServiceClient initialized for session {self._session_holder._session_id}"
-                )
-            return self._session_holder
+            with self._lifecycle_lock:
+                if self._closed:
+                    raise RuntimeError("ServiceClient is closed")
+                if self._session_holder is None:
+                    self._session_holder = InternalClientHolder(
+                        user_metadata=self._user_metadata,
+                        project_id=self._project_id,
+                        **self._holder_kwargs,
+                    )
+                    logger.info(
+                        f"ServiceClient initialized for session {self._session_holder._session_id}"
+                    )
+                return self._session_holder
 
     def _get_rest_holder(self) -> InternalClientHolder:
         """Lazily create and cache the session-less holder used by REST clients."""
-        if self._rest_holder is not None:
-            return self._rest_holder
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("ServiceClient is closed")
+            if self._rest_holder is not None:
+                return self._rest_holder
         with self._rest_holder_lock:
-            if self._rest_holder is None:
-                self._rest_holder = InternalClientHolder(_skip_session=True, **self._holder_kwargs)
-            return self._rest_holder
+            with self._lifecycle_lock:
+                if self._closed:
+                    raise RuntimeError("ServiceClient is closed")
+                if self._rest_holder is None:
+                    self._rest_holder = InternalClientHolder(
+                        _skip_session=True, **self._holder_kwargs
+                    )
+                return self._rest_holder
 
     @property
     def holder(self) -> InternalClientHolder:
@@ -728,10 +747,87 @@ class ServiceClient(TelemetryProvider):
 
         return RestClient(self._get_rest_holder())
 
+    def _close_submit(
+        self,
+        status: Literal["success", "errored", "interrupted"],
+        detail: str | None,
+    ) -> AwaitableConcurrentFuture[None]:
+        with self._lifecycle_lock:
+            if self._closed:
+                return _completed_none_future()
+            self._closed = True
+            session_holder = self._session_holder
+            cleanup_holder = session_holder or self._rest_holder
+
+        if cleanup_holder is None:
+            return _completed_none_future()
+
+        async def _close_async() -> None:
+            try:
+                if session_holder is not None:
+                    await _finish_session_async(session_holder)
+            finally:
+                await self._close_holders()
+
+        @capture_exceptions
+        async def _finish_session_async(holder: InternalClientHolder) -> None:
+            _ = self  # keep `self` in the closure so capture_exceptions finds telemetry
+            session_id = holder.get_session_id()
+
+            async def _send_request() -> None:
+                with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    await client.post(
+                        f"/api/v1/sessions/{session_id}/finish",
+                        body={"reason": {"type": status}, "detail": detail},
+                        cast_to=NoneType,
+                    )
+
+            await holder.execute_with_retries(_send_request)
+
+        return cleanup_holder.run_coroutine_threadsafe(_close_async())
+
+    async def _close_holders(self) -> None:
+        if self._session_holder is not None:
+            await self._session_holder.aclose()
+        if self._rest_holder is not None:
+            await self._rest_holder.aclose()
+
+    def close(
+        self,
+        status: Literal["success", "errored", "interrupted"],
+        detail: str | None = None,
+    ) -> AwaitableConcurrentFuture[None]:
+        """Finish the session and release local client resources.
+
+        Marks the session terminal. Further operations against it will be rejected.
+        A finish reason is first-wins and cannot replace an existing one.
+
+        Also stops session heartbeats and releases HTTP/telemetry resources.
+
+        Args:
+        - `status`: `"success"`, `"errored"`, or `"interrupted"`
+        - `detail`: Optional human-readable explanation
+
+        Returns:
+        - A future that completes when the session is finished. Await it, or call `.result()`.
+
+        Example:
+        ```python
+        service_client.close("success", detail="training complete").result()
+        ```
+        """
+        return self._close_submit(status, detail)
+
     def get_telemetry(self) -> Telemetry | None:
         # Report from whichever holder exists; don't create one just for telemetry.
         holder = self._session_holder or self._rest_holder
         return holder.get_telemetry() if holder is not None else None
+
+
+def _completed_none_future() -> AwaitableConcurrentFuture[None]:
+    future: ConcurrentFuture[None] = ConcurrentFuture()
+    future.set_result(None)
+    return AwaitableConcurrentFuture(future)
 
 
 def _get_default_headers() -> dict[str, str]:

@@ -112,6 +112,25 @@ class TestTelemetryClass:
         assert isinstance(self.telemetry._queue[0], SessionStartEvent)
         assert isinstance(self.telemetry._flush_event, asyncio.Event)
 
+    @pytest.mark.asyncio
+    async def test_close_drains_queued_events(self):
+        self.tinker_provider.execute_callbacks()
+        self.telemetry._log(self.telemetry._session_end_event())
+
+        await self.telemetry.close()
+
+        assert not self.telemetry._queue
+        self.tinker_provider.telemetry_send_mock.assert_awaited_once()
+        assert self.telemetry._task is not None and self.telemetry._task.done()
+
+    @pytest.mark.asyncio
+    async def test_close_before_start_does_not_leave_flush_task_running(self):
+        await self.telemetry.close()
+        self.tinker_provider.execute_callbacks()
+
+        self.tinker_provider.telemetry_send_mock.assert_awaited_once()
+        assert self.telemetry._task is None
+
     def test_log_single_event(self):
         event = self.telemetry._session_end_event()
         result = self.telemetry._log(event)
