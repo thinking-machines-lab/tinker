@@ -868,8 +868,10 @@ def _parse_date(value: str) -> "datetime":
 _CHECKPOINT_TYPE_MAP = {
     "weights": "training",
     "sampler_weights": "sampler",
+    "external_weights": "external",
     "training": "training",
     "sampler": "sampler",
+    "external": "external",
 }
 
 
@@ -886,7 +888,7 @@ def _filter_checkpoints(
         if mapped_type is None:
             raise TinkerCliError(
                 f"Invalid checkpoint type: {checkpoint_type}",
-                "Valid types: weights, sampler_weights",
+                "Valid types: weights, sampler_weights, external_weights",
             )
         filtered = [c for c in filtered if c.checkpoint_type == mapped_type]
     if before is not None:

@@ -68,6 +68,9 @@ from .datum import Datum as Datum
 from .dmel_chunk import DmelChunk as DmelChunk
 from .encoded_text_chunk import EncodedTextChunk as EncodedTextChunk
 from .event_type import EventType as EventType
+from .external_weights_urls_response import (
+    ExternalWeightsUrlsResponse as ExternalWeightsUrlsResponse,
+)
 from .forward_backward_input import ForwardBackwardInput as ForwardBackwardInput
 from .forward_backward_output import ForwardBackwardOutput as ForwardBackwardOutput
 from .forward_backward_request import ForwardBackwardRequest as ForwardBackwardRequest
@@ -114,6 +117,15 @@ from .sample_request import SampleRequest as SampleRequest
 from .sample_response import SampleResponse as SampleResponse
 from .sampled_sequence import SampledSequence as SampledSequence
 from .sampling_params import SamplingParams as SamplingParams
+from .save_weights_external_request import (
+    SaveWeightsExternalRequest as SaveWeightsExternalRequest,
+)
+from .save_weights_external_response import (
+    SaveWeightsExternalResponse as SaveWeightsExternalResponse,
+)
+from .save_weights_external_response import (
+    SaveWeightsExternalResponseInternal as SaveWeightsExternalResponseInternal,
+)
 from .save_weights_for_sampler_request import (
     SaveWeightsForSamplerRequest as SaveWeightsForSamplerRequest,
 )

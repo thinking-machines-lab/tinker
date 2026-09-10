@@ -104,6 +104,21 @@ class TestFilterCheckpoints:
         assert len(result) == 1
         assert result[0].checkpoint_type == "sampler"
 
+    def test_filter_by_external_weights_type(self, sample_checkpoints) -> None:
+        from tinker.types.checkpoint import Checkpoint
+
+        external = Checkpoint(
+            checkpoint_id="external_weights/0001",
+            checkpoint_type="external",
+            time=datetime.now(UTC),
+            tinker_path="tinker://run-1/external_weights/0001",
+            size_bytes=4000,
+        )
+        result = _filter_checkpoints(
+            [*sample_checkpoints, external], "external_weights", None, None
+        )
+        assert result == [external]
+
     def test_filter_before(self, sample_checkpoints) -> None:
         # Before 7 days ago → only the 10-day-old checkpoints
         cutoff = datetime.now(UTC) - timedelta(days=7)

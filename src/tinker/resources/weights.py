@@ -9,8 +9,14 @@ from .._compat import model_dump, parse_obj
 from .._exceptions import APIStatusError
 from .._resource import AsyncAPIResource
 from .._types import NOT_GIVEN, Headers, NotGiven
-from ..types import CheckpointArchiveUrlResponse, CheckpointsListResponse, ModelID
+from ..types import (
+    CheckpointArchiveUrlResponse,
+    CheckpointsListResponse,
+    ExternalWeightsUrlsResponse,
+    ModelID,
+)
 from ..types.load_weights_request import LoadWeightsRequest
+from ..types.save_weights_external_request import SaveWeightsExternalRequest
 from ..types.save_weights_for_sampler_request import SaveWeightsForSamplerRequest
 from ..types.save_weights_request import SaveWeightsRequest
 from ..types.shared.untyped_api_future import UntypedAPIFuture
@@ -82,6 +88,29 @@ class AsyncWeightsResource(AsyncAPIResource):
             cast_to=UntypedAPIFuture,
         )
 
+    async def save_external(
+        self,
+        *,
+        request: SaveWeightsExternalRequest,
+        max_retries: int | NotGiven = NOT_GIVEN,
+    ) -> UntypedAPIFuture:
+        """
+        Saves model weights in an external (e.g. HuggingFace) format.
+
+        Args:
+          request: The save weights external request containing model_id, path, and seq_id
+        """
+        options = make_request_options()
+        if max_retries is not NOT_GIVEN:
+            options["max_retries"] = max_retries
+
+        return await self._post(
+            "/api/v1/save_weights_external",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            options=options,
+            cast_to=UntypedAPIFuture,
+        )
+
     async def list(
         self,
         model_id: ModelID,
@@ -97,6 +126,21 @@ class AsyncWeightsResource(AsyncAPIResource):
         return await self._get(
             f"/api/v1/training_runs/{model_id}/checkpoints",
             cast_to=CheckpointsListResponse,
+        )
+
+    async def get_external_weights_urls(
+        self, *, model_id: ModelID, checkpoint_id: str
+    ) -> ExternalWeightsUrlsResponse:
+        """Signed download URLs, one per file, for an external weights checkpoint."""
+        if not model_id:
+            raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
+        if not checkpoint_id:
+            raise ValueError(
+                f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
+            )
+        return await self._get(
+            f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/external_weights_urls",
+            cast_to=ExternalWeightsUrlsResponse,
         )
 
     async def get_checkpoint_archive_url(
