@@ -63,6 +63,7 @@ class RestClient(TelemetryProvider):
     - get_training_run() - get model information and metadata as ModelEntry
     - delete_checkpoint() - delete an existing checkpoint for a training run
     - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
+    - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
     - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
     - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
@@ -409,6 +410,50 @@ class RestClient(TelemetryProvider):
     ) -> types.CheckpointArchiveUrlResponse:
         """Async version of get_checkpoint_archive_url."""
         return await self._get_checkpoint_archive_url_submit(training_run_id, checkpoint_id)
+
+    def _get_external_weights_urls_submit(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> AwaitableConcurrentFuture[types.ExternalWeightsUrlsResponse]:
+        if not checkpoint_id.startswith("external_weights/"):
+            raise ValueError(
+                "get_external_weights_urls only accepts external weights checkpoints "
+                f"(checkpoint_id starting with 'external_weights/'), got {checkpoint_id!r}"
+            )
+
+        async def _get_external_weights_urls_async() -> types.ExternalWeightsUrlsResponse:
+            async def _send_request() -> types.ExternalWeightsUrlsResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.get_external_weights_urls(
+                        model_id=training_run_id, checkpoint_id=checkpoint_id
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_get_external_weights_urls_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def get_external_weights_urls(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> ConcurrentFuture[types.ExternalWeightsUrlsResponse]:
+        """Get signed download URLs, one per file, for an external weights checkpoint.
+
+        Args:
+        - `training_run_id`: The training run ID that owns the checkpoint
+        - `checkpoint_id`: The checkpoint ID (must start with `external_weights/`)
+
+        Returns:
+        - A `Future` containing the `ExternalWeightsUrlsResponse`: `urls` maps each file path
+          (relative to the checkpoint root) to a signed URL, valid until `expires`
+        """
+        return self._get_external_weights_urls_submit(training_run_id, checkpoint_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def get_external_weights_urls_async(
+        self, training_run_id: types.ModelID, checkpoint_id: str
+    ) -> types.ExternalWeightsUrlsResponse:
+        """Async version of get_external_weights_urls."""
+        return await self._get_external_weights_urls_submit(training_run_id, checkpoint_id)
 
     def _delete_checkpoint_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str

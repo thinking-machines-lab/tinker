@@ -83,7 +83,7 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
     topk_prompt_logprobs_np: TopkPromptLogprobs | None = None
     if proto.HasField("topk_prompt_logprobs"):
         topk = proto.topk_prompt_logprobs
-        n, k = topk.prompt_length, topk.k
+        n, k = topk.length, topk.k
         if n > 0 and k > 0:
             topk_prompt_logprobs_np = TopkPromptLogprobs(
                 token_ids=np.ndarray((n, k), dtype=np.int32, buffer=topk.token_ids).copy(),

@@ -5,7 +5,7 @@ from .._models import BaseModel
 
 __all__ = ["Checkpoint", "CheckpointType"]
 
-CheckpointType = Literal["training", "sampler"]
+CheckpointType = Literal["training", "sampler", "external"]
 
 
 class Checkpoint(BaseModel):
@@ -13,7 +13,7 @@ class Checkpoint(BaseModel):
     """The checkpoint ID"""
 
     checkpoint_type: CheckpointType
-    """The type of checkpoint (training or sampler)"""
+    """The type of checkpoint (training, sampler, or external)"""
 
     time: datetime
     """The time when the checkpoint was created"""
@@ -42,7 +42,7 @@ class ParsedCheckpointTinkerPath(BaseModel):
     """The training run ID"""
 
     checkpoint_type: CheckpointType
-    """The type of checkpoint (training or sampler)"""
+    """The type of checkpoint (training, sampler, or external)"""
 
     checkpoint_id: str
     """The checkpoint ID"""
@@ -55,9 +55,14 @@ class ParsedCheckpointTinkerPath(BaseModel):
         parts = tinker_path[9:].split("/")
         if len(parts) != 3:
             raise ValueError(f"Invalid tinker path: {tinker_path}")
-        if parts[1] not in ["weights", "sampler_weights"]:
+        segment_to_type: dict[str, CheckpointType] = {
+            "weights": "training",
+            "sampler_weights": "sampler",
+            "external_weights": "external",
+        }
+        if parts[1] not in segment_to_type:
             raise ValueError(f"Invalid tinker path: {tinker_path}")
-        checkpoint_type = "training" if parts[1] == "weights" else "sampler"
+        checkpoint_type = segment_to_type[parts[1]]
         return cls(
             tinker_path=tinker_path,
             training_run_id=parts[0],

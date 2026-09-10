@@ -908,6 +908,59 @@ class TrainingClient(TelemetryProvider):
             user_metadata=user_metadata,
         )
 
+    def save_weights_external(
+        self, name: str, ttl_seconds: int | None = None
+    ) -> APIFuture[types.SaveWeightsExternalResponse]:
+        """Save model weights in an external (e.g. HuggingFace) format.
+
+        The saved checkpoint is stored in the external-weights bucket and can be
+        managed (listed, deleted) like any other checkpoint.
+
+        Args:
+        - `name`: Name for the saved external weights
+        - `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+
+        Returns:
+        - `APIFuture` containing the save response with the external weights path
+        """
+        request_id = self._get_request_id()
+
+        @capture_exceptions(fatal=True)
+        async def _save_weights_external_async() -> types.SaveWeightsExternalResponse:
+            start_time = time.time()
+
+            async def _send_request():
+                request = types.SaveWeightsExternalRequest(
+                    model_id=self._guaranteed_model_id(),
+                    path=name,
+                    seq_id=request_id + 1,
+                    ttl_seconds=ttl_seconds,
+                )
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.save_external(request=request, max_retries=0)
+
+            async with self._take_turn(request_id):
+                future = await self.holder.execute_with_retries(_send_request)
+
+            result = await _APIFuture(
+                types.SaveWeightsExternalResponseInternal,
+                self.holder,
+                future,
+                request_start_time=start_time,
+                request_type="SaveWeightsExternal",
+                queue_state_observer=self._queue_state_logger,
+            )
+            assert result.path is not None
+            return types.SaveWeightsExternalResponse(path=result.path)
+
+        return self.holder.run_coroutine_threadsafe(_save_weights_external_async())
+
+    async def save_weights_external_async(
+        self, name: str, ttl_seconds: int | None = None
+    ) -> APIFuture[types.SaveWeightsExternalResponse]:
+        """Async version of save_weights_external."""
+        return self.save_weights_external(name, ttl_seconds=ttl_seconds)
+
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
         @capture_exceptions(fatal=True)
         async def _get_info_async():
