@@ -918,7 +918,7 @@ def _confirm_deletion(paths: "List[str]", checkpoints: "List[Checkpoint] | None"
     return click.confirm(f"Are you sure you want to delete {count} checkpoint(s)?")
 
 
-_DELETE_CONCURRENCY = 32
+_DEFAULT_DELETE_CONCURRENCY = 1
 
 
 def _delete_one(client: "RestClient", path: str) -> "tuple[str, str] | None":
@@ -934,14 +934,19 @@ def _delete_paths(
     client: "RestClient",
     paths: "List[str]",
     format: str,
+    concurrency: int = _DEFAULT_DELETE_CONCURRENCY,
 ) -> None:
-    """Delete a list of tinker paths concurrently and print results."""
+    """Delete a list of tinker paths and print results.
+
+    Default concurrency is 1 (serial). Higher values can be slower against
+    current API delete contention; see GitHub issue #45.
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     deleted_count = 0
     failed: "List[tuple[str, str]]" = []
     with (
-        ThreadPoolExecutor(max_workers=_DELETE_CONCURRENCY) as pool,
+        ThreadPoolExecutor(max_workers=concurrency) as pool,
         click.progressbar(
             length=len(paths),
             label="Deleting checkpoints",
@@ -995,6 +1000,16 @@ def _delete_paths(
     help="Filter: created after date in UTC (ISO 8601, e.g. 2024-01-01, 2024-01-01T08:00:00Z)",
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.option(
+    "--concurrency",
+    type=click.IntRange(min=1),
+    default=_DEFAULT_DELETE_CONCURRENCY,
+    show_default=True,
+    help=(
+        "Max parallel delete requests. Default 1 is fastest against "
+        "current API contention; raise only if needed."
+    ),
+)
 @click.pass_obj
 @handle_api_errors
 def delete(
@@ -1005,6 +1020,7 @@ def delete(
     before: str | None,
     after: str | None,
     yes: bool,
+    concurrency: int,
 ) -> None:
     """Delete one or more checkpoints permanently.
 
@@ -1027,6 +1043,10 @@ def delete(
     Dates are interpreted as UTC. Use full ISO 8601 datetime for precision:
 
         tinker checkpoint delete --run-id <run-id> --before 2024-06-01T08:00:00Z
+
+    Control parallel deletes (default 1; higher values may be slower):
+
+        tinker checkpoint delete --run-id <run-id> --concurrency 1
 
     Only the owner of the training run can delete checkpoints.
 
@@ -1084,7 +1104,7 @@ def delete(
             click.echo("Deletion cancelled.")
             return
 
-    _delete_paths(client, paths_to_delete, cli_context.format)
+    _delete_paths(client, paths_to_delete, cli_context.format, concurrency)
 
 
 @cli.command()
