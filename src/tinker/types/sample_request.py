@@ -54,6 +54,10 @@ class SampleRequest(StrictBase):
     topk_prompt_logprobs: int = 0
     """If set to a positive integer, returns the top-k logprobs for each prompt token."""
 
+    topk_sample_logprobs: int = 0
+    """If set to a positive integer, returns the top-k logprobs for each sampled token
+    (see ``SampledSequence.topk_logprobs``)."""
+
     record_stability_info: Optional[bool] = None
 
     type: Literal["sample"] = "sample"

@@ -7,6 +7,7 @@ from typing import List, Optional
 import numpy as np
 
 from .stop_reason import StopReason
+from .topk_logprobs import TopkLogprobs, topk_to_lists
 
 __all__ = ["SampledSequence"]
 
@@ -37,9 +38,17 @@ class SampledSequence:
     """Log probabilities for each generated token as a 1-D float32 numpy array,
     shape ``(num_tokens,)``. None if logprobs were not requested."""
 
+    topk_logprobs_np: Optional[TopkLogprobs] = field(default=None, repr=False)
+    """Top-k logprobs at each generated position as a pair of dense
+    ``(num_tokens, k)`` matrices (see ``TopkLogprobs``).
+    None if ``SampleRequest.topk_sample_logprobs`` was not requested."""
+
     # Private storage for list-based construction path.
     _tokens_list: Optional[List[int]] = field(default=None, repr=False)
     _logprobs_list: Optional[List[float]] = field(default=None, repr=False)
+    _topk_logprobs_list: Optional[List[Optional[List[tuple[int, float]]]]] = field(
+        default=None, repr=False
+    )
 
     @cached_property
     def tokens(self) -> List[int]:
@@ -64,4 +73,21 @@ class SampledSequence:
             return self._logprobs_list
         if self.logprobs_np is not None:
             return self.logprobs_np.tolist()
+        return None
+
+    @cached_property
+    def topk_logprobs(self) -> Optional[List[Optional[List[tuple[int, float]]]]]:
+        """Top-k logprobs at each generated position as nested Python lists.
+
+        If ``SampleRequest.topk_sample_logprobs`` was set to a positive integer k in
+        the request, each generated position gets a list of up to k
+        ``(token_id, logprob)`` tuples, or ``None`` where the engine reported
+        nothing. Returns ``None`` if top-k was not requested.
+
+        Converted from ``topk_logprobs_np`` on first access (cached afterwards).
+        """
+        if self._topk_logprobs_list is not None:
+            return self._topk_logprobs_list
+        if self.topk_logprobs_np is not None:
+            return topk_to_lists(self.topk_logprobs_np)
         return None

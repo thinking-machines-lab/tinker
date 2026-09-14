@@ -15,7 +15,7 @@ from tinker.types.sampled_sequence import SampledSequence
 from tinker.types.stop_reason import StopReason
 from tinker.types.tensor_data import TensorData
 from tinker.types.tensor_dtype import TensorDtype
-from tinker.types.topk_prompt_logprobs import TopkPromptLogprobs
+from tinker.types.topk_logprobs import TopkLogprobs
 
 # Set of model classes that support proto deserialization.
 # Used by api_future_impl to decide whether to send Accept: application/x-protobuf.
@@ -48,6 +48,16 @@ _PROTO_DTYPE_TO_TENSOR_DTYPE: dict[int, TensorDtype] = {
 }
 
 
+def _deserialize_topk_logprobs(topk: public_pb.TopkLogprobs) -> TopkLogprobs | None:
+    n, k = topk.length, topk.k
+    if n == 0 or k == 0:
+        return None
+    return TopkLogprobs(
+        token_ids=np.ndarray((n, k), dtype=np.int32, buffer=topk.token_ids).copy(),
+        logprobs=np.ndarray((n, k), dtype=np.float32, buffer=topk.logprobs).copy(),
+    )
+
+
 def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
     """Deserialize proto bytes into a SampleResponse."""
     proto = public_pb.SampleResponse()
@@ -64,6 +74,11 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
         logprobs_np = (
             np.frombuffer(seq.logprobs, dtype=np.float32).copy() if seq.logprobs else None
         )
+        topk_logprobs_np = (
+            _deserialize_topk_logprobs(seq.topk_sampled_logprobs)
+            if seq.HasField("topk_sampled_logprobs")
+            else None
+        )
         sequences.append(
             SampledSequence(
                 stop_reason=stop_reason,
@@ -73,6 +88,7 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
                 sequence_id=None,  # type: ignore[arg-type]
                 tokens_np=tokens_np,
                 logprobs_np=logprobs_np,
+                topk_logprobs_np=topk_logprobs_np,
             )
         )
 
@@ -80,15 +96,11 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
     if proto.prompt_logprobs:
         prompt_logprobs_np = np.frombuffer(proto.prompt_logprobs, dtype=np.float32).copy()
 
-    topk_prompt_logprobs_np: TopkPromptLogprobs | None = None
-    if proto.HasField("topk_prompt_logprobs"):
-        topk = proto.topk_prompt_logprobs
-        n, k = topk.length, topk.k
-        if n > 0 and k > 0:
-            topk_prompt_logprobs_np = TopkPromptLogprobs(
-                token_ids=np.ndarray((n, k), dtype=np.int32, buffer=topk.token_ids).copy(),
-                logprobs=np.ndarray((n, k), dtype=np.float32, buffer=topk.logprobs).copy(),
-            )
+    topk_prompt_logprobs_np = (
+        _deserialize_topk_logprobs(proto.topk_prompt_logprobs)
+        if proto.HasField("topk_prompt_logprobs")
+        else None
+    )
 
     return SampleResponse(
         sequences=sequences,

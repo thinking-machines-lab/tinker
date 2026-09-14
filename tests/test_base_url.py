@@ -1,8 +1,8 @@
 """Tests for the shared Tinker base-URL resolution (tinker.lib.base_url).
 
 The SDK client and the CLI's login flow both resolve the base URL through
-resolve_base_url, so `tinker auth login` mints keys from the same deployment
-the SDK will later talk to.
+resolve_base_url, so `tinker auth login` verifies keys against the same
+deployment the SDK will later talk to.
 """
 
 from __future__ import annotations

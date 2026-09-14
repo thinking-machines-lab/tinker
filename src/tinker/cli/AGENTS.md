@@ -58,9 +58,8 @@ class LazyGroup(click.Group):
 
 **Examples**:
 - `tinker version` - Show CLI and SDK version
-- `tinker auth login` - Log in through the browser (WorkOS device auth) and store the minted API key
-- `tinker auth login --api-key` - Store a manually entered API key in ~/.tinker/credentials.json
-- `tinker auth logout` - Remove the default credential; a browser-minted key is also deleted on the server, a manually entered key is only removed locally
+- `tinker auth login` - Open the console's New API Key dialog (`/keys?new_key=true&key_name=tinker-cli-<machine>`), prompt for the key created there, and store it in ~/.tinker/credentials.json
+- `tinker auth logout` - Remove the default credential; a CLI-minted key is also deleted on the server, a pasted key is only removed locally
 - `tinker run list` - List all training runs
 - `tinker run info <run-id>` - Show details of a specific run
 - `tinker checkpoint list` - List all checkpoints
@@ -217,10 +216,8 @@ cli/
 ├── lazy_group.py         # LazyGroup implementation for lazy loading
 ├── output.py             # OutputBase class and formatting utilities
 ├── client.py             # SDK client creation and error handling
-├── workos_api.py         # Typed WorkOS API client (wire protocol only)
-├── device_auth.py        # WorkOS device authorization grant flow (OAuth 2.0 RFC 8628)
 ├── auth_api.py           # Tinker auth endpoints reachable without a stored credential
-├── login.py              # Browser login flow: device auth -> minted key -> credential store
+├── login.py              # The key name and browser opener `auth login` uses
 ├── commands/
 │   ├── __init__.py       # Command module marker
 │   ├── auth.py           # Auth commands (credential storage)
@@ -237,14 +234,12 @@ cli/
 # Show version
 tinker version
 
-# Log in through the browser: prints a code + URL, mints an API key, makes it the default
+# Print (and open) the console's New API Key dialog named for this machine, prompt for the
+# key created there, and make it the default
 tinker auth login
 
-# Store an API key (interactive prompt for the key) and make it the default
-tinker auth login --api-key
-
-# Remove the default credential; deletes a browser-minted key on the server,
-# leaves a manually entered key active and only removes it locally
+# Remove the default credential; deletes a CLI-minted key on the server,
+# leaves a pasted key active and only removes it locally
 tinker auth logout
 
 # List all training runs

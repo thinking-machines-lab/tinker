@@ -1,8 +1,13 @@
 """URL builders for opening Tinker resources in the console."""
 
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 _CONSOLE_BASE_URL = "https://tinker.thinkingmachines.ai"
+
+
+def new_api_key_console_url(key_name: str) -> str:
+    """The API keys page with its New API Key dialog open and `key_name` filled in."""
+    return f"{_CONSOLE_BASE_URL}/keys?{urlencode({'new_key': 'true', 'key_name': key_name})}"
 
 
 def sessions_console_url() -> str:

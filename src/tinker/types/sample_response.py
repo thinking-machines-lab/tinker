@@ -7,11 +7,9 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from .sampled_sequence import SampledSequence
-from .topk_prompt_logprobs import TopkPromptLogprobs
+from .topk_logprobs import TopkLogprobs, topk_to_lists
 
 __all__ = ["SampleResponse"]
-
-MASK_LOGPROB = -99999.0
 
 
 @dataclass(frozen=True)
@@ -32,9 +30,9 @@ class SampleResponse:
     computed (e.g. the first prompt token).
     None if prompt logprobs were not requested."""
 
-    topk_prompt_logprobs_np: Optional[TopkPromptLogprobs] = field(default=None, repr=False)
+    topk_prompt_logprobs_np: Optional[TopkLogprobs] = field(default=None, repr=False)
     """Top-k prompt logprobs as a pair of dense matrices
-    (see ``TopkPromptLogprobs``).
+    (see ``TopkLogprobs``).
     None if top-k was not requested."""
 
     prompt_cache_hit_tokens: int = 0
@@ -86,31 +84,5 @@ class SampleResponse:
         if self._topk_prompt_logprobs_list is not None:
             return self._topk_prompt_logprobs_list
         if self.topk_prompt_logprobs_np is not None:
-            return _topk_to_lists(self.topk_prompt_logprobs_np)
+            return topk_to_lists(self.topk_prompt_logprobs_np)
         return None
-
-
-def _topk_to_lists(
-    topk: TopkPromptLogprobs,
-) -> list[list[tuple[int, float]] | None]:
-    """Convert TopkPromptLogprobs matrices to Python list format."""
-    n, k = topk.token_ids.shape
-    if n == 0 or k == 0:
-        return []
-
-    tid_flat = topk.token_ids.ravel().tolist()
-    lp_flat = topk.logprobs.ravel().tolist()
-    all_tuples = list(zip(tid_flat, lp_flat, strict=True))
-
-    mask_lp = MASK_LOGPROB
-    result: list[list[tuple[int, float]] | None] = []
-    for i in range(n):
-        start = i * k
-        if tid_flat[start] == 0 and lp_flat[start] == mask_lp:
-            result.append(None)
-        else:
-            end = start + k
-            while end > start and tid_flat[end - 1] == 0 and lp_flat[end - 1] == mask_lp:
-                end -= 1
-            result.append(all_tuples[start:end])
-    return result

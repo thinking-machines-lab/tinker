@@ -17,6 +17,7 @@ from tinker.proto.response_conv import (
     PROTO_SUPPORTED_TYPES,
     deserialize_forward_backward_output,
     deserialize_proto_response,
+    deserialize_sample_response,
 )
 from tinker.types.forward_backward_output import ForwardBackwardOutput
 
@@ -53,6 +54,32 @@ def _build_fwdbwd_proto(
 
 def test_forward_backward_output_in_proto_supported_types() -> None:
     assert ForwardBackwardOutput in PROTO_SUPPORTED_TYPES
+
+
+def test_deserialize_sample_response_topk_sampled_logprobs() -> None:
+    token_ids = np.array([[31, 41], [32, 42]], dtype=np.int32)
+    logprobs = np.array([[-1.5, -2.5], [-1.25, -2.25]], dtype=np.float32)
+
+    msg = public_pb.SampleResponse()
+    with_topk = msg.sequences.add()
+    with_topk.stop_reason = public_pb.STOP_REASON_LENGTH
+    with_topk.tokens = np.array([21, 22], dtype=np.int32).tobytes()
+    with_topk.topk_sampled_logprobs.token_ids = token_ids.tobytes()
+    with_topk.topk_sampled_logprobs.logprobs = logprobs.tobytes()
+    with_topk.topk_sampled_logprobs.k = 2
+    with_topk.topk_sampled_logprobs.length = 2
+    without_topk = msg.sequences.add()
+    without_topk.stop_reason = public_pb.STOP_REASON_STOP
+    without_topk.tokens = np.array([23], dtype=np.int32).tobytes()
+
+    result = deserialize_sample_response(msg.SerializeToString())
+
+    seq = result.sequences[0]
+    assert seq.topk_logprobs_np is not None
+    np.testing.assert_array_equal(seq.topk_logprobs_np.token_ids, token_ids)
+    np.testing.assert_array_equal(seq.topk_logprobs_np.logprobs, logprobs)
+    assert seq.topk_logprobs == [[(31, -1.5), (41, -2.5)], [(32, -1.25), (42, -2.25)]]
+    assert result.sequences[1].topk_logprobs is None
 
 
 # ---------------------------------------------------------------------------

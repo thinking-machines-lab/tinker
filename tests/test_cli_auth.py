@@ -1,8 +1,4 @@
-"""Tests for `tinker auth login --api-key` (manual key entry) and logout.
-
-The browser flow, which `tinker auth login` runs by default, is covered in
-test_cli_login.py.
-"""
+"""Tests for `tinker auth login` (console page -> pasted key) and logout."""
 
 from __future__ import annotations
 
@@ -15,6 +11,7 @@ from click.testing import CliRunner
 
 from tinker._exceptions import AuthenticationError
 from tinker.cli import auth_api as auth_api_module
+from tinker.cli import login as login_module
 from tinker.cli.auth_api import AuthApiError, SelfApiKeyResponse, TinkerAuthApi
 from tinker.cli.commands.auth import cli as auth_cli
 from tinker.cli.exceptions import TinkerCliError
@@ -41,10 +38,24 @@ def store_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return path
 
 
+@pytest.fixture(autouse=True)
+def opened_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record the URLs login would open, so no test launches a real browser."""
+    urls: list[str] = []
+
+    def record_open(url: str) -> bool:
+        urls.append(url)
+        return True
+
+    monkeypatch.setattr(login_module, "open_url", record_open)
+    monkeypatch.setattr(login_module.socket, "gethostname", lambda: "laptop.local")
+    return urls
+
+
 def test_login_api_key_stores_verified_key_and_sets_default(
     store_path: Path, fake_auth_api: type[FakeAuthApi]
 ) -> None:
-    result = CliRunner().invoke(auth_cli, ["login", "--api-key"], input="tml-secret\n")
+    result = CliRunner().invoke(auth_cli, ["login"], input="tml-secret\n")
 
     assert result.exit_code == 0, result.output
     assert fake_auth_api.fetched == ["tml-secret"]
@@ -66,14 +77,13 @@ def test_login_api_key_stores_verified_key_and_sets_default(
     }
 
 
-@pytest.mark.parametrize("login_args", [["login"], ["login", "--api-key"]])
-def test_login_again_requires_logout_first(store_path: Path, login_args: list[str]) -> None:
+def test_login_again_requires_logout_first(store_path: Path) -> None:
     store = JsonCredentialStore(store_path)
     existing_key = ManualKey(key="tml-old", name="Existing key")
     store.add_key("existing", existing_key)
     store.set_default("existing")
 
-    result = CliRunner().invoke(auth_cli, login_args)
+    result = CliRunner().invoke(auth_cli, ["login"])
 
     assert isinstance(result.exception, TinkerCliError)
     assert result.exception.message == "Already logged in"
@@ -82,15 +92,38 @@ def test_login_again_requires_logout_first(store_path: Path, login_args: list[st
 
 
 def test_login_key_value_is_not_echoed(store_path: Path, fake_auth_api: type[FakeAuthApi]) -> None:
-    result = CliRunner().invoke(auth_cli, ["login", "--api-key"], input="tml-secret\n")
+    result = CliRunner().invoke(auth_cli, ["login"], input="tml-secret\n")
     assert result.exit_code == 0, result.output
     assert "tml-secret" not in result.output
 
 
 def test_login_whitespace_key_errors(store_path: Path) -> None:
-    result = CliRunner().invoke(auth_cli, ["login", "--api-key"], input=" \n")
+    result = CliRunner().invoke(auth_cli, ["login"], input=" \n")
     assert isinstance(result.exception, TinkerCliError)
     assert not store_path.exists()
+
+
+# Catches the user losing the one thing that makes the login completable: the
+# console page, named for this machine so the key is recognizable later. The
+# URL must be printed even when a browser opens, since it may not be this one.
+def test_login_prints_and_opens_the_console_page_for_this_machine(
+    store_path: Path, fake_auth_api: type[FakeAuthApi], opened_urls: list[str]
+) -> None:
+    url = "https://tinker.thinkingmachines.ai/keys?new_key=true&key_name=tinker-cli-laptop"
+
+    result = CliRunner().invoke(auth_cli, ["login"], input="tml-secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert opened_urls == [url]
+    assert url in result.output
+
+
+def test_login_reports_who_logged_in(store_path: Path, fake_auth_api: type[FakeAuthApi]) -> None:
+    result = CliRunner().invoke(auth_cli, ["login"], input="tml-secret\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Logged in as user@acme.test (Acme)" in result.output
+    assert "workstation key" in result.output
 
 
 class FakeAuthApi:
@@ -141,7 +174,7 @@ def test_login_api_key_validation_failure_stores_nothing(
 ) -> None:
     fake_auth_api.error = AuthApiError("Unable to validate credential (HTTP 401)")
 
-    result = CliRunner().invoke(auth_cli, ["login", "--api-key"], input="tml-invalid\n")
+    result = CliRunner().invoke(auth_cli, ["login"], input="tml-invalid\n")
 
     assert isinstance(result.exception, TinkerCliError)
     assert result.exception.message == "Could not validate the API key"
@@ -170,7 +203,7 @@ def _store_two_manual_keys(store_path: Path) -> JsonCredentialStore:
 
 
 def _store_generated_key(store_path: Path) -> JsonCredentialStore:
-    """A store whose default is a browser-minted key."""
+    """A store whose default is a key the CLI minted for itself."""
     store = JsonCredentialStore(store_path)
     store.add_key("generated", _generated_key("tml-secret", "cli-login-key"))
     store.set_default("generated")

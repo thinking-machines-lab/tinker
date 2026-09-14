@@ -46,7 +46,8 @@ def sample(
         num_samples: int,
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
-        topk_prompt_logprobs: int = 0
+        topk_prompt_logprobs: int = 0,
+        topk_sample_logprobs: int = 0
 ) -> ConcurrentFuture[types.SampleResponse]
 ```
 
@@ -57,7 +58,8 @@ Args:
 - `num_samples`: Number of independent samples to generate
 - `sampling_params`: Parameters controlling generation (temperature, max_tokens, etc.)
 - `include_prompt_logprobs`: Whether to include log probabilities for prompt tokens
-- `topk_prompt_logprobs`: Number of top token log probabilities to return per position
+- `topk_prompt_logprobs`: Number of top token log probabilities to return per prompt position
+- `topk_sample_logprobs`: Number of top token log probabilities to return per sampled position
 
 Returns:
 - A `Future` containing the `SampleResponse` with generated text
@@ -79,7 +81,8 @@ async def sample_async(prompt: types.ModelInput,
                        num_samples: int,
                        sampling_params: types.SamplingParams,
                        include_prompt_logprobs: bool = False,
-                       topk_prompt_logprobs: int = 0) -> types.SampleResponse
+                       topk_prompt_logprobs: int = 0,
+                       topk_sample_logprobs: int = 0) -> types.SampleResponse
 ```
 
 Async version of sample.
