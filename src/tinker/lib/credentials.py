@@ -43,7 +43,7 @@ class ApiKeyDetails(BaseModel):
 
 
 class ManualKey(BaseModel):
-    """An API key the user pasted in via `tinker auth login --api-key`.
+    """An API key the user pasted in via `tinker auth login`.
 
     `note` and `details` are optional only so credentials written before
     manual keys were verified against the server remain readable.
@@ -57,7 +57,12 @@ class ManualKey(BaseModel):
 
 
 class GeneratedKey(BaseModel):
-    """An API key minted through the browser login flow (`tinker auth login`)."""
+    """An API key minted for the CLI itself, rather than pasted in by the user.
+
+    Only credential files written by an older CLI hold one, since nothing
+    mints keys today. `tinker auth logout` deletes such a key on the server,
+    as no one but this machine ever had it.
+    """
 
     type: Literal["generated"] = "generated"
     key: str

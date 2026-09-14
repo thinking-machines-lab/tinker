@@ -29,6 +29,14 @@ optim_result = optim_future.result()    # Wait for parameter update
 sampling_client = training_client.save_weights_and_get_sampling_client("my-model")
 ```
 
+#### `get_console_url`
+
+```python
+def get_console_url() -> str
+```
+
+Return the Tinker Console URL for this training run.
+
 #### `forward`
 
 ```python
@@ -389,6 +397,38 @@ async def save_weights_for_sampler_async(
 ```
 
 Async version of save_weights_for_sampler.
+
+#### `save_weights_external`
+
+```python
+def save_weights_external(
+    name: str,
+    ttl_seconds: int | None = None
+) -> APIFuture[types.SaveWeightsExternalResponse]
+```
+
+Save model weights in an external (e.g. HuggingFace) format.
+
+The saved checkpoint is stored in the external-weights bucket and can be
+managed (listed, deleted) like any other checkpoint.
+
+Args:
+- `name`: Name for the saved external weights
+- `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+
+Returns:
+- `APIFuture` containing the save response with the external weights path
+
+#### `save_weights_external_async`
+
+```python
+async def save_weights_external_async(
+    name: str,
+    ttl_seconds: int | None = None
+) -> APIFuture[types.SaveWeightsExternalResponse]
+```
+
+Async version of save_weights_external.
 
 #### `get_info`
 

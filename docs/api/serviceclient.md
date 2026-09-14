@@ -11,6 +11,7 @@ The ServiceClient is the main entry point for the Tinker API. It provides method
 - Generate TrainingClient instances for model training workflows
 - Generate SamplingClient instances for text generation and inference
 - Generate RestClient instances for REST API operations like listing weights
+- Close the client by finishing the current session when the training script is done
 
 Args:
     user_metadata: Optional metadata attached to the created session.
@@ -42,6 +43,14 @@ def holder() -> InternalClientHolder
 
 The sessionful holder. Deprecated: kept for backwards compatibility
 with callers that reach into ServiceClient internals.
+
+#### `get_console_url`
+
+```python
+def get_console_url() -> str
+```
+
+Return the Tinker Console URL for this session.
 
 #### `get_server_capabilities`
 
@@ -325,4 +334,30 @@ training_run = rest_client.get_training_run("run-id").result()
 rest_client.publish_checkpoint_from_tinker_path(
     "tinker://run-id/weights/checkpoint-001"
 ).result()
+```
+
+#### `close`
+
+```python
+def close(status: Literal["success", "errored", "interrupted"],
+          detail: str | None = None) -> AwaitableConcurrentFuture[None]
+```
+
+Finish the session and release local client resources.
+
+Marks the session terminal. Further operations against it will be rejected.
+A finish reason is first-wins and cannot replace an existing one.
+
+Also stops session heartbeats and releases HTTP/telemetry resources.
+
+Args:
+- `status`: `"success"`, `"errored"`, or `"interrupted"`
+- `detail`: Optional human-readable explanation
+
+Returns:
+- A future that completes when the session is finished. Await it, or call `.result()`.
+
+Example:
+```python
+service_client.close("success", detail="training complete").result()
 ```

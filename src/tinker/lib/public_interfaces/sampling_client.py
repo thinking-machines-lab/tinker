@@ -213,6 +213,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool,
         topk_prompt_logprobs: int,
+        topk_sample_logprobs: int,
     ):
         try:
             request = types.SampleRequest(
@@ -223,6 +224,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 sampling_params=sampling_params,
                 prompt_logprobs=include_prompt_logprobs,
                 topk_prompt_logprobs=topk_prompt_logprobs,
+                topk_sample_logprobs=topk_sample_logprobs,
                 record_stability_info=self._record_stability_info,
             )
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
@@ -245,6 +247,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool,
         topk_prompt_logprobs: int = 0,
+        topk_sample_logprobs: int = 0,
     ) -> types.SampleResponse:
         estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
         request_id = self._request_id_counter
@@ -266,6 +269,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     sampling_params,
                     include_prompt_logprobs,
                     topk_prompt_logprobs,
+                    topk_sample_logprobs,
                 )
                 if untyped_future is not None:
                     break
@@ -315,6 +319,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
         topk_prompt_logprobs: int = 0,
+        topk_sample_logprobs: int = 0,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Generate text completions from the model.
 
@@ -323,7 +328,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         - `num_samples`: Number of independent samples to generate
         - `sampling_params`: Parameters controlling generation (temperature, max_tokens, etc.)
         - `include_prompt_logprobs`: Whether to include log probabilities for prompt tokens
-        - `topk_prompt_logprobs`: Number of top token log probabilities to return per position
+        - `topk_prompt_logprobs`: Number of top token log probabilities to return per prompt position
+        - `topk_sample_logprobs`: Number of top token log probabilities to return per sampled position
 
         Returns:
         - A `Future` containing the `SampleResponse` with generated text
@@ -346,6 +352,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 sampling_params,
                 include_prompt_logprobs,
                 topk_prompt_logprobs,
+                topk_sample_logprobs,
             )
 
         @capture_exceptions(fatal=True)
@@ -373,6 +380,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_params: types.SamplingParams,
         include_prompt_logprobs: bool = False,
         topk_prompt_logprobs: int = 0,
+        topk_sample_logprobs: int = 0,
     ) -> types.SampleResponse:
         """Async version of sample."""
         return await AwaitableConcurrentFuture(
@@ -382,6 +390,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 sampling_params,
                 include_prompt_logprobs,
                 topk_prompt_logprobs,
+                topk_sample_logprobs,
             )
         )
 

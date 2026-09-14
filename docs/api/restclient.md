@@ -18,6 +18,7 @@ Key methods:
 - get_training_run() - get model information and metadata as ModelEntry
 - delete_checkpoint() - delete an existing checkpoint for a training run
 - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
+- get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
 - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
 - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
 - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
@@ -247,6 +248,33 @@ async def get_checkpoint_archive_url_async(
 ```
 
 Async version of get_checkpoint_archive_url.
+
+#### `get_external_weights_urls`
+
+```python
+def get_external_weights_urls(
+        tinker_path: str
+) -> ConcurrentFuture[types.ExternalWeightsUrlsResponse]
+```
+
+Get signed download URLs, one per file, for an external weights checkpoint.
+
+Args:
+- `tinker_path`: The checkpoint's tinker path, as returned by `save_weights_external`
+  (`tinker://<training_run_id>/external_weights/<name>`)
+
+Returns:
+- A `Future` containing the `ExternalWeightsUrlsResponse`: `urls` maps each file path
+  (relative to the checkpoint root) to a signed URL, valid until `expires`
+
+#### `get_external_weights_urls_async`
+
+```python
+async def get_external_weights_urls_async(
+        tinker_path: str) -> types.ExternalWeightsUrlsResponse
+```
+
+Async version of get_external_weights_urls.
 
 #### `delete_checkpoint`
 
