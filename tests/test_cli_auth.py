@@ -11,8 +11,8 @@ from click.testing import CliRunner
 
 from tinker._exceptions import AuthenticationError
 from tinker.cli import auth_api as auth_api_module
-from tinker.cli import login as login_module
 from tinker.cli.auth_api import AuthApiError, SelfApiKeyResponse, TinkerAuthApi
+from tinker.cli.commands import auth as auth_command_module
 from tinker.cli.commands.auth import cli as auth_cli
 from tinker.cli.exceptions import TinkerCliError
 from tinker.lib.credentials import (
@@ -36,20 +36,6 @@ def store_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / ".tinker" / "credentials.json"
     monkeypatch.setattr("tinker.lib.credentials.default_credentials_path", lambda: path)
     return path
-
-
-@pytest.fixture(autouse=True)
-def opened_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Record the URLs login would open, so no test launches a real browser."""
-    urls: list[str] = []
-
-    def record_open(url: str) -> bool:
-        urls.append(url)
-        return True
-
-    monkeypatch.setattr(login_module, "open_url", record_open)
-    monkeypatch.setattr(login_module.socket, "gethostname", lambda: "laptop.local")
-    return urls
 
 
 def test_login_api_key_stores_verified_key_and_sets_default(
@@ -103,19 +89,29 @@ def test_login_whitespace_key_errors(store_path: Path) -> None:
     assert not store_path.exists()
 
 
-# Catches the user losing the one thing that makes the login completable: the
-# console page, named for this machine so the key is recognizable later. The
-# URL must be printed even when a browser opens, since it may not be this one.
-def test_login_prints_and_opens_the_console_page_for_this_machine(
-    store_path: Path, fake_auth_api: type[FakeAuthApi], opened_urls: list[str]
+# Catches the user losing the instructions that make login completable: the
+# console page, named for this machine so the key is recognizable later.
+def test_login_prints_instructions_and_console_url_for_this_machine(
+    store_path: Path,
+    fake_auth_api: type[FakeAuthApi],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr("tinker.cli.login.socket.gethostname", lambda: "laptop.local")
     url = "https://tinker.thinkingmachines.ai/keys?new_key=true&key_name=tinker-cli-laptop"
 
     result = CliRunner().invoke(auth_cli, ["login"], input="tml-secret\n")
 
     assert result.exit_code == 0, result.output
-    assert opened_urls == [url]
-    assert url in result.output
+    linked_url = auth_command_module._terminal_hyperlink(url)
+    assert f"Create an API Key: {linked_url}\n\nPaste your API key:" in result.output
+
+
+def test_terminal_hyperlink_uses_osc8_with_a_visible_url() -> None:
+    url = "https://tinker.thinkingmachines.ai/keys/42"
+
+    assert auth_command_module._terminal_hyperlink(url) == (
+        f"\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\"
+    )
 
 
 def test_login_reports_who_logged_in(store_path: Path, fake_auth_api: type[FakeAuthApi]) -> None:
@@ -160,10 +156,7 @@ def fake_auth_api(monkeypatch: pytest.MonkeyPatch) -> type[FakeAuthApi]:
         key_id=42,
         name="workstation key",
         note="Used for local development",
-        details=ApiKeyDetails(
-            org_details=ApiKeyOrgDetails(name="Acme"),
-            user_details=ApiKeyUserDetails(email="user@acme.test"),
-        ),
+        details=_api_key_details(),
     )
     monkeypatch.setattr(auth_api_module, "TinkerAuthApi", FakeAuthApi)
     return FakeAuthApi
@@ -182,21 +175,28 @@ def test_login_api_key_validation_failure_stores_nothing(
     assert not store_path.exists()
 
 
-def _generated_key(key: str, name: str) -> GeneratedKey:
-    return GeneratedKey(
-        key=key,
-        name=name,
-        details=ApiKeyDetails(
-            org_details=ApiKeyOrgDetails(name="Acme"),
-            user_details=ApiKeyUserDetails(email="user@acme.test"),
-        ),
+def _api_key_details() -> ApiKeyDetails:
+    return ApiKeyDetails(
+        org_details=ApiKeyOrgDetails(name="Acme"),
+        user_details=ApiKeyUserDetails(email="user@acme.test"),
     )
+
+
+def _generated_key(key: str, name: str) -> GeneratedKey:
+    return GeneratedKey(key=key, name=name, details=_api_key_details())
 
 
 def _store_two_manual_keys(store_path: Path) -> JsonCredentialStore:
     """A store with a default manual key ('manual') plus another key ('other')."""
     store = JsonCredentialStore(store_path)
-    store.add_key("manual", ManualKey(key="tml-secret", name="Manually added api key"))
+    store.add_key(
+        "manual",
+        ManualKey(
+            key="tml-secret",
+            name="Manually added api key",
+            details=_api_key_details(),
+        ),
+    )
     store.add_key("other", ManualKey(key="tml-other", name="Another key"))
     store.set_default("manual")
     return store
@@ -221,6 +221,7 @@ def test_logout_generated_key_is_deleted_on_the_server(
     assert fake_auth_api.deleted == ["tml-secret"]
     assert store.get_default_key() is None
     assert "Removed credential 'cli-login-key'" in result.output
+    assert "Delete api key here:" not in result.output
 
 
 def test_logout_manual_key_is_only_removed_locally(
@@ -238,6 +239,20 @@ def test_logout_manual_key_is_only_removed_locally(
     assert store.get_default_key() is None
     assert "Removed credential 'Manually added api key'" in result.output
     assert "still active" in result.output
+    assert "API key organization: Acme" in result.output
+    url = "https://tinker.thinkingmachines.ai/keys/manual"
+    assert f"Delete api key here: {auth_command_module._terminal_hyperlink(url)}" in result.output
+
+
+def test_logout_legacy_manual_key_reports_missing_organization_metadata(store_path: Path) -> None:
+    store = JsonCredentialStore(store_path)
+    store.add_key("legacy", ManualKey(key="tml-secret", name="Legacy key"))
+    store.set_default("legacy")
+
+    result = CliRunner().invoke(auth_cli, ["logout"])
+
+    assert result.exit_code == 0, result.output
+    assert "API key organization: unknown (not stored with this credential)" in result.output
 
 
 def test_logout_without_a_default_credential_errors(
@@ -265,8 +280,12 @@ def test_logout_clears_the_credential_when_the_server_delete_fails(
     assert result.exception.details is not None
     assert "API key name: cli-login-key" in result.exception.details
     assert "API key ID: generated" in result.exception.details
-    assert "manually delete this key from the Tinker Console" in result.exception.details
-    assert "https://tinker.thinkingmachines.ai/keys" in result.exception.details
+    assert "API key organization: Acme" in result.exception.details
+    url = "https://tinker.thinkingmachines.ai/keys/generated"
+    assert (
+        f"Delete api key here: {auth_command_module._terminal_hyperlink(url)}"
+        in result.exception.details
+    )
 
 
 # Catches the wire protocol drifting from the server handler, which

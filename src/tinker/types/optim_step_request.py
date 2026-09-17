@@ -1,36 +1,20 @@
-from typing import Optional
+from typing import Any, Optional
 
+from pydantic import AliasChoices, Field, SerializerFunctionWrapHandler, model_serializer
 from typing_extensions import Literal
 
 from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import StrictBase
 from .model_id import ModelID
+from .optimizer import AdamParams, OptimParams
 
 __all__ = ["OptimStepRequest", "AdamParams"]
 
 
-class AdamParams(StrictBase):
-    learning_rate: float = 0.0001
-    """Learning rate for the optimizer"""
-
-    beta1: float = 0.9
-    """Coefficient used for computing running averages of gradient"""
-
-    beta2: float = 0.95
-    """Coefficient used for computing running averages of gradient square"""
-
-    eps: float = 1e-12
-    """Term added to the denominator to improve numerical stability"""
-
-    weight_decay: float = 0.0
-    """Weight decay for the optimizer. Uses decoupled weight decay."""
-
-    grad_clip_norm: float = 0.0
-    """Maximum global gradient norm. If the global gradient norm is greater than this value, it will be clipped to this value. 0.0 means no clipping."""
-
-
 class OptimStepRequest(StrictBase):
-    adam_params: AdamParams
+    optim_params: OptimParams = Field(
+        validation_alias=AliasChoices("optim_params", "adam_params", "optimizer_params")
+    )
 
     model_id: ModelID
 
@@ -41,3 +25,14 @@ class OptimStepRequest(StrictBase):
     if PYDANTIC_V2:
         # allow fields with a `model_` prefix
         model_config = ConfigDict(protected_namespaces=tuple())
+
+    @model_serializer(mode="wrap")
+    def _serialize_wire(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if "optim_params" in data:
+            params = data.pop("optim_params")
+            if isinstance(self.optim_params, AdamParams):
+                data["adam_params"] = params
+            else:
+                data["optimizer_params"] = {**params, "type": "dimuon"}
+        return data

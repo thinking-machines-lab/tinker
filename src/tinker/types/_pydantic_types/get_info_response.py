@@ -3,6 +3,7 @@ from typing import Literal, Optional
 from ..._compat import PYDANTIC_V2, ConfigDict
 from ..._models import BaseModel
 from ..model_id import ModelID
+from ..optimizer import AdamOptimizerConfig, OptimizerConfig
 
 
 class ModelData(BaseModel):
@@ -29,6 +30,8 @@ class GetInfoResponse(BaseModel):
 
     model_id: ModelID
     """Unique identifier for the model."""
+
+    optimizer_config: OptimizerConfig = AdamOptimizerConfig()
 
     is_lora: Optional[bool] = None
     """Whether this is a LoRA fine-tuned model."""

@@ -57,7 +57,7 @@ class AsyncTrainingResource(AsyncAPIResource):
         Performs an optimization step to update model parameters
 
         Args:
-          request: The optimization step request containing adam_params, model_id, and seq_id
+          request: The optimization step request containing optim_params, model_id, and seq_id
         """
         return await self._post(
             "/api/v1/optim_step",

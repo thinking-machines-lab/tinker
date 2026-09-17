@@ -105,9 +105,14 @@ from .loss_fn_type import LossFnType as LossFnType
 from .model_id import ModelID as ModelID
 from .model_input import ModelInput as ModelInput
 from .model_input_chunk import ModelInputChunk as ModelInputChunk
-from .optim_step_request import AdamParams as AdamParams
 from .optim_step_request import OptimStepRequest as OptimStepRequest
 from .optim_step_response import OptimStepResponse as OptimStepResponse
+from .optimizer import AdamOptimizerConfig as AdamOptimizerConfig
+from .optimizer import AdamParams as AdamParams
+from .optimizer import DimuonOptimizerConfig as DimuonOptimizerConfig
+from .optimizer import DimuonParams as DimuonParams
+from .optimizer import OptimizerConfig as OptimizerConfig
+from .optimizer import OptimParams as OptimParams
 from .provenance_spans import PromptProvenanceSpan as PromptProvenanceSpan
 from .provenance_spans import SampledProvenanceSpan as SampledProvenanceSpan
 from .request_error_category import RequestErrorCategory as RequestErrorCategory

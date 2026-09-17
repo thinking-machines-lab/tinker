@@ -10,6 +10,11 @@ def new_api_key_console_url(key_name: str) -> str:
     return f"{_CONSOLE_BASE_URL}/keys?{urlencode({'new_key': 'true', 'key_name': key_name})}"
 
 
+def api_key_console_url(key_id: str) -> str:
+    """The console page for a specific API key."""
+    return f"{_CONSOLE_BASE_URL}/keys/{quote(key_id, safe='')}"
+
+
 def sessions_console_url() -> str:
     return f"{_CONSOLE_BASE_URL}/sessions"
 
@@ -27,10 +32,6 @@ def checkpoint_console_url(training_run_id: str, checkpoint_id: str) -> str:
         f"{_CONSOLE_BASE_URL}/checkpoints/{quote(training_run_id, safe='')}/"
         f"{quote(checkpoint_id, safe='')}"
     )
-
-
-def sampler_checkpoint_console_url(training_run_id: str) -> str:
-    return f"{_CONSOLE_BASE_URL}/checkpoints/{quote(training_run_id, safe='')}/sampler_weights"
 
 
 def checkpoint_playground_url(tinker_path: str) -> str:

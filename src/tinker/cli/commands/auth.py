@@ -2,8 +2,8 @@
 
 This module implements the 'tinker auth' commands:
 - login: store an API key in ~/.tinker/credentials.json for the SDK and CLI,
-  by opening the console's New API Key dialog for them and prompting for the
-  key they create there
+  by printing the console's New API Key URL and prompting for the key they
+  create there
 - logout: remove the default credential from ~/.tinker/credentials.json, also
   deleting its API key on the server if the CLI minted it for itself
 - status: report whether credentials are available and Tinker is accessible
@@ -15,6 +15,8 @@ from ..client import handle_api_errors
 from ..exceptions import TinkerCliError
 
 _HTTP_TIMEOUT_SECONDS = 30.0
+_OSC = "\x1b]"
+_ST = "\x1b\\"
 
 
 @click.group()
@@ -27,9 +29,9 @@ def cli():
 def login() -> None:
     """Store a credential for the SDK and CLI to use.
 
-    Points you at the Tinker console's New API Key dialog -- opening it in
-    your browser when there is one -- with a name for this machine filled in,
-    then prompts you to paste the key you create there back in.
+    Prints the URL for the Tinker console's New API Key dialog with a name for
+    this machine filled in, then prompts you to paste the key you create there
+    back in.
 
     The key is stored in ~/.tinker/credentials.json as the default credential,
     which the SDK picks up when neither TINKER_API_KEY nor
@@ -42,7 +44,7 @@ def login() -> None:
     from tinker.lib.credentials import JsonCredentialStore, ManualKey, default_credentials_path
 
     from ..auth_api import AuthApiError, TinkerAuthApi
-    from ..login import api_key_name, open_url
+    from ..login import api_key_name, prompt_api_key
 
     store = JsonCredentialStore(default_credentials_path())
     if store.get_default_key() is not None:
@@ -52,13 +54,10 @@ def login() -> None:
         )
 
     url = new_api_key_console_url(api_key_name())
-    # The URL is printed either way: the browser may not open, and a browser
-    # on another machine is a perfectly good way to finish the login.
-    click.echo(f"Create an API key for this machine at: {url}")
-    if open_url(url):
-        click.echo("Opening it in your default browser -- open it yourself if nothing appears.")
+    click.echo(f"Create an API Key: {_terminal_hyperlink(url)}")
+    click.echo()
 
-    key = click.prompt("Paste your API key", hide_input=True).strip()
+    key = prompt_api_key().strip()
     if not key:
         raise TinkerCliError("The API key must not be empty")
 
@@ -99,6 +98,7 @@ def logout() -> None:
     TINKER_CREDENTIAL_CMD is untouched.
     """
     # Lazy import to keep CLI startup fast.
+    from tinker.lib.console_urls import api_key_console_url
     from tinker.lib.credentials import GeneratedKey, JsonCredentialStore, default_credentials_path
 
     from ..auth_api import AuthApiError
@@ -112,6 +112,11 @@ def logout() -> None:
             "There is nothing to log out from. Run 'tinker auth login' to log in.",
         )
 
+    organization = (
+        record.details.org_details.name
+        if record.details is not None
+        else "unknown (not stored with this credential)"
+    )
     delete = isinstance(record, GeneratedKey)
     delete_error: AuthApiError | None = None
     if delete:
@@ -123,18 +128,29 @@ def logout() -> None:
     store.delete_key(key_id)
 
     if delete_error is not None:
+        url = api_key_console_url(key_id)
         raise TinkerCliError(
             "Could not delete the API key on the server",
             f"Removed the local credential.\n"
             f"API key name: {record.name}\n"
             f"API key ID: {key_id}\n"
-            "You can manually delete this key from the Tinker Console: "
-            "https://tinker.thinkingmachines.ai/keys",
+            f"{_api_key_deletion_hint(url, organization)}",
         ) from delete_error
     if delete:
         click.echo(f"Removed credential '{record.name}' and deleted its API key on the server.")
     else:
         click.echo(f"Removed credential '{record.name}'. The API key is still active.")
+        url = api_key_console_url(key_id)
+        click.echo(_api_key_deletion_hint(url, organization))
+
+
+def _terminal_hyperlink(url: str) -> str:
+    """Display `url` as itself while making it clickable in OSC-8-aware terminals."""
+    return f"{_OSC}8;;{url}{_ST}{url}{_OSC}8;;{_ST}"
+
+
+def _api_key_deletion_hint(url: str, organization: str) -> str:
+    return f"API key organization: {organization}\nDelete api key here: {_terminal_hyperlink(url)}"
 
 
 def _delete_key_on_server(key: str) -> None:

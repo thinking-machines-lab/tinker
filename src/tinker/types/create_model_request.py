@@ -5,6 +5,7 @@ from typing_extensions import Literal
 from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import StrictBase
 from .lora_config import LoraConfig
+from .optimizer import AdamOptimizerConfig, OptimizerConfig
 
 __all__ = ["CreateModelRequest"]
 
@@ -22,6 +23,9 @@ class CreateModelRequest(StrictBase):
 
     lora_config: Optional[LoraConfig] = None
     """LoRA configuration"""
+
+    optimizer_config: OptimizerConfig = AdamOptimizerConfig()
+    """Optimizer identity fixed for the lifetime of the training model."""
 
     type: Literal["create_model"] = "create_model"
 

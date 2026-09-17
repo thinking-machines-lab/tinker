@@ -186,10 +186,13 @@ Async version of forward_backward_custom.
 
 ```python
 def optim_step(
-        adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]
+    optim_params: types.OptimParams | None = None,
+    *,
+    adam_params: types.AdamParams | None = None
+) -> APIFuture[types.OptimStepResponse]
 ```
 
-Update model parameters using Adam optimizer.
+Update model parameters using the optimizer selected at model creation.
 
 The Adam optimizer used by tinker is identical
 to [torch.optim.AdamW](https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html).
@@ -197,7 +200,8 @@ Note that unlike PyTorch, Tinker's default weight decay value is 0.0 (no weight 
 
 
 Args:
-- `adam_params`: Adam optimizer parameters (learning_rate, betas, eps, weight_decay)
+- `optim_params`: AdamParams or DimuonParams matching the model optimizer.
+- `adam_params`: Legacy keyword alias for AdamParams; cannot be combined with optim_params.
 
 Returns:
 - `APIFuture` containing optimizer step response
@@ -224,7 +228,10 @@ optim_result = await optim_future
 
 ```python
 async def optim_step_async(
-        adam_params: types.AdamParams) -> APIFuture[types.OptimStepResponse]
+    optim_params: types.OptimParams | None = None,
+    *,
+    adam_params: types.AdamParams | None = None
+) -> APIFuture[types.OptimStepResponse]
 ```
 
 Async version of optim_step.
@@ -244,7 +251,8 @@ Save model weights to persistent storage.
 
 Args:
 - `name`: Name for the saved checkpoint
-- `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+- `ttl_seconds`: Optional TTL in seconds for the checkpoint, between 1 hour (3600) and
+  10 years (None = never expires)
 - `overwrite`: If True, overwrite any existing checkpoint with the same name. This
   replaces the entire existing `user_metadata` mapping; if `user_metadata` is not
   provided, the previous user metadata is deleted.
@@ -367,7 +375,8 @@ Save model weights for use with a SamplingClient.
 
 Args:
 - `name`: Name for the saved sampler weights
-- `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+- `ttl_seconds`: Optional TTL in seconds for the checkpoint, between 1 hour (3600) and
+  10 years (None = never expires)
 - `user_metadata`: Optional user-provided metadata to attach to the checkpoint
 
 Returns:
@@ -414,7 +423,8 @@ managed (listed, deleted) like any other checkpoint.
 
 Args:
 - `name`: Name for the saved external weights
-- `ttl_seconds`: Optional TTL in seconds for the checkpoint (None = never expires)
+- `ttl_seconds`: Optional TTL in seconds for the checkpoint, between 1 hour (3600) and
+  10 years (None = never expires)
 
 Returns:
 - `APIFuture` containing the save response with the external weights path
