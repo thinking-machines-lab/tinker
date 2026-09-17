@@ -28,10 +28,13 @@ from .lib.public_interfaces import APIFuture, SamplingClient, ServiceClient, Tra
 
 # Import commonly used types for easier access
 from .types import (
+    AdamOptimizerConfig,
     AdamParams,
     Checkpoint,
     CheckpointType,
     Datum,
+    DimuonOptimizerConfig,
+    DimuonParams,
     DmelChunk,
     EncodedTextChunk,
     ForwardBackwardOutput,
@@ -39,6 +42,7 @@ from .types import (
     ModelID,
     ModelInput,
     ModelInputChunk,
+    OptimParams,
     OptimStepRequest,
     OptimStepResponse,
     ParsedCheckpointTinkerPath,
@@ -62,7 +66,11 @@ __all__ = [
     "APIFuture",
     "auth",
     # Commonly used types
+    "AdamOptimizerConfig",
     "AdamParams",
+    "DimuonOptimizerConfig",
+    "DimuonParams",
+    "OptimParams",
     "Checkpoint",
     "CheckpointType",
     "Datum",

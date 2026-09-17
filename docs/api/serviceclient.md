@@ -89,7 +89,8 @@ def create_lora_training_client(
         train_mlp: bool = True,
         train_attn: bool = True,
         train_unembed: bool = True,
-        user_metadata: dict[str, str] | None = None) -> TrainingClient
+        user_metadata: dict[str, str] | None = None,
+        optimizer: types.OptimizerConfig | None = None) -> TrainingClient
 ```
 
 Create a TrainingClient for LoRA fine-tuning.
@@ -102,6 +103,7 @@ Args:
 - `train_attn`: Whether to train attention layers (default True)
 - `train_unembed`: Whether to train unembedding layers (default True)
 - `user_metadata`: Optional metadata to attach to the training run
+- `optimizer`: Fixed optimizer configuration. Defaults to AdamW.
 
 Returns:
 - `TrainingClient` configured for LoRA training
@@ -127,7 +129,8 @@ async def create_lora_training_client_async(
         train_mlp: bool = True,
         train_attn: bool = True,
         train_unembed: bool = True,
-        user_metadata: dict[str, str] | None = None) -> TrainingClient
+        user_metadata: dict[str, str] | None = None,
+        optimizer: types.OptimizerConfig | None = None) -> TrainingClient
 ```
 
 Async version of create_lora_training_client.
@@ -151,7 +154,8 @@ run is created to hold it, which cannot be trained on.
 
 Args:
 - `path`: Tinker path of the weights to copy
-- `ttl_seconds`: Seconds until the copy expires, or None for no expiry
+- `ttl_seconds`: Seconds until the copy expires, between 1 hour (3600) and 10 years,
+  or None for no expiry
 - `weights_access_token`: Optional access token for copying weights readable
   under a different account
 
@@ -172,7 +176,8 @@ def create_training_client_from_state(
         path: str,
         base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
-        weights_access_token: str | None = None) -> TrainingClient
+        weights_access_token: str | None = None,
+        optimizer: types.OptimizerConfig | None = None) -> TrainingClient
 ```
 
 Create a TrainingClient from saved model weights.
@@ -186,6 +191,7 @@ Args:
   compatible with it (e.g. a different context length)
 - `user_metadata`: Optional metadata to attach to the new training run
 - `weights_access_token`: Optional access token for loading checkpoints under a different account.
+- `optimizer`: Optimizer for the new training run; defaults to Adam.
 
 Returns:
 - `TrainingClient` loaded with the specified weights
@@ -206,7 +212,8 @@ async def create_training_client_from_state_async(
         path: str,
         base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
-        weights_access_token: str | None = None) -> TrainingClient
+        weights_access_token: str | None = None,
+        optimizer: types.OptimizerConfig | None = None) -> TrainingClient
 ```
 
 Async version of create_training_client_from_state.

@@ -472,17 +472,18 @@ def set_checkpoint_ttl_from_tinker_path(
 Set or remove the TTL on a checkpoint referenced by a tinker path.
 
 If ttl_seconds is provided, the checkpoint will expire after that many seconds from now.
+It must be between 1 hour (3600) and 10 years.
 If ttl_seconds is None, any existing expiration will be removed.
 
 Args:
 - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
-- `ttl_seconds`: Number of seconds until expiration, or None to remove TTL
+- `ttl_seconds`: Seconds until expiration (1 hour to 10 years), or None to remove TTL
 
 Returns:
 - A `Future` that completes when the TTL is set
 
 Raises:
-    HTTPException: 400 if checkpoint identifier is invalid or ttl_seconds <= 0
+    HTTPException: 400 if checkpoint identifier is invalid or ttl_seconds is out of range
     HTTPException: 404 if checkpoint not found or user doesn't own the training run
     HTTPException: 500 if there's an error setting the TTL
 

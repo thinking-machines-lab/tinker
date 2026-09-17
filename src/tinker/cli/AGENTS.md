@@ -58,8 +58,8 @@ class LazyGroup(click.Group):
 
 **Examples**:
 - `tinker version` - Show CLI and SDK version
-- `tinker auth login` - Open the console's New API Key dialog (`/keys?new_key=true&key_name=tinker-cli-<machine>`), prompt for the key created there, and store it in ~/.tinker/credentials.json
-- `tinker auth logout` - Remove the default credential; a CLI-minted key is also deleted on the server, a pasted key is only removed locally
+- `tinker auth login` - Print the console's New API Key URL (`/keys?new_key=true&key_name=tinker-cli-<machine>`), prompt for the key created there, and store it in ~/.tinker/credentials.json
+- `tinker auth logout` - Remove the default credential; a CLI-minted key is also deleted on the server, while a pasted key is only removed locally and gets a console deletion link
 - `tinker run list` - List all training runs
 - `tinker run info <run-id>` - Show details of a specific run
 - `tinker checkpoint list` - List all checkpoints
@@ -217,7 +217,7 @@ cli/
 ├── output.py             # OutputBase class and formatting utilities
 ├── client.py             # SDK client creation and error handling
 ├── auth_api.py           # Tinker auth endpoints reachable without a stored credential
-├── login.py              # The key name and browser opener `auth login` uses
+├── login.py              # The key-naming and masked-input helpers `auth login` uses
 ├── commands/
 │   ├── __init__.py       # Command module marker
 │   ├── auth.py           # Auth commands (credential storage)
@@ -234,8 +234,8 @@ cli/
 # Show version
 tinker version
 
-# Print (and open) the console's New API Key dialog named for this machine, prompt for the
-# key created there, and make it the default
+# Print the console's New API Key URL named for this machine, prompt for the key created
+# there, and make it the default
 tinker auth login
 
 # Remove the default credential; deletes a CLI-minted key on the server,

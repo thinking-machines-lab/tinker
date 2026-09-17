@@ -1,16 +1,13 @@
-"""The pieces `tinker auth login` needs beyond the flow itself.
-
-The command lives in cli/commands/auth.py; the name it gives a key and the
-best-effort browser opener live here, away from the command's lazy imports.
-"""
+"""Helpers for `tinker auth login`."""
 
 from __future__ import annotations
 
 import os
 import socket
 import sys
-import threading
-import webbrowser
+from collections.abc import Callable
+
+import click
 
 
 def api_key_name() -> str:
@@ -19,36 +16,62 @@ def api_key_name() -> str:
     return f"tinker-cli-{hostname or 'unknown'}"
 
 
-def open_url(url: str) -> bool:
-    """Ask a browser to open `url`, reporting whether there was one to ask.
+def prompt_api_key() -> str:
+    """Prompt for an API key, masking input when a terminal is available."""
+    if not sys.stdin.isatty():
+        return click.prompt("Paste your API key", hide_input=True)
 
-    The open runs on a daemon thread and its result is ignored: `webbrowser`
-    runs a custom $BROWSER command in the foreground, which would otherwise
-    block the login for as long as that browser stays open.
-    """
-    if not _browser_is_available():
-        return False
-    threading.Thread(target=_open_quietly, args=(url,), daemon=True).start()
-    return True
-
-
-def _open_quietly(url: str) -> None:
-    """Open `url`, swallowing the failure of a browser that won't start."""
     try:
-        webbrowser.open(url)
-    except (webbrowser.Error, OSError):
-        pass
+        if sys.platform == "win32":
+            key = _prompt_masked_windows()
+        else:
+            key = _prompt_masked_posix()
+    except (KeyboardInterrupt, EOFError):
+        click.echo()
+        raise click.Abort() from None
+
+    click.echo()
+    return key
 
 
-def _browser_is_available() -> bool:
-    """Whether launching a browser is worth attempting.
+def _prompt_masked_posix() -> str:
+    import termios
+    import tty
 
-    On a headless Linux box or over SSH, `webbrowser` happily falls back to a
-    console browser like lynx, which would take over the terminal the login is
-    running in — so require a graphical session there.
-    """
-    if os.environ.get("BROWSER"):
-        return True
-    if sys.platform in ("darwin", "win32"):
-        return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    fd = sys.stdin.fileno()
+    original_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return _read_masked_input(lambda: os.read(fd, 32).decode(sys.stdin.encoding or "utf-8"))
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, original_settings)
+        sys.stdout.flush()
+
+
+def _prompt_masked_windows() -> str:
+    import msvcrt
+
+    return _read_masked_input(msvcrt.getwch)
+
+
+def _read_masked_input(read: Callable[[], str]) -> str:
+    click.echo("Paste your API key: ", nl=False)
+    key: list[str] = []
+    while True:
+        entered = read()
+        if entered.startswith("\x1b"):
+            continue
+        for character in entered:
+            if character in ("\r", "\n"):
+                return "".join(key)
+            if character in ("\b", "\x7f"):
+                if key:
+                    key.pop()
+                    click.echo("\b \b", nl=False)
+            elif character == "\x03":
+                raise KeyboardInterrupt
+            elif character == "\x04":
+                raise EOFError
+            elif character.isprintable():
+                key.append(character)
+                click.echo("*", nl=False)

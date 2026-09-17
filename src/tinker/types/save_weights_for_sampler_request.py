@@ -20,7 +20,7 @@ class SaveWeightsForSamplerRequest(StrictBase):
     seq_id: Optional[int] = None
 
     ttl_seconds: Optional[int] = None
-    """TTL in seconds for this checkpoint (None = never expires)"""
+    """TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)"""
 
     user_metadata: Optional[dict[str, str]] = None
     """Optional user-provided metadata to attach to the checkpoint"""

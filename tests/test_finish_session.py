@@ -25,7 +25,7 @@ class _Future:
         self._coro = coro
 
     def result(self) -> None:
-        return asyncio.new_event_loop().run_until_complete(self._coro)
+        return asyncio.run(self._coro)
 
     def __await__(self) -> Any:
         return self._coro.__await__()
@@ -147,3 +147,43 @@ def test_close_rejects_lazy_holder_creation() -> None:
         _ = service_client.holder
     with pytest.raises(RuntimeError, match="ServiceClient is closed"):
         service_client.create_rest_client()
+
+
+def test_context_manager_finishes_successful_session() -> None:
+    holder = _FakeHolder()
+    service_client = _service_client(holder)
+
+    with service_client as entered_client:
+        assert entered_client is service_client
+
+    assert holder.client.requests == [
+        ("/api/v1/sessions/session-1/finish", {"reason": {"type": "success"}, "detail": None})
+    ]
+    assert holder.close_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected_status"),
+    [
+        (RuntimeError("boom"), "errored"),
+        (asyncio.CancelledError(), "interrupted"),
+    ],
+)
+def test_context_manager_finishes_unsuccessful_session(
+    exception: BaseException,
+    expected_status: str,
+) -> None:
+    holder = _FakeHolder()
+    service_client = _service_client(holder)
+
+    with pytest.raises(type(exception)):
+        with service_client:
+            raise exception
+
+    assert holder.client.requests == [
+        (
+            "/api/v1/sessions/session-1/finish",
+            {"reason": {"type": expected_status}, "detail": None},
+        )
+    ]
+    assert holder.close_calls == 1

@@ -1,4 +1,5 @@
 from .._models import BaseModel
+from .optimizer import AdamOptimizerConfig, OptimizerConfig
 
 __all__ = ["WeightsInfoResponse"]
 
@@ -7,6 +8,7 @@ class WeightsInfoResponse(BaseModel):
     """Minimal information for loading public checkpoints."""
 
     base_model: str
+    optimizer_config: OptimizerConfig = AdamOptimizerConfig()
 
     is_lora: bool
 

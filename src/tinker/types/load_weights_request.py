@@ -5,6 +5,7 @@ from typing_extensions import Literal
 from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import StrictBase
 from .model_id import ModelID
+from .optimizer import OptimizerConfig
 
 __all__ = ["LoadWeightsRequest"]
 
@@ -36,6 +37,10 @@ class LoadWeightsRequest(StrictBase):
 
     optimizer: bool
     """Whether to load optimizer state along with model weights"""
+
+    optimizer_config: Optional[OptimizerConfig] = None
+    """Optimizer for a new weights-only model. Defaults to Adam; cannot override
+    restored optimizer state or an existing model."""
 
     weights_access_token: Optional[str] = None
     """Optional access token for loading checkpoints under a different account."""

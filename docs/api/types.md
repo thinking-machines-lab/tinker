@@ -86,7 +86,7 @@ A file/directory name for the external weights (required)
 
 #### `ttl_seconds`
 
-TTL in seconds for this checkpoint (None = never expires)
+TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)
 
 ## `CheckpointArchiveUrlResponse` Objects
 
@@ -160,6 +160,82 @@ Inclusive window start, aligned to a UTC hour boundary
 Exclusive window end, aligned to a UTC hour boundary; at most 14 days
 after `starting_on`; the window must not start in the future
 
+Optimizer selection and per-step hyperparameters for training models.
+
+## `DimuonOptimizerConfig` Objects
+
+```python
+class DimuonOptimizerConfig(StrictBase)
+```
+
+Dimuon identity retained by full-state resume.
+
+## `AdamParams` Objects
+
+```python
+class AdamParams(StrictBase)
+```
+
+#### `learning_rate`
+
+Learning rate for the optimizer
+
+#### `beta1`
+
+Coefficient used for computing running averages of gradient
+
+#### `beta2`
+
+Coefficient used for computing running averages of gradient square
+
+#### `eps`
+
+Term added to the denominator to improve numerical stability
+
+#### `weight_decay`
+
+Weight decay for the optimizer. Uses decoupled weight decay.
+
+#### `grad_clip_norm`
+
+Maximum global gradient norm. If the global gradient norm is greater than this value, it will be clipped to this value. 0.0 means no clipping.
+
+## `DimuonParams` Objects
+
+```python
+class DimuonParams(StrictBase)
+```
+
+Hyperparameters for one Dimuon optimizer step.
+
+The caller supplies schedules. Omitted settings use the defaults on each step;
+previous overrides do not carry forward. Matrix-sign iteration count and
+normalization epsilon are internal constants.
+
+#### `type`
+
+Optimizer family for this step.
+
+#### `learning_rate`
+
+Learning rate applied to a direction with Frobenius norm sqrt(rank), with rank correction applied uniformly to all LoRA matrices.
+
+#### `grad_clip_norm`
+
+Maximum global gradient norm. Nonpositive values disable gradient clipping.
+
+#### `beta1`
+
+Coefficient used for computing running averages of gradients.
+
+#### `damping`
+
+Positive damping that smooths the row and column preconditioner.
+
+#### `rank_lr_correction_exponent`
+
+Exponent for learning-rate correction relative to rank 32. Zero disables rank correction.
+
 ## `Datum` Objects
 
 ```python
@@ -219,6 +295,10 @@ Optional metadata about this model/training run, set by the end-user.
 #### `lora_config`
 
 LoRA configuration
+
+#### `optimizer_config`
+
+Optimizer identity fixed for the lifetime of the training model.
 
 ## `Checkpoint` Objects
 
@@ -394,6 +474,11 @@ A tinker URI for model weights at a specific step
 
 Whether to load optimizer state along with model weights
 
+#### `optimizer_config`
+
+Optimizer for a new weights-only model. Defaults to Adam; cannot override
+restored optimizer state or an existing model.
+
 #### `weights_access_token`
 
 Optional access token for loading checkpoints under a different account.
@@ -508,7 +593,7 @@ A file/directory name for the weights
 
 #### `ttl_seconds`
 
-TTL in seconds for this checkpoint (None = never expires)
+TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)
 
 #### `overwrite`
 
@@ -944,7 +1029,7 @@ A tinker URI for the weights to copy. Either kind is accepted.
 
 #### `ttl_seconds`
 
-Seconds until the copy expires. The source's expiry is not inherited.
+Seconds until the copy expires, 1 hour (3600) to 10 years. Source expiry is not inherited.
 
 #### `weights_access_token`
 
@@ -1112,7 +1197,7 @@ A file/directory name for the weights
 
 #### `ttl_seconds`
 
-TTL in seconds for this checkpoint (None = never expires)
+TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)
 
 #### `user_metadata`
 
@@ -1508,36 +1593,6 @@ Deprecated: read `event_details`. Set on checkpoint events only.
 #### `purpose`
 
 Deprecated: read `event_details`. Set on checkpoint reads only.
-
-## `AdamParams` Objects
-
-```python
-class AdamParams(StrictBase)
-```
-
-#### `learning_rate`
-
-Learning rate for the optimizer
-
-#### `beta1`
-
-Coefficient used for computing running averages of gradient
-
-#### `beta2`
-
-Coefficient used for computing running averages of gradient square
-
-#### `eps`
-
-Term added to the denominator to improve numerical stability
-
-#### `weight_decay`
-
-Weight decay for the optimizer. Uses decoupled weight decay.
-
-#### `grad_clip_norm`
-
-Maximum global gradient norm. If the global gradient norm is greater than this value, it will be clipped to this value. 0.0 means no clipping.
 
 ## `ForwardBackwardInput` Objects
 

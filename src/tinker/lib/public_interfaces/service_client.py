@@ -7,7 +7,8 @@ import os
 import threading
 import time
 from concurrent.futures import Future as ConcurrentFuture
-from typing import TYPE_CHECKING, Any, Literal
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from tinker import types
 from tinker._types import NoneType
@@ -84,6 +85,28 @@ class ServiceClient(TelemetryProvider):
         self._rest_holder_lock: threading.Lock = threading.Lock()
         self._lifecycle_lock: threading.Lock = threading.Lock()
         self._closed: bool = False
+
+    def __enter__(self) -> Self:
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("ServiceClient is closed")
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exc_value, traceback
+        status: Literal["success", "errored", "interrupted"]
+        if exc_type is None:
+            status = "success"
+        elif issubclass(exc_type, Exception):
+            status = "errored"
+        else:
+            status = "interrupted"
+        self.close(status).result()
 
     # The unlocked fast paths below keep event-loop-thread callers from blocking
     # on the lock while another thread creates a holder.
@@ -202,6 +225,7 @@ class ServiceClient(TelemetryProvider):
         train_attn: bool,
         train_unembed: bool,
         user_metadata: dict[str, str] | None,
+        optimizer: types.OptimizerConfig | None,
     ) -> AwaitableConcurrentFuture[TrainingClient]:
         assert any([train_mlp, train_attn, train_unembed]), (
             "At least one of train_mlp, train_attn, or train_unembed must be True"
@@ -226,6 +250,7 @@ class ServiceClient(TelemetryProvider):
                     base_model=base_model,
                     lora_config=lora_config,
                     user_metadata=user_metadata,
+                    optimizer_config=optimizer or types.AdamOptimizerConfig(),
                 )
                 future = await client.models.create(request=request)
             create_model_response = await _APIFuture(
@@ -257,6 +282,7 @@ class ServiceClient(TelemetryProvider):
         train_attn: bool = True,
         train_unembed: bool = True,
         user_metadata: dict[str, str] | None = None,
+        optimizer: types.OptimizerConfig | None = None,
     ) -> TrainingClient:
         """Create a TrainingClient for LoRA fine-tuning.
 
@@ -268,6 +294,7 @@ class ServiceClient(TelemetryProvider):
         - `train_attn`: Whether to train attention layers (default True)
         - `train_unembed`: Whether to train unembedding layers (default True)
         - `user_metadata`: Optional metadata to attach to the training run
+        - `optimizer`: Fixed optimizer configuration. Defaults to AdamW.
 
         Returns:
         - `TrainingClient` configured for LoRA training
@@ -291,6 +318,7 @@ class ServiceClient(TelemetryProvider):
             train_attn,
             train_unembed,
             user_metadata,
+            optimizer,
         ).result()
 
     async def create_lora_training_client_async(
@@ -302,6 +330,7 @@ class ServiceClient(TelemetryProvider):
         train_attn: bool = True,
         train_unembed: bool = True,
         user_metadata: dict[str, str] | None = None,
+        optimizer: types.OptimizerConfig | None = None,
     ) -> TrainingClient:
         """Async version of create_lora_training_client."""
         return await self._create_lora_training_client_submit(
@@ -312,6 +341,7 @@ class ServiceClient(TelemetryProvider):
             train_attn,
             train_unembed,
             user_metadata,
+            optimizer,
         ).result_async()
 
     def _get_rest_client_for_weights(self, weights_access_token: str | None = None) -> RestClient:
@@ -334,6 +364,7 @@ class ServiceClient(TelemetryProvider):
         self,
         path: str,
         optimizer: bool,
+        optimizer_config: types.OptimizerConfig | None,
         base_model: str | None,
         user_metadata: dict[str, str] | None,
         weights_access_token: str | None,
@@ -356,6 +387,7 @@ class ServiceClient(TelemetryProvider):
                     user_metadata=user_metadata,
                     path=path,
                     optimizer=optimizer,
+                    optimizer_config=optimizer_config,
                     weights_access_token=weights_access_token,
                 )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -426,7 +458,8 @@ class ServiceClient(TelemetryProvider):
 
         Args:
         - `path`: Tinker path of the weights to copy
-        - `ttl_seconds`: Seconds until the copy expires, or None for no expiry
+        - `ttl_seconds`: Seconds until the copy expires, between 1 hour (3600) and 10 years,
+          or None for no expiry
         - `weights_access_token`: Optional access token for copying weights readable
           under a different account
 
@@ -449,6 +482,7 @@ class ServiceClient(TelemetryProvider):
         base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
+        optimizer: types.OptimizerConfig | None = None,
     ) -> TrainingClient:
         """Create a TrainingClient from saved model weights.
 
@@ -461,6 +495,7 @@ class ServiceClient(TelemetryProvider):
           compatible with it (e.g. a different context length)
         - `user_metadata`: Optional metadata to attach to the new training run
         - `weights_access_token`: Optional access token for loading checkpoints under a different account.
+        - `optimizer`: Optimizer for the new training run; defaults to Adam.
 
         Returns:
         - `TrainingClient` loaded with the specified weights
@@ -478,6 +513,7 @@ class ServiceClient(TelemetryProvider):
             return self._create_training_client_via_load_weights_submit(
                 path,
                 optimizer=False,
+                optimizer_config=optimizer,
                 base_model=base_model,
                 user_metadata=user_metadata,
                 weights_access_token=weights_access_token,
@@ -496,6 +532,7 @@ class ServiceClient(TelemetryProvider):
             train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
             train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
+            optimizer=optimizer,
         )
 
         auth_token = (
@@ -515,12 +552,14 @@ class ServiceClient(TelemetryProvider):
         base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
+        optimizer: types.OptimizerConfig | None = None,
     ) -> TrainingClient:
         """Async version of create_training_client_from_state."""
         if self.holder._client_config.create_model_via_load_weights:
             return await self._create_training_client_via_load_weights_submit(
                 path,
                 optimizer=False,
+                optimizer_config=optimizer,
                 base_model=base_model,
                 user_metadata=user_metadata,
                 weights_access_token=weights_access_token,
@@ -542,6 +581,7 @@ class ServiceClient(TelemetryProvider):
             train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
             train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
+            optimizer=optimizer,
         )
 
         load_future = await training_client.load_state_async(
@@ -587,6 +627,7 @@ class ServiceClient(TelemetryProvider):
             return self._create_training_client_via_load_weights_submit(
                 path,
                 optimizer=True,
+                optimizer_config=None,
                 base_model=base_model,
                 user_metadata=user_metadata,
                 weights_access_token=weights_access_token,
@@ -605,6 +646,7 @@ class ServiceClient(TelemetryProvider):
             train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
             train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
+            optimizer=weights_info.optimizer_config,
         )
 
         training_client.load_state_with_optimizer(
@@ -624,6 +666,7 @@ class ServiceClient(TelemetryProvider):
             return await self._create_training_client_via_load_weights_submit(
                 path,
                 optimizer=True,
+                optimizer_config=None,
                 base_model=base_model,
                 user_metadata=user_metadata,
                 weights_access_token=weights_access_token,
@@ -645,6 +688,7 @@ class ServiceClient(TelemetryProvider):
             train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
             train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
             user_metadata=user_metadata,
+            optimizer=weights_info.optimizer_config,
         )
 
         load_future = await training_client.load_state_with_optimizer_async(

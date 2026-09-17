@@ -16,7 +16,7 @@ class CopyWeightsRequest(StrictBase):
     """A tinker URI for the weights to copy. Either kind is accepted."""
 
     ttl_seconds: Optional[int] = None
-    """Seconds until the copy expires. The source's expiry is not inherited."""
+    """Seconds until the copy expires, 1 hour (3600) to 10 years. Source expiry is not inherited."""
 
     weights_access_token: Optional[str] = None
     """Optional access token for copying weights under a different account."""

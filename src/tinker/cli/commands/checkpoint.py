@@ -804,7 +804,7 @@ def unpublish(cli_context: CLIContext, checkpoint_path: str) -> None:
 
 @cli.command(name="set-ttl")
 @click.argument("checkpoint_path")
-@click.option("--ttl", type=int, default=None, help="TTL in seconds (positive integer)")
+@click.option("--ttl", type=int, default=None, help="TTL in seconds (1 hour to 10 years)")
 @click.option("--remove", is_flag=True, help="Remove the expiration from the checkpoint")
 @click.pass_obj
 @handle_api_errors
