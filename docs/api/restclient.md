@@ -562,7 +562,8 @@ Args:
 - `session_id`: The session ID to get information for
 
 Returns:
-- A `Future` containing the `GetSessionResponse` with training_run_ids and sampler_ids
+- A `Future` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
+  and user_metadata
 
 Example:
 ```python
@@ -570,6 +571,7 @@ future = rest_client.get_session("session-id")
 response = future.result()
 print(f"Training runs: {len(response.training_run_ids)}")
 print(f"Samplers: {len(response.sampler_ids)}")
+print(f"User metadata: {response.user_metadata}")
 ```
 
 #### `get_session_async`

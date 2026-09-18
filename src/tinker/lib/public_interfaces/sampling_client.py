@@ -20,6 +20,7 @@ from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
+from tinker.types._pydantic_types.tensor_data import TensorData as _TensorDataModel
 
 from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
 from ..retry_handler import RetryConfig, RetryHandler
@@ -73,6 +74,31 @@ def _attach_sequence_ids(
             for seq, sequence_id in zip(response.sequences, sample_sequence_ids, strict=True)
         ],
     )
+
+
+def _tensor_data_to_model(td: types.TensorData) -> _TensorDataModel:
+    """The JSON wire shape of a `TensorData` (the same one `loss_fn_inputs` use)."""
+    return _TensorDataModel(
+        data=td.data,
+        dtype=td.dtype,
+        shape=td.shape,
+        sparse_crow_indices=td.sparse_crow_indices,
+        sparse_col_indices=td.sparse_col_indices,
+    )
+
+
+def _check_target_prompt_logprobs(target_prompt_logprobs: types.TensorData) -> None:
+    """Reject a `target_prompt_logprobs` tensor the server would refuse."""
+    if target_prompt_logprobs.dtype != "int64":
+        raise ValueError(
+            "target_prompt_logprobs must be an int64 tensor of token ids, "
+            f"got {target_prompt_logprobs.dtype}"
+        )
+    if target_prompt_logprobs.shape is None or len(target_prompt_logprobs.shape) != 2:
+        raise ValueError(
+            "target_prompt_logprobs must be 2-D, [len(prompt) - 1, K], "
+            f"got shape {target_prompt_logprobs.shape}"
+        )
 
 
 class SamplingClient(TelemetryProvider, QueueStateObserver):
@@ -214,6 +240,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool,
         topk_prompt_logprobs: int,
         topk_sample_logprobs: int,
+        target_prompt_logprobs: _TensorDataModel | None,
     ):
         try:
             request = types.SampleRequest(
@@ -225,6 +252,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 prompt_logprobs=include_prompt_logprobs,
                 topk_prompt_logprobs=topk_prompt_logprobs,
                 topk_sample_logprobs=topk_sample_logprobs,
+                target_prompt_logprobs=target_prompt_logprobs,
                 record_stability_info=self._record_stability_info,
             )
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
@@ -248,6 +276,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool,
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
+        target_prompt_logprobs: _TensorDataModel | None = None,
     ) -> types.SampleResponse:
         estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
         request_id = self._request_id_counter
@@ -270,6 +299,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     include_prompt_logprobs,
                     topk_prompt_logprobs,
                     topk_sample_logprobs,
+                    target_prompt_logprobs,
                 )
                 if untyped_future is not None:
                     break
@@ -320,6 +350,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool = False,
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
+        target_prompt_logprobs: types.TensorData | None = None,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Generate text completions from the model.
 
@@ -330,9 +361,18 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         - `include_prompt_logprobs`: Whether to include log probabilities for prompt tokens
         - `topk_prompt_logprobs`: Number of top token log probabilities to return per prompt position
         - `topk_sample_logprobs`: Number of top token log probabilities to return per sampled position
+        - `target_prompt_logprobs`: Token ids whose log probabilities to return at each prompt
+            position, as an int64 `TensorData` of shape `[len(prompt) - 1, K]`:
+            `target_prompt_logprobs[i][j]` is scored at prompt position `i + 1` (position 0
+            has no preceding context). Use `-1` for cells you don't need; no logprob is
+            computed for them. Dense (`TensorData.from_torch(ids)`) or sparse CSR
+            (`TensorData.from_torch_sparse(ids, pad_value=-1)`), which sends and returns
+            only the cells you name. The server requires exactly `len(prompt) - 1` rows and
+            at least one id, and bounds the cost, `len(prompt) * distinct ids`, the way it
+            bounds a top-k width. Rows before the first one that names an id are not scored.
 
         Returns:
-        - A `Future` containing the `SampleResponse` with generated text
+        - A `Future` containing the `SampleResponse` with generated text and other logprob information.
 
         Example:
         ```python
@@ -340,10 +380,39 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         params = types.SamplingParams(max_tokens=20, temperature=0.7)
         future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
         result = future.result()
-        for sample in result.samples:
-            print(tokenizer.decode(sample.tokens))
+        for sequence in result.sequences:
+            print(tokenizer.decode(sequence.tokens))
+        ```
+
+        Example: log probabilities of chosen token ids at chosen prompt positions.
+        `max_tokens=1` makes the request a single prefill of the prompt (one token is still
+        generated, and can be ignored); `target_prompt_logprobs` names the ids to score. Here,
+        we score one candidate token at the last position in the prompt and send in a sparse tensor:
+        ```python
+        tokens = tokenizer.encode("Hello world")
+        position = len(tokens) - 1
+        ids = torch.full((len(tokens) - 1, 1), -1, dtype=torch.int64)
+        ids[position - 1, 0] = candidate_token_id  # row i - 1 scores prompt position i
+        target = types.TensorData.from_torch_sparse(ids, pad_value=-1)
+        future = sampling_client.sample(
+            prompt=types.ModelInput.from_ints(tokens),
+            num_samples=1,
+            sampling_params=types.SamplingParams(max_tokens=1),
+            include_prompt_logprobs=True,
+            target_prompt_logprobs=target,
+        )
+        result = future.result()
+        prompt_logprobs = result.prompt_logprobs  # [len(tokens)], None at position 0
+        actual_token_logprob = prompt_logprobs[position]
+        target_logprobs = result.target_prompt_logprobs.to_torch()  # [len(tokens) - 1, 1]
+        candidate_token_logprob = target_logprobs[position - 1, 0]
         ```
         """
+        # Validate up front so a bad tensor fails here, not in the retry loop.
+        target_prompt_logprobs_model = None
+        if target_prompt_logprobs is not None:
+            _check_target_prompt_logprobs(target_prompt_logprobs)
+            target_prompt_logprobs_model = _tensor_data_to_model(target_prompt_logprobs)
 
         async def _sample_async():
             return await self._sample_async_impl(
@@ -353,6 +422,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 include_prompt_logprobs,
                 topk_prompt_logprobs,
                 topk_sample_logprobs,
+                target_prompt_logprobs_model,
             )
 
         @capture_exceptions(fatal=True)
@@ -381,6 +451,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         include_prompt_logprobs: bool = False,
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
+        target_prompt_logprobs: types.TensorData | None = None,
     ) -> types.SampleResponse:
         """Async version of sample."""
         return await AwaitableConcurrentFuture(
@@ -391,6 +462,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 include_prompt_logprobs,
                 topk_prompt_logprobs,
                 topk_sample_logprobs,
+                target_prompt_logprobs,
             )
         )
 
@@ -574,7 +646,13 @@ def _load_tokenizer_from_model_info(
             tokenizer_id = model_name
 
     if tokenizer_id.startswith(("TML/", "thinkingmachines/")):
-        from tml_tokenizers.tinker_tokenizers import get_tinker_tokenizer
+        try:
+            from tml_tokenizers.tinker_tokenizers import get_tinker_tokenizer
+        except ImportError as exc:
+            raise RuntimeError(
+                "Thinking Machines models do not support get_tokenizer. Prefer to construct a "
+                "renderer with tml-renderers instead: https://pypi.org/project/tml-renderers/"
+            ) from exc
 
         if (tokenizer := get_tinker_tokenizer(tokenizer_id)) is not None:
             return tokenizer

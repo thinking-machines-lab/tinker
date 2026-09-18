@@ -7,6 +7,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from .sampled_sequence import SampledSequence
+from .tensor_data import TensorData
 from .topk_logprobs import TopkLogprobs, topk_to_lists
 
 __all__ = ["SampleResponse"]
@@ -34,6 +35,11 @@ class SampleResponse:
     """Top-k prompt logprobs as a pair of dense matrices
     (see ``TopkLogprobs``).
     None if top-k was not requested."""
+
+    target_prompt_logprobs: Optional[TensorData] = None
+    """Logprobs of the ids in ``SampleRequest.target_prompt_logprobs``: a float32
+    tensor of the same shape and layout, 0.0 where the request had ``-1``.
+    None if not requested."""
 
     prompt_cache_hit_tokens: int = 0
     """Number of prompt tokens billed as prefix-cache hits.

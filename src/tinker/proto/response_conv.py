@@ -106,8 +106,33 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
         sequences=sequences,
         prompt_logprobs_np=prompt_logprobs_np,
         topk_prompt_logprobs_np=topk_prompt_logprobs_np,
+        target_prompt_logprobs=(
+            _tensor_data_from_proto(proto.target_prompt_logprobs)
+            if proto.HasField("target_prompt_logprobs")
+            else None
+        ),
         prompt_cache_hit_tokens=proto.prompt_cache_hit_tokens,
     )
+
+
+def _tensor_data_from_proto(msg: public_pb.Tensor) -> TensorData:
+    """Decode a public proto ``Tensor`` into a ``TensorData``, keeping a sparse
+    CSR layout sparse. Inverse of ``request_conv._tensor_data_to_proto``."""
+    np_dtype = _PROTO_DTYPE_TO_NUMPY.get(msg.dtype)
+    dtype = _PROTO_DTYPE_TO_TENSOR_DTYPE.get(msg.dtype)
+    if np_dtype is None or dtype is None:
+        raise ValueError(f"Unsupported proto dtype: {msg.dtype}")
+    shape = list(msg.shape)
+    if msg.HasField("sparse_csr"):
+        csr = msg.sparse_csr
+        return TensorData(
+            data=np.frombuffer(csr.values, dtype=np_dtype).copy(),
+            dtype=dtype,
+            shape=shape,
+            sparse_crow_indices=np.frombuffer(csr.crow_indices, dtype=np.int64).tolist(),
+            sparse_col_indices=np.frombuffer(csr.col_indices, dtype=np.int64).tolist(),
+        )
+    return TensorData(data=np.frombuffer(msg.dense, dtype=np_dtype).copy(), dtype=dtype, shape=shape)
 
 
 def _decode_batched_tensor_to_per_datum_arrays(
