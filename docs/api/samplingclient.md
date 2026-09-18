@@ -42,12 +42,13 @@ ServiceClient and TrainingClient should always be managed from the main process.
 
 ```python
 def sample(
-        prompt: types.ModelInput,
-        num_samples: int,
-        sampling_params: types.SamplingParams,
-        include_prompt_logprobs: bool = False,
-        topk_prompt_logprobs: int = 0,
-        topk_sample_logprobs: int = 0
+    prompt: types.ModelInput,
+    num_samples: int,
+    sampling_params: types.SamplingParams,
+    include_prompt_logprobs: bool = False,
+    topk_prompt_logprobs: int = 0,
+    topk_sample_logprobs: int = 0,
+    target_prompt_logprobs: types.TensorData | None = None
 ) -> ConcurrentFuture[types.SampleResponse]
 ```
 
@@ -60,9 +61,18 @@ Args:
 - `include_prompt_logprobs`: Whether to include log probabilities for prompt tokens
 - `topk_prompt_logprobs`: Number of top token log probabilities to return per prompt position
 - `topk_sample_logprobs`: Number of top token log probabilities to return per sampled position
+- `target_prompt_logprobs`: Token ids whose log probabilities to return at each prompt
+    position, as an int64 `TensorData` of shape `[len(prompt) - 1, K]`:
+    `target_prompt_logprobs[i][j]` is scored at prompt position `i + 1` (position 0
+    has no preceding context). Use `-1` for cells you don't need; no logprob is
+    computed for them. Dense (`TensorData.from_torch(ids)`) or sparse CSR
+    (`TensorData.from_torch_sparse(ids, pad_value=-1)`), which sends and returns
+    only the cells you name. The server requires exactly `len(prompt) - 1` rows and
+    at least one id, and bounds the cost, `len(prompt) * distinct ids`, the way it
+    bounds a top-k width. Rows before the first one that names an id are not scored.
 
 Returns:
-- A `Future` containing the `SampleResponse` with generated text
+- A `Future` containing the `SampleResponse` with generated text and other logprob information.
 
 Example:
 ```python
@@ -70,19 +80,46 @@ prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
 params = types.SamplingParams(max_tokens=20, temperature=0.7)
 future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
 result = future.result()
-for sample in result.samples:
-    print(tokenizer.decode(sample.tokens))
+for sequence in result.sequences:
+    print(tokenizer.decode(sequence.tokens))
+```
+
+Example: log probabilities of chosen token ids at chosen prompt positions.
+`max_tokens=1` makes the request a single prefill of the prompt (one token is still
+generated, and can be ignored); `target_prompt_logprobs` names the ids to score. Here,
+we score one candidate token at the last position in the prompt and send in a sparse tensor:
+```python
+tokens = tokenizer.encode("Hello world")
+position = len(tokens) - 1
+ids = torch.full((len(tokens) - 1, 1), -1, dtype=torch.int64)
+ids[position - 1, 0] = candidate_token_id  # row i - 1 scores prompt position i
+target = types.TensorData.from_torch_sparse(ids, pad_value=-1)
+future = sampling_client.sample(
+    prompt=types.ModelInput.from_ints(tokens),
+    num_samples=1,
+    sampling_params=types.SamplingParams(max_tokens=1),
+    include_prompt_logprobs=True,
+    target_prompt_logprobs=target,
+)
+result = future.result()
+prompt_logprobs = result.prompt_logprobs  # [len(tokens)], None at position 0
+actual_token_logprob = prompt_logprobs[position]
+target_logprobs = result.target_prompt_logprobs.to_torch()  # [len(tokens) - 1, 1]
+candidate_token_logprob = target_logprobs[position - 1, 0]
 ```
 
 #### `sample_async`
 
 ```python
-async def sample_async(prompt: types.ModelInput,
-                       num_samples: int,
-                       sampling_params: types.SamplingParams,
-                       include_prompt_logprobs: bool = False,
-                       topk_prompt_logprobs: int = 0,
-                       topk_sample_logprobs: int = 0) -> types.SampleResponse
+async def sample_async(
+    prompt: types.ModelInput,
+    num_samples: int,
+    sampling_params: types.SamplingParams,
+    include_prompt_logprobs: bool = False,
+    topk_prompt_logprobs: int = 0,
+    topk_sample_logprobs: int = 0,
+    target_prompt_logprobs: types.TensorData | None = None
+) -> types.SampleResponse
 ```
 
 Async version of sample.

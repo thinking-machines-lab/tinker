@@ -8,6 +8,7 @@ code paths (empty record, num_datums-only record, dispatch) stay hand-crafted.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
@@ -54,6 +55,54 @@ def _build_fwdbwd_proto(
 
 def test_forward_backward_output_in_proto_supported_types() -> None:
     assert ForwardBackwardOutput in PROTO_SUPPORTED_TYPES
+
+
+# torch's sparse CSR warnings are its own (beta-state notices), not ours.
+@pytest.mark.filterwarnings("ignore:Sparse:UserWarning")
+def test_deserialize_sample_response_target_logprobs() -> None:
+    """The answer tensor decodes to a TensorData in the layout it was sent:
+    dense stays dense, sparse CSR keeps its indices, and both densify to the
+    same matrix (0.0 in placeholder cells)."""
+    dense = np.array([[-0.5, 0.0, -1.5], [-2.5, 0.0, 0.0]], dtype=np.float32)
+
+    msg = public_pb.SampleResponse()
+    msg.target_prompt_logprobs.dense = dense.tobytes()
+    msg.target_prompt_logprobs.dtype = public_pb.DTYPE_FLOAT32
+    msg.target_prompt_logprobs.shape.extend([2, 3])
+    resp = deserialize_sample_response(msg.SerializeToString())
+    assert resp.target_prompt_logprobs is not None
+    assert resp.target_prompt_logprobs.dtype == "float32" and resp.target_prompt_logprobs.shape == [
+        2,
+        3,
+    ]
+    assert resp.target_prompt_logprobs.sparse_crow_indices is None
+    np.testing.assert_array_equal(resp.target_prompt_logprobs.to_numpy(), dense)
+
+    msg = public_pb.SampleResponse()
+    msg.target_prompt_logprobs.sparse_csr.values = np.array(
+        [-0.5, -1.5, -2.5], dtype=np.float32
+    ).tobytes()
+    msg.target_prompt_logprobs.sparse_csr.crow_indices = np.array(
+        [0, 2, 3], dtype=np.int64
+    ).tobytes()
+    msg.target_prompt_logprobs.sparse_csr.col_indices = np.array(
+        [0, 2, 0], dtype=np.int64
+    ).tobytes()
+    msg.target_prompt_logprobs.dtype = public_pb.DTYPE_FLOAT32
+    msg.target_prompt_logprobs.shape.extend([2, 3])
+    resp = deserialize_sample_response(msg.SerializeToString())
+    assert resp.target_prompt_logprobs is not None
+    assert resp.target_prompt_logprobs.sparse_crow_indices == [0, 2, 3]
+    assert resp.target_prompt_logprobs.sparse_col_indices == [0, 2, 0]
+    assert resp.target_prompt_logprobs.data == [-0.5, -1.5, -2.5]
+    np.testing.assert_array_equal(resp.target_prompt_logprobs.to_numpy(), dense)
+
+    assert (
+        deserialize_sample_response(
+            public_pb.SampleResponse().SerializeToString()
+        ).target_prompt_logprobs
+        is None
+    )
 
 
 def test_deserialize_sample_response_topk_sampled_logprobs() -> None:

@@ -67,6 +67,7 @@ class SampleResponse(google.protobuf.message.Message):
     PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
     TOPK_PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
     PROMPT_CACHE_HIT_TOKENS_FIELD_NUMBER: builtins.int
+    TARGET_PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
     prompt_logprobs: builtins.bytes
     """np.array(prompt_logprobs, dtype=np.float32).tobytes()
     NaN for missing positions (e.g. first prompt token)
@@ -81,6 +82,13 @@ class SampleResponse(google.protobuf.message.Message):
     def topk_prompt_logprobs(self) -> Global___TopkLogprobs:
         """Optional: absent means no topk was requested."""
 
+    @property
+    def target_prompt_logprobs(self) -> Global___Tensor:
+        """Logprobs of the token ids the request's `target_prompt_logprobs` named: a
+        float32 tensor of the request's shape and layout (same CSR indices when
+        sparse), 0.0 in placeholder cells. Absent means none were requested.
+        """
+
     def __init__(
         self,
         *,
@@ -88,11 +96,14 @@ class SampleResponse(google.protobuf.message.Message):
         prompt_logprobs: builtins.bytes | None = ...,
         topk_prompt_logprobs: Global___TopkLogprobs | None = ...,
         prompt_cache_hit_tokens: builtins.int = ...,
+        target_prompt_logprobs: Global___Tensor | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_logprobs", b"prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_cache_hit_tokens", b"prompt_cache_hit_tokens", "prompt_logprobs", b"prompt_logprobs", "sequences", b"sequences", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> None: ...
+    def HasField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_target_prompt_logprobs", b"_target_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_logprobs", b"prompt_logprobs", "target_prompt_logprobs", b"target_prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_target_prompt_logprobs", b"_target_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_cache_hit_tokens", b"prompt_cache_hit_tokens", "prompt_logprobs", b"prompt_logprobs", "sequences", b"sequences", "target_prompt_logprobs", b"target_prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_prompt_logprobs", b"_prompt_logprobs"]) -> typing.Literal["prompt_logprobs"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_target_prompt_logprobs", b"_target_prompt_logprobs"]) -> typing.Literal["target_prompt_logprobs"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_topk_prompt_logprobs", b"_topk_prompt_logprobs"]) -> typing.Literal["topk_prompt_logprobs"] | None: ...
 

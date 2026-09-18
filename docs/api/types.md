@@ -429,6 +429,16 @@ class FutureFailed(BaseModel)
 
 A failed request reported by ``/api/v1/retrieve_futures`` (no payload).
 
+## `GetSessionResponse` Objects
+
+```python
+class GetSessionResponse(BaseModel)
+```
+
+#### `user_metadata`
+
+Optional metadata attached to this session by the user.
+
 ## `EncodedTextChunk` Objects
 
 ```python
@@ -512,6 +522,12 @@ None if prompt logprobs were not requested.
 Top-k prompt logprobs as a pair of dense matrices
 (see ``TopkLogprobs``).
 None if top-k was not requested.
+
+#### `target_prompt_logprobs`
+
+Logprobs of the ids in ``SampleRequest.target_prompt_logprobs``: a float32
+tensor of the same shape and layout, 0.0 where the request had ``-1``.
+None if not requested.
 
 #### `prompt_cache_hit_tokens`
 
@@ -823,7 +839,8 @@ provided, and is generally inferred as a 1D tensor.
 #### `sparse_crow_indices`
 
 Optional CSR compressed row pointers. When set, this tensor is sparse CSR:
-- data contains only the non-zero values (flattened)
+- data contains only the listed values (flattened); every other entry takes
+  the `pad_value` given when converting to or from a dense tensor
 - sparse_crow_indices contains the row pointers (length = nrows + 1)
 - sparse_col_indices contains the column indices (length = nnz)
 - shape is required and specifies the dense shape
@@ -843,29 +860,43 @@ Flattened tensor data as array of numbers.
 #### `from_torch_sparse`
 
 ```python
-def from_torch_sparse(cls, tensor: torch.Tensor) -> TensorData
+def from_torch_sparse(cls,
+                      tensor: torch.Tensor,
+                      pad_value: int = 0) -> TensorData
 ```
 
 Create a sparse CSR TensorData from a dense 2-D torch tensor.
 
-Automatically detects sparsity and encodes as CSR when it saves space.
-Falls back to dense if the tensor is 1-D or mostly non-zero.
+Entries equal to `pad_value` are left out; the rest are stored as CSR
+values. Automatically detects sparsity and encodes as CSR when it saves
+space. Falls back to dense if the tensor is 1-D or mostly non-pad.
+
+`pad_value` must be an integer: the tensor is shifted by it so torch's
+zero-based CSR conversion can be reused, and an integer shift is exact
+for `int64` tensors. For `float32` tensors with a non-zero pad it may
+round values whose magnitude is far below `pad_value`.
 
 #### `to_numpy`
 
 ```python
-def to_numpy() -> npt.NDArray[Any]
+def to_numpy(pad_value: int = 0) -> npt.NDArray[Any]
 ```
 
 Convert TensorData to numpy array.
 
+A sparse CSR tensor is densified with `pad_value` in every unlisted entry.
+
 #### `to_torch`
 
 ```python
-def to_torch() -> torch.Tensor
+def to_torch(pad_value: int = 0) -> torch.Tensor
 ```
 
 Convert TensorData to torch tensor.
+
+A sparse CSR tensor is densified with `pad_value` in every unlisted
+entry. `pad_value` must be an integer so the shift around torch's
+zero-based densification is exact for `int64` tensors.
 
 ## `ExternalWeightsUrlsResponse` Objects
 
@@ -1333,6 +1364,15 @@ If set to a positive integer, returns the top-k logprobs for each prompt token.
 If set to a positive integer, returns the top-k logprobs for each sampled token
 (see ``SampledSequence.topk_logprobs``).
 
+#### `target_prompt_logprobs`
+
+Token ids whose prompt logprobs to return, as an int64 tensor of shape
+``[len(prompt) - 1, K]``: cell ``[i, j]`` is scored at prompt position
+``i + 1`` (position 0 has no preceding context). A cell of ``-1`` requests
+nothing and gets no logprob. May be sparse CSR, in which case only the
+listed cells request anything. ``SampleResponse.target_prompt_logprobs``
+has the same shape and layout.
+
 ## `TrainingBillingEvent` Objects
 
 ```python
@@ -1742,7 +1782,8 @@ provided, and is generally inferred as a 1D tensor.
 #### `sparse_crow_indices`
 
 Optional CSR compressed row pointers. When set, this tensor is sparse CSR:
-- data contains only the non-zero values (flattened)
+- data contains only the listed values (flattened); every other entry takes
+  the `pad_value` given when converting to or from a dense tensor
 - sparse_crow_indices contains the row pointers (length = nrows + 1)
 - sparse_col_indices contains the column indices (length = nnz)
 - shape is required and specifies the dense shape
@@ -1754,29 +1795,43 @@ Optional CSR column indices. Must be set together with sparse_crow_indices.
 #### `from_torch_sparse`
 
 ```python
-def from_torch_sparse(cls, tensor: "torch.Tensor") -> "TensorData"
+def from_torch_sparse(cls,
+                      tensor: "torch.Tensor",
+                      pad_value: int = 0) -> "TensorData"
 ```
 
 Create a sparse CSR TensorData from a dense 2-D torch tensor.
 
-Automatically detects sparsity and encodes as CSR when it saves space.
-Falls back to dense if the tensor is 1-D or mostly non-zero.
+Entries equal to `pad_value` are left out; the rest are stored as CSR
+values. Automatically detects sparsity and encodes as CSR when it saves
+space. Falls back to dense if the tensor is 1-D or mostly non-pad.
+
+`pad_value` must be an integer: the tensor is shifted by it so torch's
+zero-based CSR conversion can be reused, and an integer shift is exact
+for `int64` tensors. For `float32` tensors with a non-zero pad it may
+round values whose magnitude is far below `pad_value`.
 
 #### `to_numpy`
 
 ```python
-def to_numpy() -> npt.NDArray[Any]
+def to_numpy(pad_value: int = 0) -> npt.NDArray[Any]
 ```
 
 Convert TensorData to numpy array.
 
+A sparse CSR tensor is densified with `pad_value` in every unlisted entry.
+
 #### `to_torch`
 
 ```python
-def to_torch() -> "torch.Tensor"
+def to_torch(pad_value: int = 0) -> "torch.Tensor"
 ```
 
 Convert TensorData to torch tensor.
+
+A sparse CSR tensor is densified with `pad_value` in every unlisted
+entry. `pad_value` must be an integer so the shift around torch's
+zero-based densification is exact for `int64` tensors.
 
 ## `SaveWeightsForSamplerResponseInternal` Objects
 

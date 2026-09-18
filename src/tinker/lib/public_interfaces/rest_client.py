@@ -868,7 +868,8 @@ class RestClient(TelemetryProvider):
         - `session_id`: The session ID to get information for
 
         Returns:
-        - A `Future` containing the `GetSessionResponse` with training_run_ids and sampler_ids
+        - A `Future` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
+          and user_metadata
 
         Example:
         ```python
@@ -876,6 +877,7 @@ class RestClient(TelemetryProvider):
         response = future.result()
         print(f"Training runs: {len(response.training_run_ids)}")
         print(f"Samplers: {len(response.sampler_ids)}")
+        print(f"User metadata: {response.user_metadata}")
         ```
         """
         return self._get_session_submit(session_id, access_scope=access_scope).future()
