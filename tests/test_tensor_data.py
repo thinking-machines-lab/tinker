@@ -6,11 +6,14 @@ import numpy as np
 import pytest
 import torch
 
+from tinker.types._pydantic_types.tensor_data import TensorData as PydanticTensorData
 from tinker.types.tensor_data import TensorData
 
-# torch's sparse CSR support is in beta and warns on every conversion; the SDK
-# test config promotes warnings to errors.
-_ignore_torch_sparse_beta_warnings = pytest.mark.filterwarnings("ignore:Sparse:UserWarning")
+# TML's patched PyTorch separately warns that CSR invariant checks are disabled.
+# Keep that notice out of these tests without masking the beta warning under test.
+_ignore_torch_sparse_invariant_warning = pytest.mark.filterwarnings(
+    "ignore:Sparse invariant checks are implicitly disabled:UserWarning"
+)
 
 
 def test_init_copies_non_writable_numpy() -> None:
@@ -36,7 +39,7 @@ def test_init_preserves_writable_numpy_without_copy() -> None:
     assert td._numpy is arr
 
 
-@_ignore_torch_sparse_beta_warnings
+@_ignore_torch_sparse_invariant_warning
 def test_from_torch_sparse_with_pad_value_keeps_token_id_zero() -> None:
     # Pad with -1 so a top-k row containing token id 0 is preserved exactly.
     dense = torch.full((5, 3), -1, dtype=torch.int64)
@@ -52,7 +55,7 @@ def test_from_torch_sparse_with_pad_value_keeps_token_id_zero() -> None:
     assert td.to_torch()[0].tolist() == [0, 0, 0]
 
 
-@_ignore_torch_sparse_beta_warnings
+@_ignore_torch_sparse_invariant_warning
 def test_from_torch_sparse_with_pad_value_float32() -> None:
     dense = torch.full((4, 4), 2.0, dtype=torch.float32)
     dense[0, 0] = 0.0
@@ -71,7 +74,7 @@ def test_from_torch_sparse_falls_back_to_dense_when_mostly_non_pad() -> None:
     assert torch.equal(td.to_torch(), dense)
 
 
-@_ignore_torch_sparse_beta_warnings
+@_ignore_torch_sparse_invariant_warning
 def test_hand_built_sparse_tensor_data_densifies_with_the_given_pad() -> None:
     td = TensorData(
         data=[4, 6],
@@ -83,6 +86,13 @@ def test_hand_built_sparse_tensor_data_densifies_with_the_given_pad() -> None:
     assert td.to_torch(pad_value=np.int64(9)).tolist() == [[9, 4], [6, 9]]
     assert td.tolist(pad_value=-1) == [[-1, 4], [6, -1]]
     assert td.tolist() == [[0, 4], [6, 0]]
+
+
+@_ignore_torch_sparse_invariant_warning
+def test_pydantic_tensor_data_suppresses_sparse_csr_beta_warning() -> None:
+    dense = torch.zeros((3, 4), dtype=torch.int64)
+    td = PydanticTensorData.from_torch_sparse(dense)
+    assert torch.equal(td.to_torch(), dense)
 
 
 @pytest.mark.parametrize("pad_value", [0.5, True, "0", np.float32(1)])

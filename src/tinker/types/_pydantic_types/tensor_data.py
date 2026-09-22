@@ -13,6 +13,8 @@ except ImportError:
 import numpy as np
 import numpy.typing as npt
 
+from .._torch_utils import _suppress_torch_sparse_csr_beta_warning
+
 if TYPE_CHECKING:
     import torch  # noqa: TC004
 
@@ -93,7 +95,8 @@ class TensorData(StrictBase):
         if csr_size >= dense_size:
             return cls.from_torch(tensor)
 
-        sparse_csr = shifted.to_sparse_csr()
+        with _suppress_torch_sparse_csr_beta_warning():
+            sparse_csr = shifted.to_sparse_csr()
         values = sparse_csr.values()
         if pad_value != 0:
             values = values + pad_value
@@ -139,12 +142,13 @@ class TensorData(StrictBase):
             col = torch.tensor(self.sparse_col_indices, dtype=torch.int64)
             values = torch.tensor(self.data, dtype=torch_dtype)
             pad_value = _check_pad_value(pad_value)
-            if pad_value == 0:
-                return torch.sparse_csr_tensor(crow, col, values, self.shape).to_dense()
-            # torch densifies unlisted entries as 0: shift the listed values
-            # down by pad_value, densify, then shift everything back up.
-            shifted = torch.sparse_csr_tensor(crow, col, values - pad_value, self.shape)
-            return shifted.to_dense() + pad_value
+            with _suppress_torch_sparse_csr_beta_warning():
+                if pad_value == 0:
+                    return torch.sparse_csr_tensor(crow, col, values, self.shape).to_dense()
+                # torch densifies unlisted entries as 0: shift the listed values
+                # down by pad_value, densify, then shift everything back up.
+                shifted = torch.sparse_csr_tensor(crow, col, values - pad_value, self.shape)
+                return shifted.to_dense() + pad_value
 
         tensor = torch.tensor(self.data, dtype=torch_dtype)
         if self.shape is not None:

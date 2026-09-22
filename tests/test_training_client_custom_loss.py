@@ -62,7 +62,7 @@ class _FakeTrainingClient(TrainingClient):
     ):
         self.backward_calls.append((data, loss_fn, loss_fn_config))
         result = types.ForwardBackwardOutput(
-            metrics={"base:sum": 1.0},
+            metrics={"base:sum": 1.0, "loss:sum": 12.0},
             loss_fn_output_type="target_token_logprobs",
             loss_fn_outputs=[],
         )
@@ -111,6 +111,11 @@ async def test_forward_backward_custom_supports_2d_cross_entropy_targets():
     assert backward_datum.loss_fn_inputs["weights"].shape == [2, 2]
     assert "weights" not in datum.loss_fn_inputs
     assert result.metrics["selected_prob:mean"] > 0.0
+    expected_loss = torch.sum(
+        (torch.softmax(torch.tensor([-1.0, 0.0]), dim=-1) - torch.tensor([0.0, 1.0])) ** 2
+    )
+    assert result.metrics["loss:sum"] == pytest.approx(expected_loss.item())
+    assert result.metrics["surrogate_loss:sum"] == 12.0
 
 
 @pytest.mark.asyncio

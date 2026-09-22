@@ -466,6 +466,7 @@ class TrainingClient(TelemetryProvider):
 
         # Now apply user-provided function
         loss, metrics = loss_fn(data, logprobs_list)
+        custom_loss_sum = float(loss.detach().sum().item())
         loss.backward()
         grads = []
         for logprob in logprobs_list:
@@ -503,7 +504,10 @@ class TrainingClient(TelemetryProvider):
             results: List[types.ForwardBackwardOutput],
         ) -> types.ForwardBackwardOutput:
             result = results[0]  # Single result
+            surrogate_loss_sum = result.metrics.pop("loss:sum")
             result.metrics.update(metrics)
+            result.metrics["loss:sum"] = custom_loss_sum
+            result.metrics["surrogate_loss:sum"] = surrogate_loss_sum
             return result
 
         return _CombinedAPIFuture([backward_future], add_custom_metrics, self.holder)

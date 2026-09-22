@@ -88,8 +88,9 @@ IDS[0, 0], IDS[0, 7], IDS[1, 0] = 5, 6, 0
 ANSWER = np.zeros((2, 8), dtype=np.float32)
 ANSWER[0, 0], ANSWER[0, 7], ANSWER[1, 0] = -0.5, -1.5, -2.5
 
-# torch's sparse CSR beta-state notice is its own, not ours.
-_ignore_torch_sparse_beta_warnings = pytest.mark.filterwarnings("ignore:Sparse:UserWarning")
+_ignore_torch_sparse_invariant_warning = pytest.mark.filterwarnings(
+    "ignore:Sparse invariant checks are implicitly disabled:UserWarning"
+)
 
 
 def _target_tokens(sparse: bool) -> types.TensorData:
@@ -112,7 +113,7 @@ def _answer(sparse: bool) -> types.TensorData:
     )
 
 
-@_ignore_torch_sparse_beta_warnings
+@_ignore_torch_sparse_invariant_warning
 def test_sparse_fixture_lists_exactly_the_requested_cells() -> None:
     sparse_ids = _target_tokens(sparse=True)
     assert sparse_ids.sparse_crow_indices == [0, 2, 3]
@@ -121,7 +122,7 @@ def test_sparse_fixture_lists_exactly_the_requested_cells() -> None:
 
 
 @pytest.mark.asyncio
-@_ignore_torch_sparse_beta_warnings
+@_ignore_torch_sparse_invariant_warning
 @pytest.mark.parametrize("sparse", [False, True])
 async def test_sample_passes_the_target_tensor_through_both_ways(
     monkeypatch: pytest.MonkeyPatch, sparse: bool
@@ -195,7 +196,7 @@ def test_sample_rejects_target_tensors_the_server_would_refuse(
         )
 
 
-@_ignore_torch_sparse_beta_warnings
+@_ignore_torch_sparse_invariant_warning
 def test_sample_request_serializes_the_tensor_in_the_json_tensor_shape() -> None:
     """The wire shape is the one the server reads for `loss_fn_inputs`, CSR
     indices included."""
