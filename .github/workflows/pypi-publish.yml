@@ -1,0 +1,70 @@
+name: Publish to PyPI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - pyproject.toml
+
+permissions:
+  contents: read
+
+jobs:
+  publish-decision:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.decision.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Decide whether to publish
+        id: decision
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          current_version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+
+          if os.environ["EVENT_NAME"] == "workflow_dispatch":
+              publish = True
+              print(f"Manual publish requested for package version {current_version}")
+          else:
+              before_sha = os.environ["BEFORE_SHA"]
+              previous_pyproject = subprocess.run(
+                  ["git", "show", f"{before_sha}:pyproject.toml"],
+                  check=True,
+                  stdout=subprocess.PIPE,
+              ).stdout
+              previous_version = tomllib.loads(previous_pyproject.decode())["project"]["version"]
+              publish = previous_version != current_version
+              print(f"Package version: {previous_version} -> {current_version}")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              print(f"publish={str(publish).lower()}", file=output)
+          PY
+
+  publish:
+    needs: publish-decision
+    if: needs.publish-decision.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Build package distributions
+        run: uv build
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

@@ -106,8 +106,10 @@ def _metrics_reduction(results: Sequence[ForwardBackwardOutput]) -> Metrics:
         reduce_fn = REDUCE_MAP[reduction]
         values = [m.metrics[key] for m in results]
 
-        if reduction in ["mean", "slack"]:
-            res[key] = reduce_fn(values, weights)
+        if reduction == "mean":
+            res[key] = _mean(values, weights)
+        elif reduction == "slack":
+            res[key] = _slack(values, weights)
         elif reduction in ["unique"]:
             res[key] = values[0]
             res.update({f"{key}_{i + 1}": v for i, v in enumerate(values[1:])})

@@ -1,13 +1,4 @@
-"""Commands for managing authentication credentials.
-
-This module implements the 'tinker auth' commands:
-- login: store an API key in ~/.tinker/credentials.json for the SDK and CLI,
-  by printing the console's New API Key URL and prompting for the key they
-  create there
-- logout: remove the default credential from ~/.tinker/credentials.json, also
-  deleting its API key on the server if the CLI minted it for itself
-- status: report whether credentials are available and Tinker is accessible
-"""
+"""Commands for managing Tinker authentication."""
 
 import click
 
@@ -27,16 +18,7 @@ def cli():
 
 @cli.command()
 def login() -> None:
-    """Store a credential for the SDK and CLI to use.
-
-    Prints the URL for the Tinker console's New API Key dialog with a name for
-    this machine filled in, then prompts you to paste the key you create there
-    back in.
-
-    The key is stored in ~/.tinker/credentials.json as the default credential,
-    which the SDK picks up when neither TINKER_API_KEY nor
-    TINKER_CREDENTIAL_CMD is set.
-    """
+    """Initiate authentication flow to store credentials for Tinker SDK."""
     # Lazy import to keep CLI startup fast.
     import httpx
 
@@ -85,18 +67,7 @@ def login() -> None:
 
 @cli.command()
 def logout() -> None:
-    """Remove the default credential, deleting CLI-minted keys on the server.
-
-    Removes the default credential from ~/.tinker/credentials.json (other
-    stored credentials are kept). A key the CLI minted for itself is also
-    deleted on the server, so it stops working everywhere it may have been
-    copied. A pasted key is only removed locally, since it may be shared with
-    other machines or tools; delete it on the Tinker console if you want it
-    revoked.
-
-    Only stored credentials are affected: a key set via TINKER_API_KEY or
-    TINKER_CREDENTIAL_CMD is untouched.
-    """
+    """Clear stored Tinker credentials."""
     # Lazy import to keep CLI startup fast.
     from tinker.lib.console_urls import api_key_console_url
     from tinker.lib.credentials import GeneratedKey, JsonCredentialStore, default_credentials_path
