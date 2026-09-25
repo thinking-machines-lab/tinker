@@ -29,6 +29,8 @@ def _training(**overrides: object) -> BillingUsageEvent:
         "user_name": "Ada Lovelace",
         "session_id": "abc",
         "project_id": "proj-1",
+        "estimated_cost_usd": 0.02469,
+        "effective_rate_usd_per_million_tokens": 2.0,
     }
     base.update(overrides)
     return BillingUsageEvent.model_validate(
@@ -40,6 +42,8 @@ def _storage(**overrides: object) -> BillingUsageEvent:
     base: dict = {
         "bucket_start": datetime(2026, 7, 13, 5, tzinfo=timezone.utc),
         "bucket_end": datetime(2026, 7, 13, 6, tzinfo=timezone.utc),
+        "estimated_cost_usd": 0.00020833333333333335,
+        "effective_rate_usd_per_gigabyte_month": 0.1,
     }
     base.update(overrides)
     return BillingUsageEvent.model_validate(
@@ -53,6 +57,7 @@ def _response(events: list | None = None, sessions: dict | None = None) -> Billi
     return BillingUsageResponse(
         data=[_training()] if events is None else events,
         sessions=sessions,
+        cost_data_through=datetime(2026, 7, 14, tzinfo=timezone.utc),
     )
 
 
@@ -68,9 +73,13 @@ class TestBillingUsageOutput:
         training_row, storage_row = output.get_table_rows()
         assert training_row[columns.index("type")] == "training"
         assert training_row[columns.index("token_count")] == "12345"
+        assert training_row[columns.index("estimated_cost_usd")] == "0.02469"
+        assert training_row[columns.index("effective_rate_usd_per_million_tokens")] == "2.0"
         assert training_row[columns.index("gigabyte_hours")] == ""  # not on this variant
         assert storage_row[columns.index("type")] == "storage"
         assert storage_row[columns.index("gigabyte_hours")] == "1.5"
+        assert storage_row[columns.index("estimated_cost_usd")] == "0.00020833333333333335"
+        assert storage_row[columns.index("effective_rate_usd_per_gigabyte_month")] == "0.1"
         assert storage_row[columns.index("token_count")] == ""
         assert storage_row[columns.index("session_id")] == ""  # None renders blank
 
@@ -79,8 +88,36 @@ class TestBillingUsageOutput:
         and sessions is the session_id -> user_metadata mapping."""
         data = BillingUsageOutput(_response()).to_dict()
         assert data["data"][0]["bucket_start"] == "2026-07-13T05:00:00Z"
+        assert data["data"][0]["estimated_cost_usd"] == 0.02469
+        assert data["data"][0]["effective_rate_usd_per_million_tokens"] == 2.0
         assert data["data"][0]["event_info"] == {"type": "training", "token_count": 12345}
         assert data["sessions"] == {"abc": {"user_metadata": {"domino_project": "x"}}}
+        assert data["cost_data_through"] == "2026-07-14T00:00:00Z"
+
+    def test_table_labels_applicable_missing_costs_as_null(self) -> None:
+        output = BillingUsageOutput(
+            _response(
+                events=[
+                    _training(
+                        estimated_cost_usd=None,
+                        effective_rate_usd_per_million_tokens=None,
+                    ),
+                    _storage(
+                        estimated_cost_usd=None,
+                        effective_rate_usd_per_gigabyte_month=None,
+                    ),
+                ]
+            )
+        )
+        columns = output.get_table_columns()
+        training_row, storage_row = output.get_table_rows()
+
+        assert training_row[columns.index("estimated_cost_usd")] == "null"
+        assert training_row[columns.index("effective_rate_usd_per_million_tokens")] == "null"
+        assert training_row[columns.index("effective_rate_usd_per_gigabyte_month")] == ""
+        assert storage_row[columns.index("estimated_cost_usd")] == "null"
+        assert storage_row[columns.index("effective_rate_usd_per_million_tokens")] == ""
+        assert storage_row[columns.index("effective_rate_usd_per_gigabyte_month")] == "null"
 
     def test_empty_rows(self) -> None:
         output = BillingUsageOutput(_response(events=[], sessions={}))
@@ -100,10 +137,39 @@ def test_write_csv(tmp_path: Path) -> None:
     assert "event_info" not in parsed[0]
     assert parsed[0]["type"] == "training"
     assert parsed[0]["token_count"] == "12345"
+    assert parsed[0]["effective_rate_usd_per_million_tokens"] == "2.0"
     assert parsed[0]["project_id"] == "proj-1"
     assert parsed[1]["type"] == "storage"
     assert parsed[1]["gigabyte_hours"] == "1.5"
+    assert parsed[1]["estimated_cost_usd"] == "0.00020833333333333335"
+    assert parsed[1]["effective_rate_usd_per_gigabyte_month"] == "0.1"
     assert parsed[1]["token_count"] == ""
+
+
+def test_write_csv_keeps_applicable_missing_costs_blank(tmp_path: Path) -> None:
+    path = tmp_path / "null-usage.csv"
+    _write_csv(
+        [
+            _training(
+                estimated_cost_usd=None,
+                effective_rate_usd_per_million_tokens=None,
+            ),
+            _storage(
+                estimated_cost_usd=None,
+                effective_rate_usd_per_gigabyte_month=None,
+            ),
+        ],
+        str(path),
+    )
+    with open(path, newline="") as f:
+        training, storage = list(csv.DictReader(f))
+
+    assert training["estimated_cost_usd"] == ""
+    assert training["effective_rate_usd_per_million_tokens"] == ""
+    assert training["effective_rate_usd_per_gigabyte_month"] == ""
+    assert storage["estimated_cost_usd"] == ""
+    assert storage["effective_rate_usd_per_million_tokens"] == ""
+    assert storage["effective_rate_usd_per_gigabyte_month"] == ""
 
 
 def test_write_sessions_csv(tmp_path: Path) -> None:

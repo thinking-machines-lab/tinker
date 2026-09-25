@@ -142,12 +142,19 @@ class TensorData(StrictBase):
             col = torch.tensor(self.sparse_col_indices, dtype=torch.int64)
             values = torch.tensor(self.data, dtype=torch_dtype)
             pad_value = _check_pad_value(pad_value)
-            with _suppress_torch_sparse_csr_beta_warning():
+            with (
+                _suppress_torch_sparse_csr_beta_warning(),
+                torch.sparse.check_sparse_tensor_invariants(),
+            ):
                 if pad_value == 0:
-                    return torch.sparse_csr_tensor(crow, col, values, self.shape).to_dense()
+                    return torch.sparse_csr_tensor(
+                        crow, col, values, self.shape, check_invariants=True
+                    ).to_dense()
                 # torch densifies unlisted entries as 0: shift the listed values
                 # down by pad_value, densify, then shift everything back up.
-                shifted = torch.sparse_csr_tensor(crow, col, values - pad_value, self.shape)
+                shifted = torch.sparse_csr_tensor(
+                    crow, col, values - pad_value, self.shape, check_invariants=True
+                )
                 return shifted.to_dense() + pad_value
 
         tensor = torch.tensor(self.data, dtype=torch_dtype)

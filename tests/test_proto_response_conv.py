@@ -8,7 +8,6 @@ code paths (empty record, num_datums-only record, dispatch) stay hand-crafted.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
@@ -57,7 +56,6 @@ def test_forward_backward_output_in_proto_supported_types() -> None:
     assert ForwardBackwardOutput in PROTO_SUPPORTED_TYPES
 
 
-@pytest.mark.filterwarnings("ignore:Sparse invariant checks are implicitly disabled:UserWarning")
 def test_deserialize_sample_response_target_logprobs() -> None:
     """The answer tensor decodes to a TensorData in the layout it was sent:
     dense stays dense, sparse CSR keeps its indices, and both densify to the

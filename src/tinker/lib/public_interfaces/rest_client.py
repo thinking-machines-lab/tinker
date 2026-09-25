@@ -1210,18 +1210,36 @@ class RestClient(TelemetryProvider):
         envelopes: the shared attribution (bucket, base model, user, session,
         project) lives on the envelope, and the usage-kind-specific payload
         is `event_info` — a union discriminated on `.type` (training /
-        sampling_prefill / sampling_sample / checkpoint / storage), each
-        carrying exactly the fields that apply (token_count, gigabyte_hours,
+        sampling_prefill / sampling_sample / checkpoint / storage). Each
+        variant carries exactly the fields that apply (token_count, gigabyte_hours,
         count, the prefill cached flag). Session user_metadata comes once
-        per session in `response.sessions`, keyed by session_id. No dollar
-        amounts. Data lags real time by up to a few hours. Requires billing
-        view access in your organization.
+        per session in `response.sessions`, keyed by session_id. Token and
+        storage events include `estimated_cost_usd`, an estimated gross usage
+        cost before credits and commits, plus the applicable effective rate
+        per million tokens or per GB-month. These are not invoice amounts due.
+        Token cost is the rate per million tokens multiplied by `token_count /
+        1_000_000`; storage cost is the rate per GB-month multiplied by
+        `gigabyte_hours / 720`.
+        A completed UTC day is priced only after its full-day usage quantities
+        reconcile with usage line items from the finalized invoice export, or
+        the latest draft when no finalized invoice is available. The current
+        incomplete UTC day instead uses the published Tinker rate-card
+        snapshot, so its estimate is not invoice-reconciled and can change
+        after the day completes. Costs are null when a completed day has not
+        reconciled or the current rate card has no applicable rate.
+        `cost_data_through` is a conservative exclusive UTC completeness
+        watermark. It advances only across consecutive reconciled completed
+        billable-usage days and stops before the first gap. It is not the
+        latest timestamp with any cost: current-day estimates do not advance
+        it, and a later reconciled day may have costs beyond it.
+        Data lags real time by up to a few hours. Requires billing view access
+        in your organization.
 
         Args:
         - `starting_on`: Inclusive window start (RFC 3339 string or datetime),
-          aligned to a UTC hour boundary
+          aligned to a UTC hour boundary; must not be in the future
         - `ending_before`: Exclusive window end, aligned to a UTC hour
-          boundary; at most 14 days after `starting_on`; must not start in the future
+          boundary; at most 14 days after `starting_on`
 
         Returns:
         - A `Future` containing the `BillingUsageResponse`

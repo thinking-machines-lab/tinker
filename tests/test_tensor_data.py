@@ -9,12 +9,6 @@ import torch
 from tinker.types._pydantic_types.tensor_data import TensorData as PydanticTensorData
 from tinker.types.tensor_data import TensorData
 
-# TML's patched PyTorch separately warns that CSR invariant checks are disabled.
-# Keep that notice out of these tests without masking the beta warning under test.
-_ignore_torch_sparse_invariant_warning = pytest.mark.filterwarnings(
-    "ignore:Sparse invariant checks are implicitly disabled:UserWarning"
-)
-
 
 def test_init_copies_non_writable_numpy() -> None:
     # np.frombuffer over an immutable bytes buffer returns a read-only array.
@@ -39,7 +33,6 @@ def test_init_preserves_writable_numpy_without_copy() -> None:
     assert td._numpy is arr
 
 
-@_ignore_torch_sparse_invariant_warning
 def test_from_torch_sparse_with_pad_value_keeps_token_id_zero() -> None:
     # Pad with -1 so a top-k row containing token id 0 is preserved exactly.
     dense = torch.full((5, 3), -1, dtype=torch.int64)
@@ -55,7 +48,6 @@ def test_from_torch_sparse_with_pad_value_keeps_token_id_zero() -> None:
     assert td.to_torch()[0].tolist() == [0, 0, 0]
 
 
-@_ignore_torch_sparse_invariant_warning
 def test_from_torch_sparse_with_pad_value_float32() -> None:
     dense = torch.full((4, 4), 2.0, dtype=torch.float32)
     dense[0, 0] = 0.0
@@ -74,7 +66,6 @@ def test_from_torch_sparse_falls_back_to_dense_when_mostly_non_pad() -> None:
     assert torch.equal(td.to_torch(), dense)
 
 
-@_ignore_torch_sparse_invariant_warning
 def test_hand_built_sparse_tensor_data_densifies_with_the_given_pad() -> None:
     td = TensorData(
         data=[4, 6],
@@ -88,11 +79,26 @@ def test_hand_built_sparse_tensor_data_densifies_with_the_given_pad() -> None:
     assert td.tolist() == [[0, 4], [6, 0]]
 
 
-@_ignore_torch_sparse_invariant_warning
 def test_pydantic_tensor_data_suppresses_sparse_csr_beta_warning() -> None:
     dense = torch.zeros((3, 4), dtype=torch.int64)
     td = PydanticTensorData.from_torch_sparse(dense)
     assert torch.equal(td.to_torch(), dense)
+
+
+@pytest.mark.parametrize("tensor_data_type", [TensorData, PydanticTensorData])
+@pytest.mark.parametrize("pad_value", [0, -1])
+def test_sparse_tensor_data_rejects_invalid_crow_indices(
+    tensor_data_type: type[TensorData] | type[PydanticTensorData], pad_value: int
+) -> None:
+    td = tensor_data_type(
+        data=[1],
+        dtype="int64",
+        shape=[2, 3],
+        sparse_crow_indices=[0, 2, 2],
+        sparse_col_indices=[0],
+    )
+    with pytest.raises(RuntimeError, match=r"crow_indices.*nnz"):
+        td.to_torch(pad_value=pad_value)
 
 
 @pytest.mark.parametrize("pad_value", [0.5, True, "0", np.float32(1)])

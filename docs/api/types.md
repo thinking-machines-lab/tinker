@@ -153,12 +153,13 @@ Query parameters for GET /api/v1/billing/usage/events.
 
 #### `starting_on`
 
-Inclusive window start, aligned to a UTC hour boundary
+Inclusive window start, aligned to a UTC hour boundary; must not be
+in the future
 
 #### `ending_before`
 
 Exclusive window end, aligned to a UTC hour boundary; at most 14 days
-after `starting_on`; the window must not start in the future
+after `starting_on`
 
 Optimizer selection and per-step hyperparameters for training models.
 
@@ -1483,6 +1484,35 @@ session tagging). Session user_metadata is available in
 Project this usage belongs to, resolved from the current project
 associated with the session identified by `session_id`
 
+#### `estimated_cost_usd`
+
+Estimated gross USD usage cost before credits and commits, not invoice
+amount due. A completed UTC day is priced only after its full-day usage
+quantities reconcile with usage line items from the finalized invoice
+export, or the latest draft when no finalized invoice is available. The
+current incomplete UTC day instead uses the published Tinker rate-card
+snapshot; that estimate is not invoice-reconciled and can change when the
+day completes.
+For token events, this equals `effective_rate_usd_per_million_tokens *
+token_count / 1_000_000`. For storage events, this equals
+`effective_rate_usd_per_gigabyte_month * gigabyte_hours / 720`. None for
+checkpoint operations, when a completed day has not reconciled, or when
+the current rate card has no applicable token or storage rate.
+
+#### `effective_rate_usd_per_million_tokens`
+
+Effective gross USD rate per million tokens used to calculate
+`estimated_cost_usd`, before credits and commits. This is not an amount
+due. None for non-token events or whenever token cost cannot be
+attributed.
+
+#### `effective_rate_usd_per_gigabyte_month`
+
+Effective gross USD rate per storage GB-month used to calculate
+`estimated_cost_usd`, before credits and commits. One GB-month is 720
+GB-hours for this calculation. None for non-storage events or whenever
+storage cost cannot be attributed.
+
 #### `event_info`
 
 What kind of usage this is and its quantity; dispatch on
@@ -1515,6 +1545,20 @@ Hourly usage events, ordered by bucket then descending token count
 
 session_id -> that session's attributes, for every distinct session
 appearing in `data`
+
+#### `cost_data_through`
+
+Conservative exclusive UTC completeness watermark for invoice-reconciled
+costs. The server checks each full UTC day touched by the request, even for
+a partial-day window, and advances this boundary only across consecutive
+completed billable-usage days. It stops before the first day whose usage
+and invoice exports do not reconcile.
+
+This is not the latest timestamp carrying any estimated cost: current-day
+rate-card estimates do not advance it, and a reconciled day after an
+earlier gap may contain costs beyond it. None means no initial completed
+billable-usage day advanced the watermark. When all touched completed days
+through yesterday reconcile, it is the most recent UTC midnight.
 
 ## `TrainingRun` Objects
 

@@ -3,13 +3,10 @@
 This module implements the 'tinker billing' commands:
 - usage: hourly-bucketed billing usage rows for your organization
 
-The CLI is deliberately schema-agnostic: it renders whatever fields the
-usage-events response carries and never interprets individual fields, so
-response schema changes only require updating the response models, not
-this module. The one structural step: each event's nested event_info
-payload (a tagged union) is flattened into its row for table/CSV output —
-columns become the union of the envelope and payload fields, blank where a
-field does not apply — while JSON output preserves the true nested shape.
+The CLI renders the usage-events response generically. For table/CSV output,
+each event's nested event_info payload is flattened into its row. The table
+renders unavailable applicable cost fields as `null`; CSV uses empty cells
+and JSON preserves null values.
 """
 
 import csv
@@ -61,6 +58,35 @@ def _flat_dicts(row_dicts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+_TOKEN_USAGE_TYPES = frozenset({"training", "sampling_prefill", "sampling_sample"})
+
+
+def _display_dicts(row_dicts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten rows and render unavailable applicable costs as null.
+
+    The human-readable table distinguishes an unavailable applicable value
+    from a field that does not apply to the event type. JSON retains actual
+    null values, while CSV uses empty cells for them.
+    """
+    out = []
+    for row in _flat_dicts(row_dicts):
+        event_type = row.get("type")
+        if event_type in _TOKEN_USAGE_TYPES:
+            row = dict(row)
+            if row.get("estimated_cost_usd") is None:
+                row["estimated_cost_usd"] = "null"
+            if row.get("effective_rate_usd_per_million_tokens") is None:
+                row["effective_rate_usd_per_million_tokens"] = "null"
+        elif event_type == "storage":
+            row = dict(row)
+            if row.get("estimated_cost_usd") is None:
+                row["estimated_cost_usd"] = "null"
+            if row.get("effective_rate_usd_per_gigabyte_month") is None:
+                row["effective_rate_usd_per_gigabyte_month"] = "null"
+        out.append(row)
+    return out
+
+
 def _columns(row_dicts: List[Dict[str, Any]]) -> List[str]:
     """Column order: the first row's key order (the response model's field
     order), plus any keys only later rows carry."""
@@ -83,7 +109,12 @@ class BillingUsageOutput(OutputBase):
 
     def __init__(self, response: "BillingUsageResponse"):
         self.row_dicts = _row_dicts(response.data)
-        self.flat_dicts = _flat_dicts(self.row_dicts)
+        self.flat_dicts = _display_dicts(self.row_dicts)
+        self.cost_data_through = (
+            None
+            if response.cost_data_through is None
+            else response.cost_data_through.isoformat().replace("+00:00", "Z")
+        )
         self.session_dicts = {
             sid: session.model_dump(mode="json") for sid, session in response.sessions.items()
         }
@@ -91,7 +122,11 @@ class BillingUsageOutput(OutputBase):
     def to_dict(self) -> Dict[str, Any]:
         # JSON output keeps the true nested response shape, including the
         # session_id -> session attributes mapping.
-        return {"data": self.row_dicts, "sessions": self.session_dicts}
+        return {
+            "data": self.row_dicts,
+            "sessions": self.session_dicts,
+            "cost_data_through": self.cost_data_through,
+        }
 
     def get_title(self) -> str | None:
         count = len(self.row_dicts)
@@ -164,8 +199,24 @@ def usage(
     row per (hour x usage type x base model x session x user), annotated with
     the project the usage belongs to. Session user metadata comes as a
     separate per-session table (JSON output / --sessions-csv) to join on
-    session_id. Quantities are raw tokens / gigabyte-hours; dollar amounts
-    are not included. Data lags real time by up to a few hours.
+    session_id. Quantities are raw tokens / gigabyte-hours. Token and storage
+    rows include estimated gross USD usage cost before credits and commits,
+    plus the applicable effective rate per million tokens or per GB-month.
+    Token cost is the token rate times token_count / 1,000,000; storage cost is
+    the storage rate times gigabyte_hours / 720. These are not invoice amounts
+    due.
+    A completed UTC day is priced only after its full-day usage quantities
+    reconcile with finalized invoice usage line items, or the latest draft
+    when no finalized invoice is available. The current incomplete UTC day
+    instead uses the published Tinker rate-card snapshot, so its estimate is
+    not invoice-reconciled and can change after the day completes.
+    Table output renders an unavailable applicable cost or rate as `null`;
+    CSV uses blank cells, while the typed SDK and JSON use null. The SDK
+    response and JSON output also include `cost_data_through`, a conservative
+    invoice-reconciliation watermark that stops before the first unreconciled
+    completed day. Table and CSV output do not include this response-level
+    field, and current-day rate-card estimates do not advance it. Data lags
+    real time by up to a few hours.
 
     There are no filter flags: export the window once and filter the
     CSV/JSON client-side.
