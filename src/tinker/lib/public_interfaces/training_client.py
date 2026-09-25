@@ -16,6 +16,7 @@ from tinker.lib.console_urls import training_run_console_url
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
+from tinker.types.optimizer import OptimParamsBase
 
 from ..api_future_impl import (
     _APIFuture,
@@ -571,7 +572,7 @@ class TrainingClient(TelemetryProvider):
 
 
         Args:
-        - `optim_params`: AdamParams or DimuonParams matching the model optimizer.
+        - `optim_params`: Step params for the optimizer selected at model creation (AdamParams by default).
         - `adam_params`: Legacy keyword alias for AdamParams; cannot be combined with optim_params.
 
         Returns:
@@ -598,8 +599,8 @@ class TrainingClient(TelemetryProvider):
         if optim_params is not None and adam_params is not None:
             raise ValueError("Specify optim_params or legacy adam_params, not both")
         params = optim_params if optim_params is not None else adam_params
-        if not isinstance(params, (types.AdamParams, types.DimuonParams)):
-            raise TypeError("Expected AdamParams or DimuonParams")
+        if not isinstance(params, (types.AdamParams, OptimParamsBase)):
+            raise TypeError("Expected AdamParams or OptimParamsBase")
         request_id = self._get_request_id()
 
         @capture_exceptions(fatal=True)

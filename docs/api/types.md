@@ -163,13 +163,13 @@ after `starting_on`
 
 Optimizer selection and per-step hyperparameters for training models.
 
-## `DimuonOptimizerConfig` Objects
+## `OptimizerConfigBase` Objects
 
 ```python
-class DimuonOptimizerConfig(StrictBase)
+class OptimizerConfigBase(StrictBase)
 ```
 
-Dimuon identity retained by full-state resume.
+Optimizer family selected at model creation, identified by `type`; keeps family fields.
 
 ## `AdamParams` Objects
 
@@ -201,41 +201,13 @@ Weight decay for the optimizer. Uses decoupled weight decay.
 
 Maximum global gradient norm. If the global gradient norm is greater than this value, it will be clipped to this value. 0.0 means no clipping.
 
-## `DimuonParams` Objects
+## `OptimParamsBase` Objects
 
 ```python
-class DimuonParams(StrictBase)
+class OptimParamsBase(StrictBase)
 ```
 
-Hyperparameters for one Dimuon optimizer step.
-
-The caller supplies schedules. Omitted settings use the defaults on each step;
-previous overrides do not carry forward. Matrix-sign iteration count and
-normalization epsilon are internal constants.
-
-#### `type`
-
-Optimizer family for this step.
-
-#### `learning_rate`
-
-Learning rate applied to a direction with Frobenius norm sqrt(rank), with rank correction applied uniformly to all LoRA matrices.
-
-#### `grad_clip_norm`
-
-Maximum global gradient norm. Nonpositive values disable gradient clipping.
-
-#### `beta1`
-
-Coefficient used for computing running averages of gradients.
-
-#### `damping`
-
-Positive damping that smooths the row and column preconditioner.
-
-#### `rank_lr_correction_exponent`
-
-Exponent for learning-rate correction relative to rank 32. Zero disables rank correction.
+Per-step hyperparameters of a non-Adam optimizer family, identified by `type`.
 
 ## `Datum` Objects
 

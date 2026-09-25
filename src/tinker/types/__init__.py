@@ -109,8 +109,6 @@ from .optim_step_request import OptimStepRequest as OptimStepRequest
 from .optim_step_response import OptimStepResponse as OptimStepResponse
 from .optimizer import AdamOptimizerConfig as AdamOptimizerConfig
 from .optimizer import AdamParams as AdamParams
-from .optimizer import DimuonOptimizerConfig as DimuonOptimizerConfig
-from .optimizer import DimuonParams as DimuonParams
 from .optimizer import OptimizerConfig as OptimizerConfig
 from .optimizer import OptimParams as OptimParams
 from .provenance_spans import PromptProvenanceSpan as PromptProvenanceSpan

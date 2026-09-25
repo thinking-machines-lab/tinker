@@ -33,8 +33,6 @@ from .types import (
     Checkpoint,
     CheckpointType,
     Datum,
-    DimuonOptimizerConfig,
-    DimuonParams,
     DmelChunk,
     EncodedTextChunk,
     ForwardBackwardOutput,
@@ -68,8 +66,6 @@ __all__ = [
     # Commonly used types
     "AdamOptimizerConfig",
     "AdamParams",
-    "DimuonOptimizerConfig",
-    "DimuonParams",
     "OptimParams",
     "Checkpoint",
     "CheckpointType",

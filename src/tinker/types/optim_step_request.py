@@ -34,5 +34,5 @@ class OptimStepRequest(StrictBase):
             if isinstance(self.optim_params, AdamParams):
                 data["adam_params"] = params
             else:
-                data["optimizer_params"] = {**params, "type": "dimuon"}
+                data["optimizer_params"] = params
         return data
