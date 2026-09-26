@@ -200,7 +200,7 @@ Note that unlike PyTorch, Tinker's default weight decay value is 0.0 (no weight 
 
 
 Args:
-- `optim_params`: Step params for the optimizer selected at model creation (AdamParams by default).
+- `optim_params`: AdamParams or DimuonParams matching the optimizer selected at model creation.
 - `adam_params`: Legacy keyword alias for AdamParams; cannot be combined with optim_params.
 
 Returns:

@@ -171,6 +171,14 @@ class OptimizerConfigBase(StrictBase)
 
 Optimizer family selected at model creation, identified by `type`; keeps family fields.
 
+## `DimuonOptimizerConfig` Objects
+
+```python
+class DimuonOptimizerConfig(OptimizerConfigBase)
+```
+
+Selects the Dimuon optimizer for a training model.
+
 ## `AdamParams` Objects
 
 ```python
@@ -208,6 +216,30 @@ class OptimParamsBase(StrictBase)
 ```
 
 Per-step hyperparameters of a non-Adam optimizer family, identified by `type`.
+
+## `DimuonParams` Objects
+
+```python
+class DimuonParams(OptimParamsBase)
+```
+
+Hyperparameters for one Dimuon optimizer step.
+
+#### `type`
+
+Optimizer family for this step.
+
+#### `learning_rate`
+
+Sets the step size for the optimizer.
+
+#### `grad_clip_norm`
+
+Maximum global gradient norm. Nonpositive values disable gradient clipping.
+
+#### `beta1`
+
+EMA coefficient for the momentum. Should be between zero and one.
 
 ## `Datum` Objects
 
