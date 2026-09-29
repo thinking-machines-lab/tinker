@@ -113,6 +113,7 @@ from .optimizer import DimuonOptimizerConfig as DimuonOptimizerConfig
 from .optimizer import DimuonParams as DimuonParams
 from .optimizer import OptimizerConfig as OptimizerConfig
 from .optimizer import OptimParams as OptimParams
+from .prompt_alt_tokens import PromptAltTokens as PromptAltTokens
 from .provenance_spans import PromptProvenanceSpan as PromptProvenanceSpan
 from .provenance_spans import SampledProvenanceSpan as SampledProvenanceSpan
 from .request_error_category import RequestErrorCategory as RequestErrorCategory

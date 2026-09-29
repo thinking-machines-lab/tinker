@@ -68,6 +68,7 @@ class SampleResponse(google.protobuf.message.Message):
     TOPK_PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
     PROMPT_CACHE_HIT_TOKENS_FIELD_NUMBER: builtins.int
     TARGET_PROMPT_LOGPROBS_FIELD_NUMBER: builtins.int
+    PROMPT_ALT_TOKENS_FIELD_NUMBER: builtins.int
     prompt_logprobs: builtins.bytes
     """np.array(prompt_logprobs, dtype=np.float32).tobytes()
     NaN for missing positions (e.g. first prompt token)
@@ -89,6 +90,12 @@ class SampleResponse(google.protobuf.message.Message):
         sparse), 0.0 in placeholder cells. Absent means none were requested.
         """
 
+    @property
+    def prompt_alt_tokens(self) -> Global___PromptAltTokens:
+        """The draws the request's `prompt_alt_tokens_k` asked for. Absent means
+        none were requested.
+        """
+
     def __init__(
         self,
         *,
@@ -97,9 +104,12 @@ class SampleResponse(google.protobuf.message.Message):
         topk_prompt_logprobs: Global___TopkLogprobs | None = ...,
         prompt_cache_hit_tokens: builtins.int = ...,
         target_prompt_logprobs: Global___Tensor | None = ...,
+        prompt_alt_tokens: Global___PromptAltTokens | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_target_prompt_logprobs", b"_target_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_logprobs", b"prompt_logprobs", "target_prompt_logprobs", b"target_prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["_prompt_logprobs", b"_prompt_logprobs", "_target_prompt_logprobs", b"_target_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_cache_hit_tokens", b"prompt_cache_hit_tokens", "prompt_logprobs", b"prompt_logprobs", "sequences", b"sequences", "target_prompt_logprobs", b"target_prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> None: ...
+    def HasField(self, field_name: typing.Literal["_prompt_alt_tokens", b"_prompt_alt_tokens", "_prompt_logprobs", b"_prompt_logprobs", "_target_prompt_logprobs", b"_target_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_alt_tokens", b"prompt_alt_tokens", "prompt_logprobs", b"prompt_logprobs", "target_prompt_logprobs", b"target_prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_prompt_alt_tokens", b"_prompt_alt_tokens", "_prompt_logprobs", b"_prompt_logprobs", "_target_prompt_logprobs", b"_target_prompt_logprobs", "_topk_prompt_logprobs", b"_topk_prompt_logprobs", "prompt_alt_tokens", b"prompt_alt_tokens", "prompt_cache_hit_tokens", b"prompt_cache_hit_tokens", "prompt_logprobs", b"prompt_logprobs", "sequences", b"sequences", "target_prompt_logprobs", b"target_prompt_logprobs", "topk_prompt_logprobs", b"topk_prompt_logprobs"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_prompt_alt_tokens", b"_prompt_alt_tokens"]) -> typing.Literal["prompt_alt_tokens"] | None: ...
     @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_prompt_logprobs", b"_prompt_logprobs"]) -> typing.Literal["prompt_logprobs"] | None: ...
     @typing.overload
@@ -108,6 +118,38 @@ class SampleResponse(google.protobuf.message.Message):
     def WhichOneof(self, oneof_group: typing.Literal["_topk_prompt_logprobs", b"_topk_prompt_logprobs"]) -> typing.Literal["topk_prompt_logprobs"] | None: ...
 
 Global___SampleResponse: typing_extensions.TypeAlias = SampleResponse
+
+@typing.final
+class PromptAltTokens(google.protobuf.message.Message):
+    """Independent draws from the model's next-token distribution at every prompt
+    position after the first, taken in the prefill that served the request.
+    Both tensors are dense [len(prompt) - 1, k]: row i holds k draws from the
+    distribution over prompt token i + 1 (position 0 has no preceding context),
+    and `logprobs[i][j]` is the model's logprob of `tokens[i][j]` there.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TOKENS_FIELD_NUMBER: builtins.int
+    LOGPROBS_FIELD_NUMBER: builtins.int
+    @property
+    def tokens(self) -> Global___Tensor:
+        """int32 token ids."""
+
+    @property
+    def logprobs(self) -> Global___Tensor:
+        """float32 logprobs."""
+
+    def __init__(
+        self,
+        *,
+        tokens: Global___Tensor | None = ...,
+        logprobs: Global___Tensor | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["logprobs", b"logprobs", "tokens", b"tokens"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["logprobs", b"logprobs", "tokens", b"tokens"]) -> None: ...
+
+Global___PromptAltTokens: typing_extensions.TypeAlias = PromptAltTokens
 
 @typing.final
 class SampledSequence(google.protobuf.message.Message):

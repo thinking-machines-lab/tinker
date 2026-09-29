@@ -62,6 +62,7 @@ def _record_sample_async_impl(
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: TensorDataModel | None = None,
+        prompt_alt_tokens_k: int = 0,
     ) -> types.SampleResponse:
         calls.append(
             {
@@ -72,6 +73,7 @@ def _record_sample_async_impl(
                 "topk_prompt_logprobs": topk_prompt_logprobs,
                 "topk_sample_logprobs": topk_sample_logprobs,
                 "target_prompt_logprobs": target_prompt_logprobs,
+                "prompt_alt_tokens_k": prompt_alt_tokens_k,
             }
         )
         return response

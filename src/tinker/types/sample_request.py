@@ -67,6 +67,12 @@ class SampleRequest(StrictBase):
     listed cells request anything. ``SampleResponse.target_prompt_logprobs``
     has the same shape and layout."""
 
+    prompt_alt_tokens_k: int = 0
+    """If set to a positive integer, draws that many tokens, independently and at
+    the request's temperature, from the model's next-token distribution at every
+    prompt position after the first, in the same prefill that serves the request
+    (see ``SampleResponse.prompt_alt_tokens``)."""
+
     record_stability_info: Optional[bool] = None
 
     type: Literal["sample"] = "sample"

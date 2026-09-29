@@ -42,13 +42,14 @@ ServiceClient and TrainingClient should always be managed from the main process.
 
 ```python
 def sample(
-    prompt: types.ModelInput,
-    num_samples: int,
-    sampling_params: types.SamplingParams,
-    include_prompt_logprobs: bool = False,
-    topk_prompt_logprobs: int = 0,
-    topk_sample_logprobs: int = 0,
-    target_prompt_logprobs: types.TensorData | None = None
+        prompt: types.ModelInput,
+        num_samples: int,
+        sampling_params: types.SamplingParams,
+        include_prompt_logprobs: bool = False,
+        topk_prompt_logprobs: int = 0,
+        topk_sample_logprobs: int = 0,
+        target_prompt_logprobs: types.TensorData | None = None,
+        prompt_alt_tokens_k: int = 0
 ) -> ConcurrentFuture[types.SampleResponse]
 ```
 
@@ -70,6 +71,13 @@ Args:
     only the cells you name. The server requires exactly `len(prompt) - 1` rows and
     at least one id, and bounds the cost, `len(prompt) * distinct ids`, the way it
     bounds a top-k width. Rows before the first one that names an id are not scored.
+- `prompt_alt_tokens_k`: Number of tokens to draw, independently and at the request's
+    temperature, from the model's next-token distribution at every prompt position
+    after the first, in the same prefill. Returned as `SampleResponse.prompt_alt_tokens`:
+    two `[len(prompt) - 1, k]` tensors, `tokens` (int64) and `logprobs` (float32),
+    whose row `i` covers prompt position `i + 1` (position 0 has no preceding
+    context), so `tokens[i]` are alternatives to `prompt[i + 1]`. The server bounds
+    `len(prompt) * k` the way it bounds a top-k width.
 
 Returns:
 - A `Future` containing the `SampleResponse` with generated text and other logprob information.
@@ -108,18 +116,32 @@ target_logprobs = result.target_prompt_logprobs.to_torch()  # [len(tokens) - 1, 
 candidate_token_logprob = target_logprobs[position - 1, 0]
 ```
 
+Example: alternatives to every prompt token, drawn from the model's own distribution
+at that position in a single prefill (`max_tokens=1`; the generated token can be ignored):
+```python
+tokens = tokenizer.encode("The weather today is")
+result = sampling_client.sample(
+    prompt=types.ModelInput.from_ints(tokens),
+    num_samples=1,
+    sampling_params=types.SamplingParams(max_tokens=1, temperature=1.0),
+    prompt_alt_tokens_k=4,
+).result()
+alt_tokens = result.prompt_alt_tokens.tokens.to_torch()  # [len(tokens) - 1, 4]
+alt_logprobs = result.prompt_alt_tokens.logprobs.to_torch()  # [len(tokens) - 1, 4]
+alternatives_to_last_token = alt_tokens[-1]  # row i covers prompt position i + 1
+```
+
 #### `sample_async`
 
 ```python
-async def sample_async(
-    prompt: types.ModelInput,
-    num_samples: int,
-    sampling_params: types.SamplingParams,
-    include_prompt_logprobs: bool = False,
-    topk_prompt_logprobs: int = 0,
-    topk_sample_logprobs: int = 0,
-    target_prompt_logprobs: types.TensorData | None = None
-) -> types.SampleResponse
+async def sample_async(prompt: types.ModelInput,
+                       num_samples: int,
+                       sampling_params: types.SamplingParams,
+                       include_prompt_logprobs: bool = False,
+                       topk_prompt_logprobs: int = 0,
+                       topk_sample_logprobs: int = 0,
+                       target_prompt_logprobs: types.TensorData | None = None,
+                       prompt_alt_tokens_k: int = 0) -> types.SampleResponse
 ```
 
 Async version of sample.

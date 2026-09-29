@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from tinker.proto import tinker_public_pb2 as public_pb
+from tinker.types.prompt_alt_tokens import PromptAltTokens
 from tinker.types.forward_backward_output import ForwardBackwardOutput
 from tinker.types.sample_response import SampleResponse
 from tinker.types.sampled_sequence import SampledSequence
@@ -109,6 +110,14 @@ def deserialize_sample_response(proto_bytes: bytes) -> SampleResponse:
         target_prompt_logprobs=(
             _tensor_data_from_proto(proto.target_prompt_logprobs)
             if proto.HasField("target_prompt_logprobs")
+            else None
+        ),
+        prompt_alt_tokens=(
+            PromptAltTokens(
+                tokens=_tensor_data_from_proto(proto.prompt_alt_tokens.tokens),
+                logprobs=_tensor_data_from_proto(proto.prompt_alt_tokens.logprobs),
+            )
+            if proto.HasField("prompt_alt_tokens")
             else None
         ),
         prompt_cache_hit_tokens=proto.prompt_cache_hit_tokens,

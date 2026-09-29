@@ -6,6 +6,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
+from .prompt_alt_tokens import PromptAltTokens
 from .sampled_sequence import SampledSequence
 from .tensor_data import TensorData
 from .topk_logprobs import TopkLogprobs, topk_to_lists
@@ -47,6 +48,12 @@ class SampleResponse:
     Counted on the prompt itself: for ``num_samples > 1`` the prompt is
     shared, so this is not multiplied across samples. Prefill on the shared prompts
     samples (the remaining ``num_samples - 1``) is billed as cache hits."""
+
+    prompt_alt_tokens: Optional[PromptAltTokens] = None
+    """The draws ``SampleRequest.prompt_alt_tokens_k`` asked for: ``k`` token ids
+    and their logprobs at every prompt position after the first, as two
+    ``[len(prompt) - 1, k]`` tensors (see ``PromptAltTokens``).
+    None if not requested."""
 
     # Private storage for list-based construction path.
     _prompt_logprobs_list: Optional[List[Optional[float]]] = field(default=None, repr=False)
