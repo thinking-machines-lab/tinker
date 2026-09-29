@@ -101,6 +101,28 @@ def _check_target_prompt_logprobs(target_prompt_logprobs: types.TensorData) -> N
         )
 
 
+def _check_prompt_alt_tokens_k(prompt_alt_tokens_k: int) -> None:
+    """Reject an `prompt_alt_tokens_k` the server would refuse."""
+    if prompt_alt_tokens_k < 0:
+        raise ValueError(f"prompt_alt_tokens_k must be 0 or greater, got {prompt_alt_tokens_k}")
+
+
+def _check_prompt_alt_tokens_returned(
+    response: types.SampleResponse, prompt_alt_tokens_k: int
+) -> None:
+    """Fail when draws were requested but the server returned none.
+
+    A server that predates `prompt_alt_tokens_k` ignores the request field and
+    samples successfully without it; surface that rather than hand back a
+    response missing the draws the caller asked for.
+    """
+    if prompt_alt_tokens_k > 0 and response.prompt_alt_tokens is None:
+        raise RuntimeError(
+            f"prompt_alt_tokens_k={prompt_alt_tokens_k} was requested but the server returned "
+            "no prompt_alt_tokens; it may predate this feature"
+        )
+
+
 class SamplingClient(TelemetryProvider, QueueStateObserver):
     """Client for text generation and inference from trained or base models.
 
@@ -241,6 +263,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_prompt_logprobs: int,
         topk_sample_logprobs: int,
         target_prompt_logprobs: _TensorDataModel | None,
+        prompt_alt_tokens_k: int,
     ):
         try:
             request = types.SampleRequest(
@@ -253,6 +276,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 topk_prompt_logprobs=topk_prompt_logprobs,
                 topk_sample_logprobs=topk_sample_logprobs,
                 target_prompt_logprobs=target_prompt_logprobs,
+                prompt_alt_tokens_k=prompt_alt_tokens_k,
                 record_stability_info=self._record_stability_info,
             )
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
@@ -277,6 +301,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: _TensorDataModel | None = None,
+        prompt_alt_tokens_k: int = 0,
     ) -> types.SampleResponse:
         estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
         request_id = self._request_id_counter
@@ -300,6 +325,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     topk_prompt_logprobs,
                     topk_sample_logprobs,
                     target_prompt_logprobs,
+                    prompt_alt_tokens_k,
                 )
                 if untyped_future is not None:
                     break
@@ -317,6 +343,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             queue_state_observer=self,
             futures_poller=self._get_futures_poller(),
         ).result_async()
+        _check_prompt_alt_tokens_returned(response, prompt_alt_tokens_k)
         return _attach_sequence_ids(response, untyped_future.sample_sequence_ids)
 
     def _get_futures_poller(self) -> SessionFuturesPoller | None:
@@ -351,6 +378,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: types.TensorData | None = None,
+        prompt_alt_tokens_k: int = 0,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Generate text completions from the model.
 
@@ -370,6 +398,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             only the cells you name. The server requires exactly `len(prompt) - 1` rows and
             at least one id, and bounds the cost, `len(prompt) * distinct ids`, the way it
             bounds a top-k width. Rows before the first one that names an id are not scored.
+        - `prompt_alt_tokens_k`: Number of tokens to draw, independently and at the request's
+            temperature, from the model's next-token distribution at every prompt position
+            after the first, in the same prefill. Returned as `SampleResponse.prompt_alt_tokens`:
+            two `[len(prompt) - 1, k]` tensors, `tokens` (int64) and `logprobs` (float32),
+            whose row `i` covers prompt position `i + 1` (position 0 has no preceding
+            context), so `tokens[i]` are alternatives to `prompt[i + 1]`. The server bounds
+            `len(prompt) * k` the way it bounds a top-k width.
 
         Returns:
         - A `Future` containing the `SampleResponse` with generated text and other logprob information.
@@ -407,12 +442,28 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         target_logprobs = result.target_prompt_logprobs.to_torch()  # [len(tokens) - 1, 1]
         candidate_token_logprob = target_logprobs[position - 1, 0]
         ```
+
+        Example: alternatives to every prompt token, drawn from the model's own distribution
+        at that position in a single prefill (`max_tokens=1`; the generated token can be ignored):
+        ```python
+        tokens = tokenizer.encode("The weather today is")
+        result = sampling_client.sample(
+            prompt=types.ModelInput.from_ints(tokens),
+            num_samples=1,
+            sampling_params=types.SamplingParams(max_tokens=1, temperature=1.0),
+            prompt_alt_tokens_k=4,
+        ).result()
+        alt_tokens = result.prompt_alt_tokens.tokens.to_torch()  # [len(tokens) - 1, 4]
+        alt_logprobs = result.prompt_alt_tokens.logprobs.to_torch()  # [len(tokens) - 1, 4]
+        alternatives_to_last_token = alt_tokens[-1]  # row i covers prompt position i + 1
+        ```
         """
         # Validate up front so a bad tensor fails here, not in the retry loop.
         target_prompt_logprobs_model = None
         if target_prompt_logprobs is not None:
             _check_target_prompt_logprobs(target_prompt_logprobs)
             target_prompt_logprobs_model = _tensor_data_to_model(target_prompt_logprobs)
+        _check_prompt_alt_tokens_k(prompt_alt_tokens_k)
 
         async def _sample_async():
             return await self._sample_async_impl(
@@ -423,6 +474,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 topk_prompt_logprobs,
                 topk_sample_logprobs,
                 target_prompt_logprobs_model,
+                prompt_alt_tokens_k,
             )
 
         @capture_exceptions(fatal=True)
@@ -452,6 +504,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: types.TensorData | None = None,
+        prompt_alt_tokens_k: int = 0,
     ) -> types.SampleResponse:
         """Async version of sample."""
         return await AwaitableConcurrentFuture(
@@ -463,6 +516,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 topk_prompt_logprobs,
                 topk_sample_logprobs,
                 target_prompt_logprobs,
+                prompt_alt_tokens_k,
             )
         )
 

@@ -102,6 +102,36 @@ def test_deserialize_sample_response_target_logprobs() -> None:
     )
 
 
+def test_deserialize_sample_response_prompt_alt_tokens() -> None:
+    """The wire's int32 ids and float32 logprobs decode to a `PromptAltTokens` of
+    int64 ids and float32 logprobs with the wire shape; an unset field means none
+    were requested."""
+    tokens = np.array([[12, 13], [22, 23], [32, 33]], dtype=np.int32)
+    logprobs = np.array([[-0.1, -0.2], [-1.1, -1.2], [-2.1, -2.2]], dtype=np.float32)
+
+    msg = public_pb.SampleResponse()
+    msg.prompt_alt_tokens.tokens.dense = tokens.tobytes()
+    msg.prompt_alt_tokens.tokens.dtype = public_pb.DTYPE_INT32
+    msg.prompt_alt_tokens.tokens.shape.extend([3, 2])
+    msg.prompt_alt_tokens.logprobs.dense = logprobs.tobytes()
+    msg.prompt_alt_tokens.logprobs.dtype = public_pb.DTYPE_FLOAT32
+    msg.prompt_alt_tokens.logprobs.shape.extend([3, 2])
+    resp = deserialize_sample_response(msg.SerializeToString())
+    draws = resp.prompt_alt_tokens
+    assert draws is not None
+    assert draws.tokens.dtype == "int64" and draws.tokens.shape == [3, 2]
+    np.testing.assert_array_equal(draws.tokens.to_numpy(), tokens)
+    assert draws.logprobs.dtype == "float32" and draws.logprobs.shape == [3, 2]
+    np.testing.assert_array_equal(draws.logprobs.to_numpy(), logprobs)
+
+    assert (
+        deserialize_sample_response(
+            public_pb.SampleResponse().SerializeToString()
+        ).prompt_alt_tokens
+        is None
+    )
+
+
 def test_deserialize_sample_response_topk_sampled_logprobs() -> None:
     token_ids = np.array([[31, 41], [32, 42]], dtype=np.int32)
     logprobs = np.array([[-1.5, -2.5], [-1.25, -2.25]], dtype=np.float32)

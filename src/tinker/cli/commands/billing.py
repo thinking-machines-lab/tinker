@@ -205,18 +205,22 @@ def usage(
     Token cost is the token rate times token_count / 1,000,000; storage cost is
     the storage rate times gigabyte_hours / 720. These are not invoice amounts
     due.
-    A completed UTC day is priced only after its full-day usage quantities
-    reconcile with finalized invoice usage line items, or the latest draft
-    when no finalized invoice is available. The current incomplete UTC day
-    instead uses the published Tinker rate-card snapshot, so its estimate is
-    not invoice-reconciled and can change after the day completes.
+    For a completed UTC day, each model/usage-category group is priced only
+    after its full-day quantity reconciles with finalized invoice usage
+    line items, or the latest draft when no finalized invoice is available.
+    Other groups on the same day may remain null. The current incomplete UTC
+    day instead uses the published Tinker rate-card snapshot, so its estimate
+    is not invoice-reconciled and can change after the day completes.
     Table output renders an unavailable applicable cost or rate as `null`;
     CSV uses blank cells, while the typed SDK and JSON use null. The SDK
-    response and JSON output also include `cost_data_through`, a conservative
-    invoice-reconciliation watermark that stops before the first unreconciled
-    completed day. Table and CSV output do not include this response-level
-    field, and current-day rate-card estimates do not advance it. Data lags
-    real time by up to a few hours.
+    response and JSON output also include `cost_data_through`, which marks the
+    exclusive UTC boundary between the two pricing sources: non-null estimates
+    before it use invoice-derived rates, while newer non-null estimates use
+    fixed published rates. A cost or rate may still be null when the data
+    required to price that row is unavailable. `cost_data_through` is null when
+    the response has no completed day with invoice pricing data. Table and CSV
+    output do not include this response-level field. Data lags real time by up
+    to a few hours.
 
     There are no filter flags: export the window once and filter the
     CSV/JSON client-side.

@@ -3,7 +3,7 @@ from typing import Union
 
 from typing_extensions import Annotated, Literal, TypeAlias
 
-from .._models import BaseModel, StrictBase
+from .._models import BaseModel
 from .._utils import PropertyInfo
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-class TrainingBillingEvent(StrictBase):
+class TrainingBillingEvent(BaseModel):
     """Training tokens processed by forward/backward passes."""
 
     type: Literal["training"] = "training"
@@ -28,7 +28,7 @@ class TrainingBillingEvent(StrictBase):
     """Training token count for the bucket"""
 
 
-class SamplingPrefillBillingEvent(StrictBase):
+class SamplingPrefillBillingEvent(BaseModel):
     """Prompt (prefill) tokens processed while sampling."""
 
     type: Literal["sampling_prefill"] = "sampling_prefill"
@@ -41,7 +41,7 @@ class SamplingPrefillBillingEvent(StrictBase):
     """Prefill token count for the bucket"""
 
 
-class SamplingSampleBillingEvent(StrictBase):
+class SamplingSampleBillingEvent(BaseModel):
     """Tokens generated while sampling."""
 
     type: Literal["sampling_sample"] = "sampling_sample"
@@ -50,7 +50,7 @@ class SamplingSampleBillingEvent(StrictBase):
     """Sampled token count for the bucket"""
 
 
-class CheckpointBillingEvent(StrictBase):
+class CheckpointBillingEvent(BaseModel):
     """Checkpoint operations (billed per checkpoint)."""
 
     type: Literal["checkpoint"] = "checkpoint"
@@ -59,7 +59,7 @@ class CheckpointBillingEvent(StrictBase):
     """Number of checkpoints in the bucket"""
 
 
-class StorageBillingEvent(StrictBase):
+class StorageBillingEvent(BaseModel):
     """Checkpoint storage, billed in gigabyte-hours."""
 
     type: Literal["storage"] = "storage"
@@ -115,17 +115,19 @@ class BillingUsageEvent(BaseModel):
 
     estimated_cost_usd: float | None = None
     """Estimated gross USD usage cost before credits and commits, not invoice
-    amount due. A completed UTC day is priced only after its full-day usage
-    quantities reconcile with usage line items from the finalized invoice
-    export, or the latest draft when no finalized invoice is available. The
-    current incomplete UTC day instead uses the published Tinker rate-card
-    snapshot; that estimate is not invoice-reconciled and can change when the
-    day completes.
+    amount due. For a completed UTC day, each model/usage-category group is
+    priced only after its full-day quantity reconciles with usage line items
+    from the finalized invoice export, or the latest draft when no
+    finalized invoice is available. Other groups on the same day may remain
+    unpriced. The current incomplete UTC day instead uses the published Tinker
+    rate-card snapshot; that estimate is not invoice-reconciled and can change
+    when the day completes.
     For token events, this equals `effective_rate_usd_per_million_tokens *
     token_count / 1_000_000`. For storage events, this equals
     `effective_rate_usd_per_gigabyte_month * gigabyte_hours / 720`. None for
-    checkpoint operations, when a completed day has not reconciled, or when
-    the current rate card has no applicable token or storage rate."""
+    checkpoint operations, when the applicable completed-day group has not
+    reconciled, or when the current rate card has no applicable token or
+    storage rate."""
 
     effective_rate_usd_per_million_tokens: float | None = None
     """Effective gross USD rate per million tokens used to calculate
@@ -161,14 +163,9 @@ class BillingUsageResponse(BaseModel):
     appearing in `data`"""
 
     cost_data_through: datetime | None = None
-    """Conservative exclusive UTC completeness watermark for invoice-reconciled
-    costs. The server checks each full UTC day touched by the request, even for
-    a partial-day window, and advances this boundary only across consecutive
-    completed billable-usage days. It stops before the first day whose usage
-    and invoice exports do not reconcile.
-
-    This is not the latest timestamp carrying any estimated cost: current-day
-    rate-card estimates do not advance it, and a reconciled day after an
-    earlier gap may contain costs beyond it. None means no initial completed
-    billable-usage day advanced the watermark. When all touched completed days
-    through yesterday reconcile, it is the most recent UTC midnight."""
+    """Exclusive UTC boundary between the two pricing sources used for
+    estimated costs. Non-null estimates before it use invoice-derived effective
+    rates, while newer non-null estimates use fixed published rates. A cost or
+    rate may still be None when the data required to price that row is
+    unavailable. None means the response contains no completed day with invoice
+    pricing data."""

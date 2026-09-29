@@ -803,18 +803,20 @@ per million tokens or per GB-month. These are not invoice amounts due.
 Token cost is the rate per million tokens multiplied by `token_count /
 1_000_000`; storage cost is the rate per GB-month multiplied by
 `gigabyte_hours / 720`.
-A completed UTC day is priced only after its full-day usage quantities
-reconcile with usage line items from the finalized invoice export, or
-the latest draft when no finalized invoice is available. The current
-incomplete UTC day instead uses the published Tinker rate-card
-snapshot, so its estimate is not invoice-reconciled and can change
-after the day completes. Costs are null when a completed day has not
-reconciled or the current rate card has no applicable rate.
-`cost_data_through` is a conservative exclusive UTC completeness
-watermark. It advances only across consecutive reconciled completed
-billable-usage days and stops before the first gap. It is not the
-latest timestamp with any cost: current-day estimates do not advance
-it, and a later reconciled day may have costs beyond it.
+For a completed UTC day, each model/usage-category group is priced only
+after its full-day quantity reconciles with finalized invoice usage
+line items, or the latest draft when no finalized invoice is available.
+Other groups on the same day may remain null. The current incomplete
+UTC day instead uses the published Tinker rate-card snapshot, so its
+estimate is not invoice-reconciled and can change after the day
+completes.
+Estimated costs can use either invoice-derived effective rates or
+fixed published rates. `cost_data_through` marks the exclusive UTC
+boundary between those pricing sources: non-null estimates before it
+use invoice-derived rates, while newer non-null estimates use fixed
+published rates. A cost or rate may still be null when the data
+required to price that row is unavailable. It is null when the
+response has no completed day with invoice pricing data.
 Data lags real time by up to a few hours. Requires billing view access
 in your organization.
 

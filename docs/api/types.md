@@ -542,6 +542,13 @@ Counted on the prompt itself: for ``num_samples > 1`` the prompt is
 shared, so this is not multiplied across samples. Prefill on the shared prompts
 samples (the remaining ``num_samples - 1``) is billed as cache hits.
 
+#### `prompt_alt_tokens`
+
+The draws ``SampleRequest.prompt_alt_tokens_k`` asked for: ``k`` token ids
+and their logprobs at every prompt position after the first, as two
+``[len(prompt) - 1, k]`` tensors (see ``PromptAltTokens``).
+None if not requested.
+
 #### `prompt_logprobs`
 
 ```python
@@ -1185,6 +1192,31 @@ def tensor_container_dim(data: bytes, dim: int) -> int
 
 Read one dimension from a TensorContainer shape.
 
+## `PromptAltTokens` Objects
+
+```python
+@dataclass(frozen=True)
+class PromptAltTokens()
+```
+
+Independent draws from the model's next-token distribution at every prompt
+position after the first, taken in the prefill that served the request
+(``SampleRequest.prompt_alt_tokens_k``).
+
+Both tensors are dense ``[len(prompt) - 1, k]``. Row ``i`` holds ``k`` draws,
+with replacement and at the request's temperature, from the distribution
+over prompt token ``i + 1`` (position 0 has no preceding context), so
+``tokens[i]`` are alternatives to ``prompt[i + 1]``.
+
+#### `tokens`
+
+int64 token ids, shape ``[len(prompt) - 1, k]``.
+
+#### `logprobs`
+
+float32 logprobs, shape ``[len(prompt) - 1, k]``: ``logprobs[i][j]`` is the
+model's logprob of ``tokens[i][j]`` at prompt position ``i + 1``.
+
 ## `SupportedModel` Objects
 
 ```python
@@ -1378,10 +1410,17 @@ nothing and gets no logprob. May be sparse CSR, in which case only the
 listed cells request anything. ``SampleResponse.target_prompt_logprobs``
 has the same shape and layout.
 
+#### `prompt_alt_tokens_k`
+
+If set to a positive integer, draws that many tokens, independently and at
+the request's temperature, from the model's next-token distribution at every
+prompt position after the first, in the same prefill that serves the request
+(see ``SampleResponse.prompt_alt_tokens``).
+
 ## `TrainingBillingEvent` Objects
 
 ```python
-class TrainingBillingEvent(StrictBase)
+class TrainingBillingEvent(BaseModel)
 ```
 
 Training tokens processed by forward/backward passes.
@@ -1393,7 +1432,7 @@ Training token count for the bucket
 ## `SamplingPrefillBillingEvent` Objects
 
 ```python
-class SamplingPrefillBillingEvent(StrictBase)
+class SamplingPrefillBillingEvent(BaseModel)
 ```
 
 Prompt (prefill) tokens processed while sampling.
@@ -1410,7 +1449,7 @@ Prefill token count for the bucket
 ## `SamplingSampleBillingEvent` Objects
 
 ```python
-class SamplingSampleBillingEvent(StrictBase)
+class SamplingSampleBillingEvent(BaseModel)
 ```
 
 Tokens generated while sampling.
@@ -1422,7 +1461,7 @@ Sampled token count for the bucket
 ## `CheckpointBillingEvent` Objects
 
 ```python
-class CheckpointBillingEvent(StrictBase)
+class CheckpointBillingEvent(BaseModel)
 ```
 
 Checkpoint operations (billed per checkpoint).
@@ -1434,7 +1473,7 @@ Number of checkpoints in the bucket
 ## `StorageBillingEvent` Objects
 
 ```python
-class StorageBillingEvent(StrictBase)
+class StorageBillingEvent(BaseModel)
 ```
 
 Checkpoint storage, billed in gigabyte-hours.
@@ -1491,17 +1530,19 @@ associated with the session identified by `session_id`
 #### `estimated_cost_usd`
 
 Estimated gross USD usage cost before credits and commits, not invoice
-amount due. A completed UTC day is priced only after its full-day usage
-quantities reconcile with usage line items from the finalized invoice
-export, or the latest draft when no finalized invoice is available. The
-current incomplete UTC day instead uses the published Tinker rate-card
-snapshot; that estimate is not invoice-reconciled and can change when the
-day completes.
+amount due. For a completed UTC day, each model/usage-category group is
+priced only after its full-day quantity reconciles with usage line items
+from the finalized invoice export, or the latest draft when no
+finalized invoice is available. Other groups on the same day may remain
+unpriced. The current incomplete UTC day instead uses the published Tinker
+rate-card snapshot; that estimate is not invoice-reconciled and can change
+when the day completes.
 For token events, this equals `effective_rate_usd_per_million_tokens *
 token_count / 1_000_000`. For storage events, this equals
 `effective_rate_usd_per_gigabyte_month * gigabyte_hours / 720`. None for
-checkpoint operations, when a completed day has not reconciled, or when
-the current rate card has no applicable token or storage rate.
+checkpoint operations, when the applicable completed-day group has not
+reconciled, or when the current rate card has no applicable token or
+storage rate.
 
 #### `effective_rate_usd_per_million_tokens`
 
@@ -1552,17 +1593,12 @@ appearing in `data`
 
 #### `cost_data_through`
 
-Conservative exclusive UTC completeness watermark for invoice-reconciled
-costs. The server checks each full UTC day touched by the request, even for
-a partial-day window, and advances this boundary only across consecutive
-completed billable-usage days. It stops before the first day whose usage
-and invoice exports do not reconcile.
-
-This is not the latest timestamp carrying any estimated cost: current-day
-rate-card estimates do not advance it, and a reconciled day after an
-earlier gap may contain costs beyond it. None means no initial completed
-billable-usage day advanced the watermark. When all touched completed days
-through yesterday reconcile, it is the most recent UTC midnight.
+Exclusive UTC boundary between the two pricing sources used for
+estimated costs. Non-null estimates before it use invoice-derived effective
+rates, while newer non-null estimates use fixed published rates. A cost or
+rate may still be None when the data required to price that row is
+unavailable. None means the response contains no completed day with invoice
+pricing data.
 
 ## `TrainingRun` Objects
 
