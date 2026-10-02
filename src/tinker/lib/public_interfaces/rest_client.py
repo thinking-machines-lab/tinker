@@ -1271,3 +1271,49 @@ class RestClient(TelemetryProvider):
     ) -> types.BillingUsageResponse:
         """Async version of get_billing_usage."""
         return await self._get_billing_usage_submit(starting_on, ending_before)
+
+    def _get_current_checkpoint_storage_usage_submit(
+        self,
+        project_id: str | None,
+    ) -> AwaitableConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]:
+        request = types.GetCurrentCheckpointStorageUsageRequest(
+            project_id=project_id,
+        )
+
+        async def _get_usage_async() -> types.CurrentCheckpointStorageUsageResponse:
+            async def _send_request() -> types.CurrentCheckpointStorageUsageResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.get(
+                        "/api/v1/billing/usage/checkpoints/current",
+                        options={"params": request.model_dump(mode="json", exclude_none=True)},
+                        cast_to=types.CurrentCheckpointStorageUsageResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_get_usage_async())
+
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def get_current_checkpoint_storage_usage(
+        self,
+        project_id: str | None = None,
+    ) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]:
+        """Get current checkpoint count, size, and projected storage cost.
+
+        With no arguments, returns checkpoint storage usage for the entire
+        authenticated organization, grouped by project and session owner.
+        Pass `project_id` to limit results to one project within that organization.
+        Checkpoint usage data can lag by 1-2 hours. Projected costs use
+        current publicly available rates, before credits and commits,
+        and are not invoice amounts due.
+        """
+        return self._get_current_checkpoint_storage_usage_submit(project_id).future()
+
+    @capture_exceptions(fatal=True)
+    async def get_current_checkpoint_storage_usage_async(
+        self,
+        project_id: str | None = None,
+    ) -> types.CurrentCheckpointStorageUsageResponse:
+        """Async version of get_current_checkpoint_storage_usage."""
+        return await self._get_current_checkpoint_storage_usage_submit(project_id)

@@ -32,7 +32,8 @@ result = future.result()
 
 Multi-processing support:
 This class is picklable, so it can be passed to a separate process/worker to sample. It is also
-safe to pass the same instance of SamplingClient to multiple processes/workers.
+safe to pass the same instance of SamplingClient to multiple processes/workers. To avoid pickle,
+pass `get_sampler_handle()` instead and rebuild the client with `SamplingClient.from_sampler_handle()`.
 
 If you are using Tinker SDK with more than one process you should always create SamplingClient from
 the main process and then pass it to the other processes/workers.
@@ -217,3 +218,34 @@ def __reduce__() -> tuple[Any, tuple[_SamplingClientPickleState]]
 Enable pickling of SamplingClient for multi-process use.
 
 Serializes into a ``_SamplingClientPickleState`` dataclass.
+
+#### `get_sampler_handle`
+
+```python
+def get_sampler_handle() -> str
+```
+
+Get a string handle to this client's sampler.
+
+A pickle-free alternative for passing a SamplingClient to other processes.
+Every `SamplingClient.from_sampler_handle` call on the handle, in any
+process and any number of times, creates a new client for the same sampler.
+The handle carries no credentials.
+
+#### `from_sampler_handle`
+
+```python
+@staticmethod
+def from_sampler_handle(handle: str,
+                        *,
+                        api_key: str | None = None) -> SamplingClient
+```
+
+Create a SamplingClient for the sampler behind `handle`.
+
+The new client authenticates with this process's credentials, resolved
+the same way as for `ServiceClient()`.
+
+Args:
+- `handle`: A handle from `get_sampler_handle`.
+- `api_key`: API key to use instead of the one resolved from the environment.

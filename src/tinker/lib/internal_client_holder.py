@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import logging
 import os
@@ -30,6 +31,7 @@ from tinker.lib._auth_token_provider import (
 )
 from tinker.lib._jwt_auth import JwtAuthProvider, jwt_claims
 from tinker.lib.async_tinker_provider import AsyncTinkerProvider
+from tinker.lib.base_url import resolve_base_url
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.credentials import JsonCredentialStore, default_credentials_path
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
@@ -138,22 +140,44 @@ class InternalClientHolderThreadSingleton:
 _internal_client_holder_thread_singleton = InternalClientHolderThreadSingleton()
 
 
+@dataclasses.dataclass(frozen=True)
+class _ShadowHolderConfig:
+    """What a shadow InternalClientHolder is built from, in another process."""
+
+    base_url: str
+    default_headers_overrides: dict[str, str]
+    client_config: dict[str, Any]
+    client_dynamic_config: dict[str, Any]
+    api_key: str | None = None
+
+    def without_credentials(self) -> _ShadowHolderConfig:
+        """For a process that resolves its own credentials."""
+        return dataclasses.replace(self, api_key=None)
+
+
 class _ShadowHolderSingleton:
-    """Singleton to cache shadow InternalClientHolders by constructor args."""
+    """Singleton to cache shadow InternalClientHolders by config."""
 
     def __init__(self):
         self._lock: threading.Lock = threading.Lock()
-        # Key is (session_id, json-serialized kwargs)
+        # Key is (session_id, json-serialized config)
         self._cache: dict[tuple[str, str], weakref.ref[InternalClientHolder]] = {}
 
-    def get_or_create(self, session_id: str, kwargs: dict[str, Any]) -> InternalClientHolder:
-        key = (session_id, json.dumps(kwargs, sort_keys=True))
+    def get_or_create(self, session_id: str, config: _ShadowHolderConfig) -> InternalClientHolder:
+        key = (session_id, json.dumps(dataclasses.asdict(config), sort_keys=True))
         with self._lock:
             if key in self._cache:
                 holder = self._cache[key]()
                 if holder is not None:
                     return holder
-            holder = InternalClientHolder(session_id=session_id, **kwargs)
+            holder = InternalClientHolder(
+                session_id=session_id,
+                base_url=config.base_url,
+                api_key=config.api_key,
+                default_headers_overrides=config.default_headers_overrides,
+                _client_config=config.client_config,
+                _client_dynamic_config=config.client_dynamic_config,
+            )
             self._cache[key] = weakref.ref(holder)
             return holder
 
@@ -186,6 +210,15 @@ class BytesSemaphore:
             self._release_task = asyncio.create_task(self._release())
 
 
+def _get_default_headers() -> dict[str, str]:
+    headers = {}
+    if client_id := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_ID"):
+        headers["CF-Access-Client-Id"] = client_id
+    if client_secret := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_SECRET"):
+        headers["CF-Access-Client-Secret"] = client_secret
+    return headers
+
+
 class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
     def __init__(
         self,
@@ -193,14 +226,14 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         project_id: str | None = None,
         *,
         session_id: str | None = None,
+        base_url: str | None = None,
         api_key: str | None = None,
-        _client_config: dict[str, str | int | bool] | None = None,
-        _client_dynamic_config: dict[str, str | int | bool] | None = None,
-        _jwt_auth_seed: str | None = None,
+        default_headers_overrides: dict[str, str] | None = None,
+        _client_config: dict[str, Any] | None = None,
+        _client_dynamic_config: dict[str, Any] | None = None,
         _skip_session: bool = False,
-        **kwargs: Any,
     ) -> None:
-        # Resolve from env now so shadow_kwargs carries the actual credential
+        # Resolve from env now so shadow_config carries the actual credential
         # across pickle boundaries (workers may not have the env var set).
         self._api_key = api_key or os.environ.get("TINKER_API_KEY")
         if self._api_key is None and not os.environ.get("TINKER_CREDENTIAL_CMD"):
@@ -208,7 +241,15 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             # TINKER_CREDENTIAL_CMD takes precedence over the stored default.
             record = JsonCredentialStore(default_credentials_path()).get_default_key()
             self._api_key = None if record is None else record.key
-        self._constructor_kwargs = dict(kwargs)
+        # Resolved now for the same reason: workers may not have $TINKER_BASE_URL.
+        self._base_url: str = resolve_base_url(base_url)
+        self._default_headers_overrides: dict[str, str] = dict(default_headers_overrides or {})
+        # AsyncTinker constructor kwargs, shared by every connection pool.
+        self._constructor_kwargs: dict[str, Any] = {
+            "base_url": self._base_url,
+            "default_headers": _get_default_headers() | self._default_headers_overrides,
+            "_strict_response_validation": True,
+        }
         self._loop: asyncio.AbstractEventLoop = _internal_client_holder_thread_singleton.get_loop()
         self._client_pools: dict[ClientConnectionPoolType, ClientConnectionPool] = {}
         self._auth_pool: ClientConnectionPool | None = None
@@ -272,16 +313,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             auth_kwargs = {**self._constructor_kwargs, "_auth": auth_pool_auth}
             auth_pool = self._auth_pool = ClientConnectionPool(self.get_loop(), 1, auth_kwargs)
             auth_aclient = lambda: auth_pool.aclient()  # noqa: E731
-            self._default_auth = JwtAuthProvider(auth_aclient, seed_token=_jwt_auth_seed)
-            if _jwt_auth_seed:
-                # Shadow holder: start refresh in background, don't block.
-                self.run_coroutine_threadsafe(self._default_auth.init())
-            else:
-                # Primary holder: must have a valid JWT before proceeding.
-                self._assert_not_on_event_loop("exchange JWT")
-                self.run_coroutine_threadsafe(
-                    self.execute_with_retries(self._default_auth.init)
-                ).result()
+            self._default_auth = JwtAuthProvider(auth_aclient)
 
         self._closed = False
 
@@ -400,9 +432,11 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         return True
 
     @classmethod
-    def get_shadow_holder(cls, session_id: str, kwargs: dict[str, Any]) -> InternalClientHolder:
+    def get_shadow_holder(
+        cls, session_id: str, config: _ShadowHolderConfig
+    ) -> InternalClientHolder:
         """Get or create a shadow holder from the singleton cache."""
-        return _shadow_holder_singleton.get_or_create(session_id, kwargs)
+        return _shadow_holder_singleton.get_or_create(session_id, config)
 
     def _assert_not_on_event_loop(self, action: str) -> None:
         """Raise if called from the event loop thread (would deadlock on .result())."""
@@ -413,17 +447,15 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             )
 
     @property
-    def shadow_kwargs(self) -> dict[str, Any]:
-        """Constructor kwargs for shadow holders, including cached server config and JWT seed."""
-        result = {
-            **self._constructor_kwargs,
-            "api_key": self._api_key,
-            "_client_config": self._client_config.model_dump(),
-            "_client_dynamic_config": self._client_dynamic_config.model_dump(),
-        }
-        if isinstance(self._default_auth, JwtAuthProvider):
-            result["_jwt_auth_seed"] = self._default_auth._token
-        return result
+    def shadow_config(self) -> _ShadowHolderConfig:
+        """Config for shadow holders, including cached server config."""
+        return _ShadowHolderConfig(
+            base_url=self._base_url,
+            default_headers_overrides=self._default_headers_overrides,
+            client_config=self._client_config.model_dump(),
+            client_dynamic_config=self._client_dynamic_config.model_dump(),
+            api_key=self._api_key,
+        )
 
     async def get_identity_jwt(self) -> str | None:
         """Return a JWT carrying the caller's identity claims, if one is at hand.
