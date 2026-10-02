@@ -64,21 +64,17 @@ def _seconds_until_expiry(jwt: str) -> float:
 class JwtAuthProvider(AuthTokenProvider):
     """AuthTokenProvider that exchanges a credential for a short-lived JWT.
 
-    After init(), get_token() returns the current JWT.  A background task
-    proactively refreshes the JWT before it expires.  get_token() also
-    refreshes on demand if the cached token is near or past expiry, so a
-    stuck or delayed background refresh cannot leak a stale JWT into a
-    request.
+    The first get_token() fetches the JWT and starts a background task that
+    proactively refreshes it before it expires.  get_token() also refreshes on
+    demand if the cached token is near or past expiry, so a stuck or delayed
+    background refresh cannot leak a stale JWT into a request.
     """
 
-    def __init__(
-        self,
-        aclient_fn: Callable[[], AbstractContextManager],
-        seed_token: str | None = None,
-    ) -> None:
-        self._token: str = seed_token or ""
+    def __init__(self, aclient_fn: Callable[[], AbstractContextManager]) -> None:
+        self._token: str = ""
         self._aclient_fn = aclient_fn
         self._refresh_lock = asyncio.Lock()
+        self._refresh_task: asyncio.Task[None] | None = None
 
     async def get_token(self) -> str | None:
         # Fast path: cached token has comfortable runway.
@@ -91,30 +87,25 @@ class JwtAuthProvider(AuthTokenProvider):
             if self._token and _seconds_until_expiry(self._token) > _REFRESH_ON_DEMAND_SECS:
                 return self._token
             try:
-                return await self._fetch()
+                token = await self._fetch()
             except Exception as e:
+                if not self._token:
+                    # No token to fall back to: the request cannot be sent.
+                    raise
                 # If the refresh fails, fall back to whatever we have.
                 # The background loop keeps trying; if the server is
                 # genuinely down the request will surface the error.
                 logger.warning("On-demand JWT refresh failed: %s", e)
-                return self._token or None
-
-    async def init(self) -> None:
-        """Fetch a JWT (unless seeded) then start the background refresh loop.
-
-        When seed_token was provided, skips the initial fetch and starts
-        refreshing from the seed — useful for shadow holders that already
-        have a valid JWT from the primary holder.
-        """
-        token = self._token if self._token else await self._fetch()
-        self._refresh_task = asyncio.create_task(self._refresh_loop(token))
+                return self._token
+            if self._refresh_task is None:
+                self._refresh_task = asyncio.create_task(self._refresh_loop(token))
+            return token
 
     async def close(self) -> None:
-        refresh_task = getattr(self, "_refresh_task", None)
-        if refresh_task is not None:
-            refresh_task.cancel()
+        if self._refresh_task is not None:
+            self._refresh_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await refresh_task
+                await self._refresh_task
 
     async def _fetch(self) -> str:
         """Exchange the current credential for a JWT via /api/v1/auth/token."""

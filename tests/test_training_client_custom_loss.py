@@ -185,6 +185,57 @@ async def test_forward_backward_custom_preserves_1d_cross_entropy_targets():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("with_weights", [False, True])
+@pytest.mark.parametrize("extra_key", ["target_distribution", "advantages"])
+async def test_forward_backward_custom_filters_extra_loss_fn_inputs(
+    with_weights: bool, extra_key: str
+):
+    client = _FakeTrainingClient()
+    target_distribution = types.TensorData(
+        data=[0.25, 0.75, 0.8, 0.2], dtype="float32", shape=[2, 2]
+    )
+    loss_fn_inputs = {
+        "target_tokens": types.TensorData(data=[101, 102, 201, 202], dtype="int64", shape=[2, 2]),
+        extra_key: target_distribution,
+    }
+    if with_weights:
+        loss_fn_inputs["weights"] = types.TensorData(
+            data=[1.0, 2.0, 3.0, 4.0], dtype="float32", shape=[2, 2]
+        )
+    datum = types.Datum(
+        model_input=types.ModelInput.from_ints([1, 2]),
+        loss_fn_inputs=loss_fn_inputs,
+    )
+
+    def custom_loss(
+        data: list[types.Datum], logprobs_list: list[torch.Tensor]
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        assert data[0] is datum
+        assert data[0].loss_fn_inputs[extra_key] is target_distribution
+        distribution = data[0].loss_fn_inputs[extra_key].to_torch()
+        return -(distribution * logprobs_list[0]).sum(), {}
+
+    result_future = await client.forward_backward_custom_async([datum], custom_loss)
+    result = await result_future.result_async()
+
+    assert result.metrics["loss:sum"] == pytest.approx(3.05)
+    assert datum.loss_fn_inputs == loss_fn_inputs
+    forward_datum = client.forward_calls[0][0][0]
+    backward_datum = client.backward_calls[0][0][0]
+    for server_datum in (forward_datum, backward_datum):
+        assert set(server_datum.loss_fn_inputs) == {"target_tokens", "weights"}
+        assert server_datum.loss_fn_inputs["target_tokens"] is loss_fn_inputs["target_tokens"]
+    torch.testing.assert_close(
+        forward_datum.loss_fn_inputs["weights"].to_torch(),
+        loss_fn_inputs["weights"].to_torch() if with_weights else torch.zeros((2, 2)),
+    )
+    torch.testing.assert_close(
+        backward_datum.loss_fn_inputs["weights"].to_torch(),
+        target_distribution.to_torch(),
+    )
+
+
+@pytest.mark.asyncio
 async def test_forward_backward_custom_rejects_unsupported_loss_type_input():
     client = _FakeTrainingClient()
     datum = types.Datum(
@@ -215,12 +266,11 @@ def test_datum_rejects_ragged_nested_target_tokens():
 
 
 @pytest.mark.asyncio
-async def test_forward_backward_custom_rejects_unexpected_loss_fn_input_keys():
+async def test_forward_backward_custom_requires_target_tokens():
     client = _FakeTrainingClient()
     datum = types.Datum(
         model_input=types.ModelInput.from_ints([1, 2]),
         loss_fn_inputs={
-            "target_tokens": [101, 102],
             "advantages": [1.0, 1.0],
         },
     )
@@ -231,24 +281,30 @@ async def test_forward_backward_custom_rejects_unexpected_loss_fn_input_keys():
         del data, logprobs_list
         return torch.tensor(0.0, requires_grad=True), {}
 
-    with pytest.raises(ValueError, match="only supports loss_fn_inputs keys"):
+    with pytest.raises(ValueError, match="target_tokens must be provided"):
         await client.forward_backward_custom_async(
             [datum],
             custom_loss,
             loss_type_input="logprobs",
         )
+    assert not client.forward_calls
+    assert not client.backward_calls
 
 
 @pytest.mark.asyncio
-async def test_forward_backward_custom_preserves_provenance_spans():
+@pytest.mark.parametrize("with_weights", [False, True])
+async def test_forward_backward_custom_preserves_provenance_spans(with_weights: bool):
     """Both rebuilds (the weights-less forward datum and the linear-loss
     backward datum) must carry the spans; dropping them silently would strip
     provenance from the surrogate passes."""
     client = _FakeTrainingClient()
     spans = [types.PromptProvenanceSpan(sequence_id="req:0", length=2)]
+    loss_fn_inputs = {"target_tokens": [101, 102]}
+    if with_weights:
+        loss_fn_inputs["weights"] = [1, 1]
     datum = types.Datum(
         model_input=types.ModelInput.from_ints([1, 2]),
-        loss_fn_inputs={"target_tokens": [101, 102]},
+        loss_fn_inputs=loss_fn_inputs,
         model_input_spans=spans,
         loss_fn_input_spans=spans,
     )

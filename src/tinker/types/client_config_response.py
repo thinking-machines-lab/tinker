@@ -58,3 +58,9 @@ class ClientConfigResponse(BaseModel):
     carries the completion metadata) before doing the normal payload fetch,
     instead of polling ``/api/v1/retrieve_future`` per request. Requires a
     server exposing the retrieve_futures endpoint."""
+    sample_join_sampling_session: bool = False
+    """When true, an unpickled SamplingClient asks the server for its clone id
+    (``/api/v1/join_sampling_session``) before its first sample, instead of
+    picking a random one, so clones of a sampling session never collide on
+    request seq_ids. Requires a server exposing the join_sampling_session
+    endpoint."""

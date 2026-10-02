@@ -6,6 +6,8 @@ import logging
 import os
 import threading
 import time
+import warnings
+from collections.abc import Mapping
 from concurrent.futures import Future as ConcurrentFuture
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -46,8 +48,14 @@ class ServiceClient(TelemetryProvider):
         user_metadata: Optional metadata attached to the created session.
         project_id: Optional project ID to attach to the created session. If not
             provided, falls back to the `TINKER_PROJECT_ID` environment variable.
-        **kwargs: advanced options passed to the underlying HTTP client,
-                 including API keys, headers, and connection settings.
+        base_url: The Tinker API URL. Defaults to the `TINKER_BASE_URL` environment
+            variable, then to the production API.
+        api_key: The Tinker API key. Defaults to the `TINKER_API_KEY` environment
+            variable, then to the stored credentials.
+        default_headers_overrides: Headers sent with every request, on top of the ones
+            the SDK derives from environment variables.
+        **kwargs: Unsupported and ignored, with a warning. Passing them will be an
+            error in a future version of the SDK.
 
     Example:
     ```python
@@ -69,16 +77,26 @@ class ServiceClient(TelemetryProvider):
         self,
         user_metadata: dict[str, str] | None = None,
         project_id: str | None = None,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        default_headers_overrides: Mapping[str, str] | None = None,
         **kwargs: Any,
     ):
-        default_headers = _get_default_headers() | kwargs.pop("default_headers", {})
-        kwargs["_strict_response_validation"] = True
-        kwargs["default_headers"] = default_headers
+        if kwargs:
+            warnings.warn(
+                f"ServiceClient ignores unsupported arguments: {', '.join(sorted(kwargs))}. "
+                "Passing them will be an error in a future version of the Tinker SDK.",
+                FutureWarning,
+                stacklevel=2,
+            )
         if project_id is None:
             project_id = os.environ.get("TINKER_PROJECT_ID") or None
         self._user_metadata: dict[str, str] | None = user_metadata
         self._project_id: str | None = project_id
-        self._holder_kwargs: dict[str, Any] = kwargs
+        self._base_url: str | None = base_url
+        self._api_key: str | None = api_key
+        self._default_headers_overrides: dict[str, str] = dict(default_headers_overrides or {})
         self._session_holder: InternalClientHolder | None = None
         self._session_holder_lock: threading.Lock = threading.Lock()
         self._rest_holder: InternalClientHolder | None = None
@@ -126,7 +144,9 @@ class ServiceClient(TelemetryProvider):
                     self._session_holder = InternalClientHolder(
                         user_metadata=self._user_metadata,
                         project_id=self._project_id,
-                        **self._holder_kwargs,
+                        base_url=self._base_url,
+                        api_key=self._api_key,
+                        default_headers_overrides=self._default_headers_overrides,
                     )
                     logger.info(
                         f"ServiceClient initialized for session {self._session_holder._session_id}"
@@ -146,7 +166,10 @@ class ServiceClient(TelemetryProvider):
                     raise RuntimeError("ServiceClient is closed")
                 if self._rest_holder is None:
                     self._rest_holder = InternalClientHolder(
-                        _skip_session=True, **self._holder_kwargs
+                        base_url=self._base_url,
+                        api_key=self._api_key,
+                        default_headers_overrides=self._default_headers_overrides,
+                        _skip_session=True,
                     )
                 return self._rest_holder
 
@@ -353,11 +376,11 @@ class ServiceClient(TelemetryProvider):
         if weights_access_token is None:
             return self.create_rest_client()
 
-        token_client_kwargs: dict[str, Any] = {
-            **self._holder_kwargs,
-            "api_key": weights_access_token,
-        }
-        token_client = ServiceClient(**token_client_kwargs)
+        token_client = ServiceClient(
+            base_url=self._base_url,
+            api_key=weights_access_token,
+            default_headers_overrides=self._default_headers_overrides,
+        )
         return token_client.create_rest_client()
 
     def _create_training_client_via_load_weights_submit(
@@ -872,20 +895,3 @@ def _completed_none_future() -> AwaitableConcurrentFuture[None]:
     future: ConcurrentFuture[None] = ConcurrentFuture()
     future.set_result(None)
     return AwaitableConcurrentFuture(future)
-
-
-def _get_default_headers() -> dict[str, str]:
-    headers = {}
-
-    if (api_key := os.environ.get("TINKER_API_KEY", "")) and "X-API-Key" not in headers:
-        headers["X-API-Key"] = api_key
-
-    if (
-        client_id := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_ID")
-    ) and "CF-Access-Client-Id" not in headers:
-        headers["CF-Access-Client-Id"] = client_id
-    if (
-        client_secret := os.environ.get("CLOUDFLARE_ACCESS_CLIENT_SECRET")
-    ) and "CF-Access-Client-Secret" not in headers:
-        headers["CF-Access-Client-Secret"] = client_secret
-    return headers
