@@ -161,6 +161,22 @@ in the future
 Exclusive window end, aligned to a UTC hour boundary; at most 14 days
 after `starting_on`
 
+## `GetCurrentCheckpointStorageUsageRequest` Objects
+
+```python
+class GetCurrentCheckpointStorageUsageRequest(StrictBase)
+```
+
+HTTP query parameters sent by the SDK and CLI to the API server.
+
+Used by GET /api/v1/billing/usage/checkpoints/current; no JSON request body.
+With no parameters, returns checkpoint storage usage for the entire
+authenticated organization.
+
+#### `project_id`
+
+Only return checkpoints attributed to this project; omit for the entire org.
+
 Optimizer selection and per-step hyperparameters for training models.
 
 ## `OptimizerConfigBase` Objects
@@ -1599,6 +1615,67 @@ rates, while newer non-null estimates use fixed published rates. A cost or
 rate may still be None when the data required to price that row is
 unavailable. None means the response contains no completed day with invoice
 pricing data.
+
+## `CurrentCheckpointStorageUsageItem` Objects
+
+```python
+class CurrentCheckpointStorageUsageItem(BaseModel)
+```
+
+HTTP/JSON response item returned by the API server to SDK and CLI consumers.
+
+Contains current active checkpoint storage attributed through its session.
+
+#### `project_id`
+
+Project currently associated with the checkpoint's session.
+
+#### `org_user_urn`
+
+Organization-user URN of the checkpoint's session owner.
+
+#### `user_email`
+
+Current email of the checkpoint's session owner.
+
+#### `user_name`
+
+Current display name of the checkpoint's session owner.
+
+#### `checkpoint_count`
+
+Number of active checkpoints.
+
+#### `size_bytes`
+
+Current stored bytes.
+
+#### `size_gigabytes`
+
+Current stored bytes converted to the storage billing unit.
+
+#### `estimated_monthly_cost_usd`
+
+Projected gross 720-hour cost at the current storage rate.
+
+## `CurrentCheckpointStorageUsageResponse` Objects
+
+```python
+class CurrentCheckpointStorageUsageResponse(BaseModel)
+```
+
+HTTP/JSON response returned by the API server to SDK and CLI consumers.
+
+Contains current checkpoint storage usage for the authenticated organization.
+Data can lag by 1-2 hours.
+
+#### `effective_rate_usd_per_gigabyte_month`
+
+Current gross storage rate used for projected costs.
+
+#### `data`
+
+Storage grouped by project and session owner.
 
 ## `TrainingRun` Objects
 

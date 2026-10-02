@@ -853,3 +853,29 @@ async def get_billing_usage_async(
 ```
 
 Async version of get_billing_usage.
+
+#### `get_current_checkpoint_storage_usage`
+
+```python
+def get_current_checkpoint_storage_usage(
+    project_id: str | None = None
+) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]
+```
+
+Get current checkpoint count, size, and projected storage cost.
+
+With no arguments, returns checkpoint storage usage for the entire authenticated
+organization, grouped by project and session owner. Pass `project_id` to limit
+results to one project within that organization. Checkpoint usage data can lag
+by 1-2 hours. Projected costs use current publicly available rates, before credits and commits,
+and are not invoice amounts due.
+
+#### `get_current_checkpoint_storage_usage_async`
+
+```python
+async def get_current_checkpoint_storage_usage_async(
+    project_id: str | None = None
+) -> types.CurrentCheckpointStorageUsageResponse
+```
+
+Async version of `get_current_checkpoint_storage_usage`.

@@ -17,8 +17,14 @@ Args:
     user_metadata: Optional metadata attached to the created session.
     project_id: Optional project ID to attach to the created session. If not
         provided, falls back to the `TINKER_PROJECT_ID` environment variable.
-    **kwargs: advanced options passed to the underlying HTTP client,
-             including API keys, headers, and connection settings.
+    base_url: The Tinker API URL. Defaults to the `TINKER_BASE_URL` environment
+        variable, then to the production API.
+    api_key: The Tinker API key. Defaults to the `TINKER_API_KEY` environment
+        variable, then to the stored credentials.
+    default_headers_overrides: Headers sent with every request, on top of the ones
+        the SDK derives from environment variables.
+    **kwargs: Unsupported and ignored, with a warning. Passing them will be an
+        error in a future version of the SDK.
 
 Example:
 ```python

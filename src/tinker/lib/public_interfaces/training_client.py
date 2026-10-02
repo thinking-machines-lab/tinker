@@ -396,7 +396,9 @@ class TrainingClient(TelemetryProvider):
         """Compute forward/backward with a custom loss function.
 
         Allows you to define custom loss functions that operate on log probabilities.
-        The custom function receives logprobs and computes loss and gradients.
+        Only `target_tokens` and `weights` in `loss_fn_inputs` are sent to the server.
+        Other fields are available to the custom loss function but are stripped off
+        before being sent to the server.
 
         Args:
         - `data`: List of training data samples
@@ -418,6 +420,28 @@ class TrainingClient(TelemetryProvider):
         result = future.result()
         print(f"Custom loss: {result.loss}")
         print(f"Metrics: {result.metrics}")
+        ```
+
+        For example, to provide a target distribution for a custom loss:
+        ```python
+        data = [types.Datum(
+            model_input=types.ModelInput.from_ints([1]),
+            loss_fn_inputs={
+                "target_tokens": [[2, 3]],
+                "target_distribution": types.TensorData(
+                    data=[0.25, 0.75], dtype="float32", shape=[1, 2],
+                ),
+            },
+        )]
+
+        def custom_loss(data, logprobs_list):
+            loss = sum(
+                -(datum.loss_fn_inputs["target_distribution"].to_torch() * logprobs).sum()
+                for datum, logprobs in zip(data, logprobs_list, strict=True)
+            )
+            return loss, {}
+
+        future = training_client.forward_backward_custom(data, custom_loss)
         ```
         """
         return self.holder.run_coroutine_threadsafe(
@@ -529,28 +553,17 @@ class TrainingClient(TelemetryProvider):
             if target_tokens is None:
                 raise ValueError("target_tokens must be provided when using cross_entropy")
 
-            unexpected_keys = sorted(set(datum.loss_fn_inputs) - {"target_tokens", "weights"})
-            if unexpected_keys:
-                raise ValueError(
-                    "forward_backward_custom only supports loss_fn_inputs keys "
-                    "{'target_tokens', 'weights'}; "
-                    f"found unexpected keys: {unexpected_keys}"
+            weights = datum.loss_fn_inputs.get("weights")
+            if weights is None:
+                weights = types.TensorData(
+                    data=[0.0] * len(target_tokens.data),
+                    dtype="float32",
+                    shape=target_tokens.shape,
                 )
-
-            if "weights" in datum.loss_fn_inputs:
-                forward_data.append(datum)
-                continue
-
-            forward_loss_fn_inputs = dict(datum.loss_fn_inputs)
-            forward_loss_fn_inputs["weights"] = types.TensorData(
-                data=[0.0] * len(target_tokens.data),
-                dtype="float32",
-                shape=target_tokens.shape,
-            )
             forward_data.append(
                 types.Datum(
                     model_input=datum.model_input,
-                    loss_fn_inputs=forward_loss_fn_inputs,
+                    loss_fn_inputs={"target_tokens": target_tokens, "weights": weights},
                     model_input_spans=datum.model_input_spans,
                     loss_fn_input_spans=datum.loss_fn_input_spans,
                 )

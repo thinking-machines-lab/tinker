@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import dataclasses
+import json
 import logging
 import os
 import time
@@ -29,7 +31,7 @@ from ..session_futures_poller import SessionFuturesPoller
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizer
 
-    from ..internal_client_holder import InternalClientHolder
+    from ..internal_client_holder import InternalClientHolder, _ShadowHolderConfig
 
 # pyright: reportPrivateImportUsage=false
 
@@ -49,7 +51,7 @@ class _SamplingClientPickleState:
 
     session_id: str
     sampling_session_id: str
-    constructor_kwargs: dict[str, Any]
+    holder: _ShadowHolderConfig
     record_stability_info: bool = False
 
 
@@ -150,7 +152,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
     Multi-processing support:
     This class is picklable, so it can be passed to a separate process/worker to sample. It is also
-    safe to pass the same instance of SamplingClient to multiple processes/workers.
+    safe to pass the same instance of SamplingClient to multiple processes/workers. To avoid pickle,
+    pass `get_sampler_handle()` instead and rebuild the client with `SamplingClient.from_sampler_handle()`.
 
     If you are using Tinker SDK with more than one process you should always create SamplingClient from
     the main process and then pass it to the other processes/workers.
@@ -198,16 +201,19 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         self._sampling_session_id: str = sampling_session_id
 
-        self._request_id_counter: int = 0
-        if shadow:
-            # Start request_id_counter at a random high value to avoid collisions
-            # with the original client or other unpickled copies
-            # We use 1B as the base and mod for uuid because the maximum int value is 2^63-1 and 1B*1B is less than 2^63-1.
-            self._request_id_counter = 1_000_000_000 * (int(uuid.uuid4()) % 1_000_000_000 + 1)
-
         # Constant across this client's seq_ids (all in one 1B block); matches
         # the server's request_metadata_hash_tag (seq_id // 1_000_000_000).
-        self._cloned_sampler_id: int = self._request_id_counter // 1_000_000_000
+        # None until the server allocates it (see _join_sampling_session).
+        self._cloned_sampler_id: int | None = 0
+        if shadow:
+            if holder.get_client_config().sample_join_sampling_session:
+                self._cloned_sampler_id = None
+            else:
+                # Random clone id to avoid collisions with the original client or
+                # other unpickled copies. Mod 1B so that 1B*1B stays below 2^63-1.
+                self._cloned_sampler_id = int(uuid.uuid4()) % 1_000_000_000 + 1
+        self._request_id_counter: int = 1_000_000_000 * (self._cloned_sampler_id or 0)
+        self._join_lock = asyncio.Lock()
         self._futures_poller: SessionFuturesPoller | None = None
 
     @staticmethod
@@ -303,6 +309,8 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         target_prompt_logprobs: _TensorDataModel | None = None,
         prompt_alt_tokens_k: int = 0,
     ) -> types.SampleResponse:
+        if self._cloned_sampler_id is None:
+            await self._join_sampling_session()
         estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
         request_id = self._request_id_counter
         self._request_id_counter += 1
@@ -346,6 +354,24 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         _check_prompt_alt_tokens_returned(response, prompt_alt_tokens_k)
         return _attach_sequence_ids(response, untyped_future.sample_sequence_ids)
 
+    async def _join_sampling_session(self) -> None:
+        """Have the server allocate this clone's id, once, before its first request."""
+        async with self._join_lock:
+            if self._cloned_sampler_id is not None:
+                return
+
+            async def _send_request() -> types.JoinSamplingSessionResponse:
+                with self.holder.aclient(ClientConnectionPoolType.SESSION) as client:
+                    return await client.service.join_sampling_session(
+                        request=types.JoinSamplingSessionRequest(
+                            sampling_session_id=self._sampling_session_id
+                        )
+                    )
+
+            response = await self.holder.execute_with_retries(_send_request)
+            self._cloned_sampler_id = response.client_counter
+            self._request_id_counter = 1_000_000_000 * response.client_counter
+
     def _get_futures_poller(self) -> SessionFuturesPoller | None:
         """The session's retrieve_futures poller, or None when the flag is off.
 
@@ -355,6 +381,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         if not self.holder.get_client_config().sample_use_retrieve_futures:
             return None
         if self._futures_poller is None:
+            assert self._cloned_sampler_id is not None, "joined before the first sample"
             self._futures_poller = SessionFuturesPoller(
                 self.holder,
                 sampling_session_id=self._sampling_session_id,
@@ -594,22 +621,53 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
+    def _pickle_state(self) -> _SamplingClientPickleState:
+        return _SamplingClientPickleState(
+            session_id=self.holder.get_session_id(),
+            sampling_session_id=self._sampling_session_id,
+            holder=self.holder.shadow_config,
+            record_stability_info=self._record_stability_info,
+        )
+
     def __reduce__(self) -> tuple[Any, tuple[_SamplingClientPickleState]]:
         """Enable pickling of SamplingClient for multi-process use.
 
         Serializes into a ``_SamplingClientPickleState`` dataclass.
         """
-        return (
-            _unpickle_sampling_client,
-            (
-                _SamplingClientPickleState(
-                    session_id=self.holder.get_session_id(),
-                    sampling_session_id=self._sampling_session_id,
-                    constructor_kwargs=self.holder.shadow_kwargs,
-                    record_stability_info=self._record_stability_info,
-                ),
-            ),
+        return (_unpickle_sampling_client, (self._pickle_state(),))
+
+    def get_sampler_handle(self) -> str:
+        """Get a string handle to this client's sampler.
+
+        A pickle-free alternative for passing a SamplingClient to other processes.
+        Every `SamplingClient.from_sampler_handle` call on the handle, in any
+        process and any number of times, creates a new client for the same sampler.
+        The handle carries no credentials.
+        """
+        state = self._pickle_state()
+        state = dataclasses.replace(state, holder=state.holder.without_credentials())
+        payload = json.dumps(dataclasses.asdict(state), separators=(",", ":"))
+        return base64.urlsafe_b64encode(payload.encode()).decode()
+
+    @staticmethod
+    def from_sampler_handle(handle: str, *, api_key: str | None = None) -> SamplingClient:
+        """Create a SamplingClient for the sampler behind `handle`.
+
+        The new client authenticates with this process's credentials, resolved
+        the same way as for `ServiceClient()`.
+
+        Args:
+        - `handle`: A handle from `get_sampler_handle`.
+        - `api_key`: API key to use instead of the one resolved from the environment.
+        """
+        from ..internal_client_holder import _ShadowHolderConfig
+
+        fields = json.loads(base64.urlsafe_b64decode(handle))
+        holder = _ShadowHolderConfig(**fields.pop("holder"))
+        state = _SamplingClientPickleState(
+            **fields, holder=dataclasses.replace(holder, api_key=api_key)
         )
+        return _unpickle_sampling_client(state)
 
     def on_queue_state_change(
         self, queue_state: QueueState, queue_state_reason: str | None
@@ -647,7 +705,7 @@ def _unpickle_sampling_client(state: _SamplingClientPickleState) -> SamplingClie
     """
     from ..internal_client_holder import InternalClientHolder
 
-    holder = InternalClientHolder.get_shadow_holder(state.session_id, state.constructor_kwargs)
+    holder = InternalClientHolder.get_shadow_holder(state.session_id, state.holder)
     return SamplingClient(
         holder,
         sampling_session_id=state.sampling_session_id,

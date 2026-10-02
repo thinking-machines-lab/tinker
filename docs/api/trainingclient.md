@@ -145,7 +145,9 @@ def forward_backward_custom(
 Compute forward/backward with a custom loss function.
 
 Allows you to define custom loss functions that operate on log probabilities.
-The custom function receives logprobs and computes loss and gradients.
+Only `target_tokens` and `weights` in `loss_fn_inputs` are sent to the server.
+Other fields are available to the custom loss function but are stripped off
+before being sent to the server.
 
 Args:
 - `data`: List of training data samples
@@ -167,6 +169,28 @@ future = training_client.forward_backward_custom(data, custom_loss)
 result = future.result()
 print(f"Custom loss: {result.loss}")
 print(f"Metrics: {result.metrics}")
+```
+
+For example, to provide a target distribution for a custom loss:
+```python
+data = [types.Datum(
+    model_input=types.ModelInput.from_ints([1]),
+    loss_fn_inputs={
+        "target_tokens": [[2, 3]],
+        "target_distribution": types.TensorData(
+            data=[0.25, 0.75], dtype="float32", shape=[1, 2],
+        ),
+    },
+)]
+
+def custom_loss(data, logprobs_list):
+    loss = sum(
+        -(datum.loss_fn_inputs["target_distribution"].to_torch() * logprobs).sum()
+        for datum, logprobs in zip(data, logprobs_list, strict=True)
+    )
+    return loss, {}
+
+future = training_client.forward_backward_custom(data, custom_loss)
 ```
 
 #### `forward_backward_custom_async`

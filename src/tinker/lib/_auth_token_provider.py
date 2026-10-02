@@ -19,7 +19,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 
-from tinker._exceptions import TinkerError
+from tinker._exceptions import TinkerError, _AuthFlowError
 from tinker.lib import credentials
 
 MISSING_API_KEY_MESSAGE = (
@@ -38,7 +38,10 @@ class AuthTokenProvider(httpx.Auth):
     async def async_auth_flow(
         self, request: httpx.Request
     ) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        token = await self.get_token()
+        try:
+            token = await self.get_token()
+        except Exception as e:
+            raise _AuthFlowError(e) from e
         if token:
             request.headers["X-API-Key"] = token
         yield request
