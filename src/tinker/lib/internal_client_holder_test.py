@@ -296,6 +296,62 @@ def test_close_is_idempotent() -> None:
     assert holder._closed
 
 
+def test_default_headers_overrides_apply_over_env_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLOUDFLARE_ACCESS_CLIENT_ID", "env-id")
+    monkeypatch.setenv("CLOUDFLARE_ACCESS_CLIENT_SECRET", "env-secret")
+    holder = _make_holder(
+        api_key="tml-test",
+        default_headers_overrides={"CF-Access-Client-Id": "override-id", "X-Tenant-Id": "t"},
+    )
+
+    expected = {
+        "CF-Access-Client-Id": "override-id",
+        "CF-Access-Client-Secret": "env-secret",
+        "X-Tenant-Id": "t",
+    }
+    assert holder._constructor_kwargs["default_headers"] == expected
+    # Shadow holders keep the overrides but derive env headers from their own env.
+    monkeypatch.delenv("CLOUDFLARE_ACCESS_CLIENT_ID")
+    monkeypatch.delenv("CLOUDFLARE_ACCESS_CLIENT_SECRET")
+    with (
+        patch.object(InternalClientHolder, "_start_heartbeat", new_callable=AsyncMock),
+        patch.object(
+            InternalClientHolder, "_start_client_dynamic_config_refresh", new_callable=AsyncMock
+        ),
+    ):
+        shadow = InternalClientHolder.get_shadow_holder(
+            holder.get_session_id(), holder.shadow_config
+        )
+    assert shadow._constructor_kwargs["default_headers"] == {
+        "CF-Access-Client-Id": "override-id",
+        "X-Tenant-Id": "t",
+    }
+
+
+def test_shadow_holder_construction_does_not_exchange_jwt() -> None:
+    """Shadow holders may be built on any thread: the first get_token() exchanges."""
+    fetch = AsyncMock(return_value="unused")
+    with (
+        patch("tinker.lib._jwt_auth.JwtAuthProvider._fetch", fetch),
+        patch.object(InternalClientHolder, "_start_heartbeat", new_callable=AsyncMock),
+        patch.object(
+            InternalClientHolder, "_start_client_dynamic_config_refresh", new_callable=AsyncMock
+        ),
+    ):
+        holder = InternalClientHolder(
+            session_id="sess-shadow",
+            api_key="tml-test",
+            _client_config=_ClientConfigResponse(pjwt_auth_enabled=True).model_dump(),
+            _client_dynamic_config=_ClientDynamicConfigResponse().model_dump(),
+        )
+    fetch.assert_not_called()
+    holder._session_heartbeat_task = None
+    holder._client_dynamic_config_refresh_task = None
+    holder.close()
+
+
 def test_sampling_client_pickle_roundtrip_without_env_var(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -331,6 +387,55 @@ def test_sampling_client_pickle_roundtrip_without_env_var(
 
     assert isinstance(restored.holder._default_auth, ApiKeyAuthProvider)
     assert restored.holder._default_auth._token == "tml-key-from-env"
+
+
+def test_sampling_client_sampler_handle_uses_restoring_process_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    from tinker.lib.public_interfaces.sampling_client import SamplingClient
+
+    monkeypatch.setenv("TINKER_API_KEY", "tml-sender-key")
+    monkeypatch.setenv("CLOUDFLARE_ACCESS_CLIENT_ID", "cf-sender-id")
+    monkeypatch.setenv("CLOUDFLARE_ACCESS_CLIENT_SECRET", "cf-sender-secret")
+    monkeypatch.setenv("TINKER_BASE_URL", "https://sender.test")
+    holder = _make_holder(default_headers_overrides={"X-Tenant-Id": "t"})
+    client = SamplingClient(holder, sampling_session_id="samp-1", record_stability_info=True)
+
+    handle = client.get_sampler_handle()
+    decoded = base64.urlsafe_b64decode(handle)
+    for secret in (b"tml-sender-key", b"cf-sender-id", b"cf-sender-secret"):
+        assert secret not in decoded
+
+    monkeypatch.setenv("TINKER_API_KEY", "tml-receiver-key")
+    monkeypatch.delenv("CLOUDFLARE_ACCESS_CLIENT_ID")
+    monkeypatch.delenv("CLOUDFLARE_ACCESS_CLIENT_SECRET")
+    monkeypatch.setenv("TINKER_BASE_URL", "https://receiver.test")
+    with (
+        patch.object(
+            InternalClientHolder,
+            "_start_heartbeat",
+            new_callable=AsyncMock,
+        ),
+        patch.object(
+            InternalClientHolder,
+            "_start_client_dynamic_config_refresh",
+            new_callable=AsyncMock,
+        ),
+    ):
+        restored = SamplingClient.from_sampler_handle(handle)
+        overridden = SamplingClient.from_sampler_handle(handle, api_key="tml-override-key")
+
+    assert restored._sampling_session_id == "samp-1"
+    assert restored._record_stability_info
+    assert restored.holder.get_session_id() == holder.get_session_id()
+    assert isinstance(restored.holder._default_auth, ApiKeyAuthProvider)
+    assert restored.holder._default_auth._token == "tml-receiver-key"
+    assert restored.holder._constructor_kwargs["base_url"] == "https://sender.test"
+    assert restored.holder._constructor_kwargs["default_headers"] == {"X-Tenant-Id": "t"}
+    assert isinstance(overridden.holder._default_auth, ApiKeyAuthProvider)
+    assert overridden.holder._default_auth._token == "tml-override-key"
 
 
 # ---------------------------------------------------------------------------
@@ -381,10 +486,10 @@ def test_holder_seeds_dynamic_config_from_kwargs() -> None:
     assert holder._client_dynamic_config == seed
 
 
-def test_shadow_kwargs_carry_dynamic_config_snapshot() -> None:
+def test_shadow_config_carries_dynamic_config_snapshot() -> None:
     seed = _ClientDynamicConfigResponse(refresh_interval_sec=77)
     holder = _make_holder(api_key="tml-test-key", _client_dynamic_config=seed.model_dump())
-    assert holder.shadow_kwargs["_client_dynamic_config"] == seed.model_dump()
+    assert holder.shadow_config.client_dynamic_config == seed.model_dump()
 
 
 def test_rest_support_redirect_pool_disables_pyqwest_when_enabled_by_config() -> None:

@@ -173,6 +173,17 @@ class InternalServerError(APIStatusError):
     pass
 
 
+class _AuthFlowError(Exception):
+    """Carries an auth provider's failure out of httpx's send() unchanged.
+
+    Internal: the client unwraps it, so callers only ever see `error`.
+    """
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(error)
+        self.error = error
+
+
 class RequestFailedError(TinkerError):
     """Raised when an asynchronous request completes in a failed state."""
 

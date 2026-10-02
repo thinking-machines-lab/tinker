@@ -2,6 +2,7 @@
 
 This module implements the 'tinker billing' commands:
 - usage: hourly-bucketed billing usage rows for your organization
+- checkpoint-storage: current checkpoint count, bytes, and projected cost
 
 The CLI renders the usage-events response generically. For table/CSV output,
 each event's nested event_info payload is flattened into its row. The table
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Sequence
 import click
 
 if TYPE_CHECKING:
-    from tinker.types import BillingUsageResponse
+    from tinker.types import BillingUsageResponse, CurrentCheckpointStorageUsageResponse
 
 from ..client import create_rest_client, handle_api_errors
 from ..context import CLIContext
@@ -142,6 +143,37 @@ class BillingUsageOutput(OutputBase):
         return [[_cell(row.get(column)) for column in columns] for row in self.flat_dicts]
 
 
+class CurrentCheckpointStorageUsageOutput(OutputBase):
+    def __init__(self, response: "CurrentCheckpointStorageUsageResponse"):
+        self.rate = response.effective_rate_usd_per_gigabyte_month
+        self.data_dicts = _row_dicts(response.data)
+        self.table_dicts = [
+            {
+                "effective_rate_usd_per_gigabyte_month": self.rate,
+                **row,
+            }
+            for row in self.data_dicts
+        ]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "effective_rate_usd_per_gigabyte_month": self.rate,
+            "data": self.data_dicts,
+        }
+
+    def get_title(self) -> str | None:
+        if not self.data_dicts:
+            return "No active checkpoint storage"
+        return "Current checkpoint storage"
+
+    def get_table_columns(self) -> List[str]:
+        return _columns(self.table_dicts)
+
+    def get_table_rows(self) -> List[List[str]]:
+        columns = self.get_table_columns()
+        return [[_cell(row.get(column)) for column in columns] for row in self.table_dicts]
+
+
 def _write_csv(rows: Sequence[Any], path: str) -> None:
     row_dicts = _flat_dicts(_row_dicts(rows))
 
@@ -236,3 +268,39 @@ def usage(
         _write_csv(response.data, csv_path)
     if csv_path is None and sessions_csv_path is None:
         BillingUsageOutput(response).print(format=cli_context.format)
+
+
+@cli.command(name="checkpoint-storage")
+@click.option("--project-id", default=None, help="Only show storage in this project")
+@click.option(
+    "--csv",
+    "csv_path",
+    default=None,
+    metavar="PATH",
+    help="Write storage rows as CSV to PATH instead of table/JSON output ('-' for stdout)",
+)
+@click.pass_obj
+@handle_api_errors
+def checkpoint_storage(
+    cli_context: CLIContext,
+    project_id: str | None,
+    csv_path: str | None,
+) -> None:
+    """Show current checkpoint storage and its projected run rate.
+
+    With no arguments, returns checkpoint storage usage for the entire
+    authenticated organization, grouped by project and session owner.
+    Use --project-id to limit results to one project within that organization.
+    Checkpoint usage data can lag by 1-2 hours. Monthly costs are gross
+    720-hour projections using current publicly available rates, before
+    credits and commits; they are not invoice amounts due.
+    """
+    client = create_rest_client()
+    response = client.get_current_checkpoint_storage_usage(
+        project_id=project_id,
+    ).result()
+    output = CurrentCheckpointStorageUsageOutput(response)
+    if csv_path is not None:
+        _write_csv(output.table_dicts, csv_path)
+    else:
+        output.print(format=cli_context.format)

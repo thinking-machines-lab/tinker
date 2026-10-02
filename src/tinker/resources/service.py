@@ -16,6 +16,8 @@ from ..types.create_session_request import CreateSessionRequest
 from ..types.create_session_response import CreateSessionResponse
 from ..types.get_server_capabilities_response import GetServerCapabilitiesResponse
 from ..types.health_response import HealthResponse
+from ..types.join_sampling_session_request import JoinSamplingSessionRequest
+from ..types.join_sampling_session_response import JoinSamplingSessionResponse
 from ..types.session_heartbeat_request import SessionHeartbeatRequest
 from ..types.session_heartbeat_response import SessionHeartbeatResponse
 
@@ -135,4 +137,21 @@ class AsyncServiceResource(AsyncAPIResource):
             "/api/v1/create_sampling_session",
             body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             cast_to=CreateSamplingSessionResponse,
+        )
+
+    async def join_sampling_session(
+        self,
+        *,
+        request: JoinSamplingSessionRequest,
+    ) -> JoinSamplingSessionResponse:
+        """
+        Allocates a client id, unique within an existing sampling session, for a new client of it
+
+        Args:
+          request: The join sampling session request containing sampling_session_id
+        """
+        return await self._post(
+            "/api/v1/join_sampling_session",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            cast_to=JoinSamplingSessionResponse,
         )

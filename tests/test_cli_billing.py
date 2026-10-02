@@ -9,12 +9,27 @@ table/CSV output, while JSON output keeps the true nested shape.
 import csv
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
 
-from tinker.cli.commands.billing import BillingUsageOutput, _session_rows, _write_csv
+import pytest
+from click.testing import CliRunner
+from pydantic import ValidationError
+
+from tinker.cli.commands import billing as billing_command
+from tinker.cli.commands.billing import (
+    BillingUsageOutput,
+    CurrentCheckpointStorageUsageOutput,
+    _session_rows,
+    _write_csv,
+)
+from tinker.cli.context import CLIContext
 from tinker.types import (
     BillingUsageEvent,
     BillingUsageResponse,
     BillingUsageSession,
+    CurrentCheckpointStorageUsageItem,
+    CurrentCheckpointStorageUsageResponse,
+    GetCurrentCheckpointStorageUsageRequest,
     StorageBillingEvent,
     TrainingBillingEvent,
 )
@@ -192,3 +207,140 @@ def test_write_sessions_csv(tmp_path: Path) -> None:
         {"session_id": "abc", "user_metadata": '{"domino_project": "x"}'},
         {"session_id": "empty", "user_metadata": ""},
     ]
+
+
+def _checkpoint_storage_response() -> CurrentCheckpointStorageUsageResponse:
+    return CurrentCheckpointStorageUsageResponse(
+        effective_rate_usd_per_gigabyte_month=0.1,
+        data=[
+            CurrentCheckpointStorageUsageItem(
+                project_id="project-a",
+                org_user_urn="tml:organization_user:user-a",
+                user_email="ada@example.com",
+                user_name="Ada Lovelace",
+                checkpoint_count=2,
+                size_bytes=2**30,
+                size_gigabytes=1.0,
+                estimated_monthly_cost_usd=0.1,
+            )
+        ],
+    )
+
+
+def test_current_checkpoint_storage_output_keeps_identity_and_rate() -> None:
+    output = CurrentCheckpointStorageUsageOutput(_checkpoint_storage_response())
+
+    assert output.to_dict() == {
+        "effective_rate_usd_per_gigabyte_month": 0.1,
+        "data": [
+            {
+                "project_id": "project-a",
+                "org_user_urn": "tml:organization_user:user-a",
+                "user_email": "ada@example.com",
+                "user_name": "Ada Lovelace",
+                "checkpoint_count": 2,
+                "size_bytes": 2**30,
+                "size_gigabytes": 1.0,
+                "estimated_monthly_cost_usd": 0.1,
+            }
+        ],
+    }
+    columns = output.get_table_columns()
+    assert "snapshot_at" not in columns
+    assert output.get_title() == "Current checkpoint storage"
+    (row,) = output.get_table_rows()
+    assert row[columns.index("user_email")] == "ada@example.com"
+    assert row[columns.index("org_user_urn")] == "tml:organization_user:user-a"
+    assert "user_id" not in columns
+    assert row[columns.index("estimated_monthly_cost_usd")] == "0.1"
+
+
+@pytest.mark.parametrize("project_id", [None, "project-a"])
+def test_checkpoint_storage_command_org_default_and_project_filter(
+    monkeypatch: pytest.MonkeyPatch, project_id: str | None
+) -> None:
+    future = MagicMock()
+    future.result.return_value = _checkpoint_storage_response()
+    client = MagicMock()
+    client.get_current_checkpoint_storage_usage.return_value = future
+    monkeypatch.setattr(billing_command, "create_rest_client", lambda: client)
+
+    result = CliRunner().invoke(
+        billing_command.cli,
+        ["checkpoint-storage"] + ([] if project_id is None else ["--project-id", project_id]),
+        obj=CLIContext(format="json"),
+    )
+
+    assert result.exit_code == 0, result.output
+    client.get_current_checkpoint_storage_usage.assert_called_once_with(
+        project_id=project_id,
+    )
+    assert '"user_email": "ada@example.com"' in result.output
+    assert '"org_user_urn": "tml:organization_user:user-a"' in result.output
+    assert '"user_id"' not in result.output
+    assert "snapshot" not in result.output.lower()
+
+
+def test_checkpoint_storage_csv_omits_internal_timestamp(tmp_path: Path) -> None:
+    output = CurrentCheckpointStorageUsageOutput(_checkpoint_storage_response())
+    path = tmp_path / "checkpoints.csv"
+    _write_csv(output.table_dicts, str(path))
+
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        assert "snapshot_at" not in (reader.fieldnames or [])
+        assert "user_id" not in (reader.fieldnames or [])
+        (row,) = list(reader)
+    assert row["checkpoint_count"] == "2"
+    assert row["user_email"] == "ada@example.com"
+    assert row["org_user_urn"] == "tml:organization_user:user-a"
+
+
+def test_checkpoint_storage_empty_output_omits_internal_timestamp() -> None:
+    response = CurrentCheckpointStorageUsageResponse(
+        effective_rate_usd_per_gigabyte_month=0.1,
+        data=[],
+    )
+    output = CurrentCheckpointStorageUsageOutput(response)
+    assert output.get_title() == "No active checkpoint storage"
+    assert output.to_dict() == {"effective_rate_usd_per_gigabyte_month": 0.1, "data": []}
+    assert "snapshot_at" not in response.model_dump()
+    assert "snapshot_at" not in response.model_json_schema()["properties"]
+
+
+def test_checkpoint_storage_help_explains_lag_without_internal_details() -> None:
+    result = CliRunner().invoke(billing_command.cli, ["checkpoint-storage", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "1-2 hours" in result.output
+    assert "snapshot" not in result.output.lower()
+    assert "entire authenticated organization" in " ".join(result.output.split())
+    assert "current publicly available rates" in " ".join(result.output.split())
+    assert "rate card" not in result.output.lower()
+    assert "--user-email" not in result.output
+
+
+def test_checkpoint_storage_request_only_accepts_project_filter() -> None:
+    assert GetCurrentCheckpointStorageUsageRequest().model_dump(exclude_none=True) == {}
+    assert GetCurrentCheckpointStorageUsageRequest(project_id="project-a").model_dump(
+        exclude_none=True
+    ) == {"project_id": "project-a"}
+    with pytest.raises(ValidationError):
+        GetCurrentCheckpointStorageUsageRequest.model_validate({"user_email": "ada@example.com"})
+    result = CliRunner().invoke(
+        billing_command.cli, ["checkpoint-storage", "--user-email", "ada@example.com"]
+    )
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+    assert "--user-email" in result.output
+
+
+def test_checkpoint_storage_ignores_timestamp_from_older_server() -> None:
+    payload = _checkpoint_storage_response().model_dump(mode="json")
+    response = CurrentCheckpointStorageUsageResponse.model_validate(
+        {**payload, "snapshot_at": "2026-09-23T18:20:00Z"}
+    )
+
+    assert response.model_dump(mode="json") == payload
+    assert not hasattr(response, "snapshot_at")
+    assert CurrentCheckpointStorageUsageOutput(response).to_dict() == payload
