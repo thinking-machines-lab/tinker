@@ -574,7 +574,9 @@ def prompt_logprobs() -> Optional[List[Optional[float]]]
 Per-token log probabilities for the prompt as a Python list.
 
 If prompt_logprobs was set to true in the request, logprobs are
-computed for every token in the prompt. Each entry is a float, or
+computed for every token in the prompt, or for the last
+``SampleRequest.prompt_logprobs_last_n`` tokens if set. Each entry
+is a float, or
 ``None`` for positions where logprobs were not computed (e.g. the
 first prompt token). Returns ``None`` if prompt logprobs were not
 requested.
@@ -591,7 +593,8 @@ def topk_prompt_logprobs(
 Top-k prompt logprobs as nested Python lists.
 
 If topk_prompt_logprobs was set to a positive integer k in the request,
-the top-k logprobs are computed for every token in the prompt.
+the top-k logprobs are computed for every token in the prompt, or for the last
+``SampleRequest.prompt_logprobs_last_n`` tokens if set.
 For each prompt position: a list of up to k ``(token_id, logprob)``
 tuples, or ``None`` for positions where logprobs were not computed.
 Returns ``None`` if top-k was not requested.
@@ -1432,6 +1435,14 @@ If set to a positive integer, draws that many tokens, independently and at
 the request's temperature, from the model's next-token distribution at every
 prompt position after the first, in the same prefill that serves the request
 (see ``SampleResponse.prompt_alt_tokens``).
+
+#### `prompt_logprobs_last_n`
+
+Score only the last N prompt tokens: ``prompt_logprobs[-N:]`` are scored and
+earlier entries are ``None``, and the server can serve the prefix before them from
+its prefix cache. Requires ``prompt_logprobs``, and must be between 1 and
+``len(prompt) - 1``; also applies to ``topk_prompt_logprobs``. None scores the whole
+prompt.
 
 ## `TrainingBillingEvent` Objects
 

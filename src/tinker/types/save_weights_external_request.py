@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from typing_extensions import Literal
 
@@ -19,6 +19,10 @@ class SaveWeightsExternalRequest(StrictBase):
 
     ttl_seconds: Optional[int] = None
     """TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)"""
+
+    age_encryption_recipients: Optional[List[str]] = None
+    """age (filippo.io/age) recipients to encrypt every exported file to: native "age1..."
+    keys or SSH public keys. Files are stored with a ".age" suffix (None = unencrypted)."""
 
     type: Literal["save_weights_external"] = "save_weights_external"
 

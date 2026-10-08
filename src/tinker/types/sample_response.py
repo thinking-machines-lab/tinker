@@ -66,7 +66,9 @@ class SampleResponse:
         """Per-token log probabilities for the prompt as a Python list.
 
         If prompt_logprobs was set to true in the request, logprobs are
-        computed for every token in the prompt. Each entry is a float, or
+        computed for every token in the prompt, or for the last
+        ``SampleRequest.prompt_logprobs_last_n`` tokens if set. Each entry
+        is a float, or
         ``None`` for positions where logprobs were not computed (e.g. the
         first prompt token). Returns ``None`` if prompt logprobs were not
         requested.
@@ -87,7 +89,8 @@ class SampleResponse:
         """Top-k prompt logprobs as nested Python lists.
 
         If topk_prompt_logprobs was set to a positive integer k in the request,
-        the top-k logprobs are computed for every token in the prompt.
+        the top-k logprobs are computed for every token in the prompt, or for the last
+        ``SampleRequest.prompt_logprobs_last_n`` tokens if set.
         For each prompt position: a list of up to k ``(token_id, logprob)``
         tuples, or ``None`` for positions where logprobs were not computed.
         Returns ``None`` if top-k was not requested.
