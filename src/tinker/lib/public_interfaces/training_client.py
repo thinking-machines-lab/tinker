@@ -943,7 +943,10 @@ class TrainingClient(TelemetryProvider):
         )
 
     def save_weights_external(
-        self, name: str, ttl_seconds: int | None = None
+        self,
+        name: str,
+        ttl_seconds: int | None = None,
+        age_encryption_recipients: list[str] | None = None,
     ) -> APIFuture[types.SaveWeightsExternalResponse]:
         """Save model weights in an external (e.g. HuggingFace) format.
 
@@ -954,6 +957,10 @@ class TrainingClient(TelemetryProvider):
         - `name`: Name for the saved external weights
         - `ttl_seconds`: Optional TTL in seconds for the checkpoint, between 1 hour (3600) and
           10 years (None = never expires)
+        - `age_encryption_recipients`: Optional age (filippo.io/age) recipients (at most 10),
+          native `age1...` keys or SSH public keys. When set, every exported file is
+          encrypted to them and stored with a `.age` suffix; decrypt with
+          `age -d -i <identity>`.
 
         Returns:
         - `APIFuture` containing the save response with the external weights path
@@ -970,6 +977,7 @@ class TrainingClient(TelemetryProvider):
                     path=name,
                     seq_id=request_id + 1,
                     ttl_seconds=ttl_seconds,
+                    age_encryption_recipients=age_encryption_recipients,
                 )
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.save_external(request=request, max_retries=0)
@@ -991,10 +999,15 @@ class TrainingClient(TelemetryProvider):
         return self.holder.run_coroutine_threadsafe(_save_weights_external_async())
 
     async def save_weights_external_async(
-        self, name: str, ttl_seconds: int | None = None
+        self,
+        name: str,
+        ttl_seconds: int | None = None,
+        age_encryption_recipients: list[str] | None = None,
     ) -> APIFuture[types.SaveWeightsExternalResponse]:
         """Async version of save_weights_external."""
-        return self.save_weights_external(name, ttl_seconds=ttl_seconds)
+        return self.save_weights_external(
+            name, ttl_seconds=ttl_seconds, age_encryption_recipients=age_encryption_recipients
+        )
 
     def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
         @capture_exceptions(fatal=True)

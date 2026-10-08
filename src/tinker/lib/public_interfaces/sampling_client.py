@@ -16,6 +16,8 @@ from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+import numpy as np
+
 import tinker
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
@@ -109,6 +111,23 @@ def _check_prompt_alt_tokens_k(prompt_alt_tokens_k: int) -> None:
         raise ValueError(f"prompt_alt_tokens_k must be 0 or greater, got {prompt_alt_tokens_k}")
 
 
+def _check_prompt_logprobs_last_n(
+    prompt_logprobs_last_n: int | None, include_prompt_logprobs: bool
+) -> None:
+    """Reject a `prompt_logprobs_last_n` the server would refuse. The server also
+    checks it against the prompt length, which an image chunk can leave unknown here."""
+    if prompt_logprobs_last_n is None:
+        return
+    if prompt_logprobs_last_n < 1:
+        raise ValueError(
+            f"prompt_logprobs_last_n must be 1 or greater, got {prompt_logprobs_last_n}"
+        )
+    if not include_prompt_logprobs:
+        raise ValueError(
+            "prompt_logprobs_last_n applies to prompt logprobs; set include_prompt_logprobs"
+        )
+
+
 def _check_prompt_alt_tokens_returned(
     response: types.SampleResponse, prompt_alt_tokens_k: int
 ) -> None:
@@ -122,6 +141,36 @@ def _check_prompt_alt_tokens_returned(
         raise RuntimeError(
             f"prompt_alt_tokens_k={prompt_alt_tokens_k} was requested but the server returned "
             "no prompt_alt_tokens; it may predate this feature"
+        )
+
+
+def _check_prompt_logprobs_last_n_honored(
+    response: types.SampleResponse, prompt_logprobs_last_n: int | None
+) -> None:
+    """Fail when the prompt logprobs cover tokens before the requested suffix.
+
+    A server that predates `prompt_logprobs_last_n` ignores the request field and
+    scores the whole prompt; surface that rather than hand back logprobs for tokens
+    the caller asked to skip.
+    """
+    if prompt_logprobs_last_n is None:
+        return
+    if response.prompt_logprobs_np is not None:
+        excluded = response.prompt_logprobs_np[
+            : len(response.prompt_logprobs_np) - prompt_logprobs_last_n
+        ]
+        scored = bool((~np.isnan(excluded)).any())
+    elif response.prompt_logprobs is not None:
+        excluded_list = response.prompt_logprobs[
+            : len(response.prompt_logprobs) - prompt_logprobs_last_n
+        ]
+        scored = any(logprob is not None for logprob in excluded_list)
+    else:
+        return
+    if scored:
+        raise RuntimeError(
+            f"prompt_logprobs_last_n={prompt_logprobs_last_n} was requested but the server "
+            "returned prompt logprobs before that suffix; it may predate this feature"
         )
 
 
@@ -270,6 +319,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_sample_logprobs: int,
         target_prompt_logprobs: _TensorDataModel | None,
         prompt_alt_tokens_k: int,
+        prompt_logprobs_last_n: int | None,
     ):
         try:
             request = types.SampleRequest(
@@ -283,6 +333,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 topk_sample_logprobs=topk_sample_logprobs,
                 target_prompt_logprobs=target_prompt_logprobs,
                 prompt_alt_tokens_k=prompt_alt_tokens_k,
+                prompt_logprobs_last_n=prompt_logprobs_last_n,
                 record_stability_info=self._record_stability_info,
             )
             with self.holder.aclient(ClientConnectionPoolType.SAMPLE) as client:
@@ -308,6 +359,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: _TensorDataModel | None = None,
         prompt_alt_tokens_k: int = 0,
+        prompt_logprobs_last_n: int | None = None,
     ) -> types.SampleResponse:
         if self._cloned_sampler_id is None:
             await self._join_sampling_session()
@@ -334,6 +386,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                     topk_sample_logprobs,
                     target_prompt_logprobs,
                     prompt_alt_tokens_k,
+                    prompt_logprobs_last_n,
                 )
                 if untyped_future is not None:
                     break
@@ -352,6 +405,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             futures_poller=self._get_futures_poller(),
         ).result_async()
         _check_prompt_alt_tokens_returned(response, prompt_alt_tokens_k)
+        _check_prompt_logprobs_last_n_honored(response, prompt_logprobs_last_n)
         return _attach_sequence_ids(response, untyped_future.sample_sequence_ids)
 
     async def _join_sampling_session(self) -> None:
@@ -406,6 +460,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: types.TensorData | None = None,
         prompt_alt_tokens_k: int = 0,
+        prompt_logprobs_last_n: int | None = None,
     ) -> ConcurrentFuture[types.SampleResponse]:
         """Generate text completions from the model.
 
@@ -432,6 +487,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             whose row `i` covers prompt position `i + 1` (position 0 has no preceding
             context), so `tokens[i]` are alternatives to `prompt[i + 1]`. The server bounds
             `len(prompt) * k` the way it bounds a top-k width.
+        - `prompt_logprobs_last_n`: Score only the last N prompt tokens:
+            `prompt_logprobs[-N:]` are scored and earlier entries are `None` (likewise for
+            `topk_prompt_logprobs` rows). The server can then serve the prefix before them from
+            its prefix cache, so scoring a short suffix of a long, recently used prompt costs
+            about as much as the suffix. Requires `include_prompt_logprobs`, and must be between
+            1 and `len(prompt) - 1`; does not affect `target_prompt_logprobs` or
+            `prompt_alt_tokens_k`. None (the default) scores the whole prompt.
 
         Returns:
         - A `Future` containing the `SampleResponse` with generated text and other logprob information.
@@ -491,6 +553,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             _check_target_prompt_logprobs(target_prompt_logprobs)
             target_prompt_logprobs_model = _tensor_data_to_model(target_prompt_logprobs)
         _check_prompt_alt_tokens_k(prompt_alt_tokens_k)
+        _check_prompt_logprobs_last_n(prompt_logprobs_last_n, include_prompt_logprobs)
 
         async def _sample_async():
             return await self._sample_async_impl(
@@ -502,6 +565,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 topk_sample_logprobs,
                 target_prompt_logprobs_model,
                 prompt_alt_tokens_k,
+                prompt_logprobs_last_n,
             )
 
         @capture_exceptions(fatal=True)
@@ -532,6 +596,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: types.TensorData | None = None,
         prompt_alt_tokens_k: int = 0,
+        prompt_logprobs_last_n: int | None = None,
     ) -> types.SampleResponse:
         """Async version of sample."""
         return await AwaitableConcurrentFuture(
@@ -544,18 +609,26 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 topk_sample_logprobs,
                 target_prompt_logprobs,
                 prompt_alt_tokens_k,
+                prompt_logprobs_last_n,
             )
         )
 
-    def compute_logprobs(self, prompt: types.ModelInput) -> ConcurrentFuture[list[float | None]]:
+    def compute_logprobs(
+        self, prompt: types.ModelInput, prompt_logprobs_last_n: int | None = None
+    ) -> ConcurrentFuture[list[float | None]]:
         """Compute log probabilities for prompt tokens.
 
         Args:
         - `prompt`: The input tokens as ModelInput
+        - `prompt_logprobs_last_n`: Score only the last N tokens: `logprobs[-N:]` are scored
+            and earlier entries are None, and the server can serve the prefix before them from
+            its prefix cache. Must be between 1 and `len(prompt) - 1`. None (the default) scores
+            the whole prompt.
 
         Returns:
         - A `Future` containing a list of log probabilities for each token in the prompt.
-            None values indicate tokens where log probabilities couldn't be computed.
+            None values indicate tokens where log probabilities couldn't be computed or
+            were not requested.
 
         Example:
         ```python
@@ -566,7 +639,21 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             if logprob is not None:
                 print(f"Token {i}: logprob = {logprob:.4f}")
         ```
+
+        Example: log P(completion | context) for several completions of one long context.
+        After the first call, the server can serve the context from its prefix cache:
+        ```python
+        context = tokenizer.encode(long_context)
+        for completion in completions:
+            completion_tokens = tokenizer.encode(completion)
+            logprobs = sampling_client.compute_logprobs(
+                types.ModelInput.from_ints(context + completion_tokens),
+                prompt_logprobs_last_n=len(completion_tokens),
+            ).result()
+            completion_logprob = sum(logprobs[-len(completion_tokens):])
+        ```
         """
+        _check_prompt_logprobs_last_n(prompt_logprobs_last_n, include_prompt_logprobs=True)
 
         async def _compute_logprobs_async() -> list[float | None]:
             sample_res = await self._sample_async_impl(
@@ -574,6 +661,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
                 num_samples=1,
                 sampling_params=types.SamplingParams(max_tokens=1),
                 include_prompt_logprobs=True,
+                prompt_logprobs_last_n=prompt_logprobs_last_n,
             )
             return cast(list[float | None], sample_res.prompt_logprobs)
 
@@ -583,9 +671,13 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         return self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()
 
-    async def compute_logprobs_async(self, prompt: types.ModelInput) -> list[float | None]:
+    async def compute_logprobs_async(
+        self, prompt: types.ModelInput, prompt_logprobs_last_n: int | None = None
+    ) -> list[float | None]:
         """Async version of compute_logprobs."""
-        return await AwaitableConcurrentFuture(self.compute_logprobs(prompt))
+        return await AwaitableConcurrentFuture(
+            self.compute_logprobs(prompt, prompt_logprobs_last_n)
+        )
 
     def _get_sampler_submit(self) -> AwaitableConcurrentFuture[types.GetSamplerResponse]:
         @capture_exceptions(fatal=True)
@@ -787,6 +879,12 @@ def _load_tokenizer_from_model_info(
         kwargs = {
             "trust_remote_code": True,
             "revision": "b5aabbfb20227ed42becbf5541dbffd213942c58",
+        }
+
+    if tokenizer_id == "moonshotai/Kimi-K3":
+        kwargs = {
+            "trust_remote_code": True,
+            "revision": "f831ab66814297da540d832a5235f8e904f29d06",
         }
 
     return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)

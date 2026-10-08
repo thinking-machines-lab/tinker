@@ -73,6 +73,13 @@ class SampleRequest(StrictBase):
     prompt position after the first, in the same prefill that serves the request
     (see ``SampleResponse.prompt_alt_tokens``)."""
 
+    prompt_logprobs_last_n: Optional[int] = None
+    """Score only the last N prompt tokens: ``prompt_logprobs[-N:]`` are scored and
+    earlier entries are ``None``, and the server can serve the prefix before them from
+    its prefix cache. Requires ``prompt_logprobs``, and must be between 1 and
+    ``len(prompt) - 1``; also applies to ``topk_prompt_logprobs``. None scores the whole
+    prompt."""
+
     record_stability_info: Optional[bool] = None
 
     type: Literal["sample"] = "sample"

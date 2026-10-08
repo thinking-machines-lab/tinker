@@ -172,17 +172,16 @@ wheels = [
 
 [[package]]
 name = "anyio"
-version = "4.10.0"
+version = "4.14.2"
 source = { registry = "https://us-south1-python.pkg.dev/iterate-images/pypi-internal/simple" }
 dependencies = [
     { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
     { name = "idna" },
-    { name = "sniffio" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://us-south1-python.pkg.dev/iterate-images/pypi-internal/anyio/anyio-4.10.0.tar.gz", hash = "sha256:3f3fae35c96039744587aa5b8371e7e8e603c0702999535961dd336026973ba6" }
+sdist = { url = "https://us-south1-python.pkg.dev/iterate-images/pypi-internal/anyio/anyio-4.14.2.tar.gz", hash = "sha256:cfa139f3ed1a23ee8f88a145ddb5ac7605b8bbfd8592baacd7ce3d8bb4313c7f" }
 wheels = [
-    { url = "https://us-south1-python.pkg.dev/iterate-images/pypi-internal/anyio/anyio-4.10.0-py3-none-any.whl", hash = "sha256:60e474ac86736bbfd6f210f7a61218939c318f43f9972497381f1c5e930ed3d1" },
+    { url = "https://us-south1-python.pkg.dev/iterate-images/pypi-internal/anyio/anyio-4.14.2-py3-none-any.whl", hash = "sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494" },
 ]
 
 [[package]]

@@ -50,7 +50,8 @@ def sample(
         topk_prompt_logprobs: int = 0,
         topk_sample_logprobs: int = 0,
         target_prompt_logprobs: types.TensorData | None = None,
-        prompt_alt_tokens_k: int = 0
+        prompt_alt_tokens_k: int = 0,
+        prompt_logprobs_last_n: int | None = None
 ) -> ConcurrentFuture[types.SampleResponse]
 ```
 
@@ -79,6 +80,13 @@ Args:
     whose row `i` covers prompt position `i + 1` (position 0 has no preceding
     context), so `tokens[i]` are alternatives to `prompt[i + 1]`. The server bounds
     `len(prompt) * k` the way it bounds a top-k width.
+- `prompt_logprobs_last_n`: Score only the last N prompt tokens:
+    `prompt_logprobs[-N:]` are scored and earlier entries are `None` (likewise for
+    `topk_prompt_logprobs` rows). The server can then serve the prefix before them from
+    its prefix cache, so scoring a short suffix of a long, recently used prompt costs
+    about as much as the suffix. Requires `include_prompt_logprobs`, and must be between
+    1 and `len(prompt) - 1`; does not affect `target_prompt_logprobs` or
+    `prompt_alt_tokens_k`. None (the default) scores the whole prompt.
 
 Returns:
 - A `Future` containing the `SampleResponse` with generated text and other logprob information.
@@ -142,7 +150,8 @@ async def sample_async(prompt: types.ModelInput,
                        topk_prompt_logprobs: int = 0,
                        topk_sample_logprobs: int = 0,
                        target_prompt_logprobs: types.TensorData | None = None,
-                       prompt_alt_tokens_k: int = 0) -> types.SampleResponse
+                       prompt_alt_tokens_k: int = 0,
+                       prompt_logprobs_last_n: int | None = None) -> types.SampleResponse
 ```
 
 Async version of sample.
@@ -151,17 +160,23 @@ Async version of sample.
 
 ```python
 def compute_logprobs(
-        prompt: types.ModelInput) -> ConcurrentFuture[list[float | None]]
+        prompt: types.ModelInput,
+        prompt_logprobs_last_n: int | None = None) -> ConcurrentFuture[list[float | None]]
 ```
 
 Compute log probabilities for prompt tokens.
 
 Args:
 - `prompt`: The input tokens as ModelInput
+- `prompt_logprobs_last_n`: Score only the last N tokens: `logprobs[-N:]` are scored
+    and earlier entries are None, and the server can serve the prefix before them from
+    its prefix cache. Must be between 1 and `len(prompt) - 1`. None (the default) scores
+    the whole prompt.
 
 Returns:
 - A `Future` containing a list of log probabilities for each token in the prompt.
-    None values indicate tokens where log probabilities couldn't be computed.
+    None values indicate tokens where log probabilities couldn't be computed or
+    were not requested.
 
 Example:
 ```python
@@ -173,11 +188,25 @@ for i, logprob in enumerate(logprobs):
         print(f"Token {i}: logprob = {logprob:.4f}")
 ```
 
+Example: log P(completion | context) for several completions of one long context.
+After the first call, the server can serve the context from its prefix cache:
+```python
+context = tokenizer.encode(long_context)
+for completion in completions:
+    completion_tokens = tokenizer.encode(completion)
+    logprobs = sampling_client.compute_logprobs(
+        types.ModelInput.from_ints(context + completion_tokens),
+        prompt_logprobs_last_n=len(completion_tokens),
+    ).result()
+    completion_logprob = sum(logprobs[-len(completion_tokens):])
+```
+
 #### `compute_logprobs_async`
 
 ```python
 async def compute_logprobs_async(
-        prompt: types.ModelInput) -> list[float | None]
+        prompt: types.ModelInput,
+        prompt_logprobs_last_n: int | None = None) -> list[float | None]
 ```
 
 Async version of compute_logprobs.

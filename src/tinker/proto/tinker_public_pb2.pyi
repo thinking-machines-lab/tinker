@@ -665,21 +665,50 @@ class ImageChunk(google.protobuf.message.Message):
     DATA_FIELD_NUMBER: builtins.int
     FORMAT_FIELD_NUMBER: builtins.int
     EXPECTED_TOKENS_FIELD_NUMBER: builtins.int
+    OVERRIDE_DIMENSIONS_FIELD_NUMBER: builtins.int
     data: builtins.bytes
     format: builtins.str
     expected_tokens: builtins.int
+    @property
+    def override_dimensions(self) -> Global___ImageDimensions:
+        """Optional dimensions used for token counting and image preprocessing. When
+        unset, the encoded image dimensions are used.
+        """
+
     def __init__(
         self,
         *,
         data: builtins.bytes = ...,
         format: builtins.str = ...,
         expected_tokens: builtins.int | None = ...,
+        override_dimensions: Global___ImageDimensions | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "expected_tokens", b"expected_tokens"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "data", b"data", "expected_tokens", b"expected_tokens", "format", b"format"]) -> None: ...
+    def HasField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "_override_dimensions", b"_override_dimensions", "expected_tokens", b"expected_tokens", "override_dimensions", b"override_dimensions"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "_override_dimensions", b"_override_dimensions", "data", b"data", "expected_tokens", b"expected_tokens", "format", b"format", "override_dimensions", b"override_dimensions"]) -> None: ...
+    @typing.overload
     def WhichOneof(self, oneof_group: typing.Literal["_expected_tokens", b"_expected_tokens"]) -> typing.Literal["expected_tokens"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_override_dimensions", b"_override_dimensions"]) -> typing.Literal["override_dimensions"] | None: ...
 
 Global___ImageChunk: typing_extensions.TypeAlias = ImageChunk
+
+@typing.final
+class ImageDimensions(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    WIDTH_FIELD_NUMBER: builtins.int
+    HEIGHT_FIELD_NUMBER: builtins.int
+    width: builtins.int
+    height: builtins.int
+    def __init__(
+        self,
+        *,
+        width: builtins.int = ...,
+        height: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["height", b"height", "width", b"width"]) -> None: ...
+
+Global___ImageDimensions: typing_extensions.TypeAlias = ImageDimensions
 
 @typing.final
 class DmelChunk(google.protobuf.message.Message):
