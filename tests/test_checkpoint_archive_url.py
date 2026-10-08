@@ -84,6 +84,35 @@ def test_get_checkpoint_archive_url_uses_holder_retries() -> None:
     assert weights.attempts == 2
 
 
+class _AwaitingFakeHolder(_FakeHolder):
+    def run_coroutine_threadsafe(  # type: ignore[override]
+        self, coro: Awaitable[CheckpointArchiveUrlResponse]
+    ) -> Awaitable[CheckpointArchiveUrlResponse]:
+        return coro
+
+    def get_telemetry(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_get_checkpoint_archive_url_is_deprecated(caplog: pytest.LogCaptureFixture) -> None:
+    response = CheckpointArchiveUrlResponse(
+        url="https://download.example.test/archive.tar",
+        expires=datetime.datetime(2026, 5, 27, tzinfo=datetime.UTC),
+    )
+    rest_client = RestClient(_AwaitingFakeHolder(_FakeWeights(response)))  # type: ignore[arg-type]
+
+    with pytest.warns(FutureWarning, match="save_weights_external"):
+        result = await rest_client.get_checkpoint_archive_url_from_tinker_path_async(
+            "tinker://run-id/sampler_weights/final"
+        )
+
+    assert result is response
+    assert any(
+        r.levelname == "ERROR" and "save_weights_external" in r.getMessage() for r in caplog.records
+    )
+
+
 @pytest.mark.asyncio
 async def test_get_checkpoint_archive_url_accepts_current_backend_redirect_response() -> None:
     captured: list[httpx.Request] = []

@@ -8,6 +8,8 @@ from concurrent.futures import Future as ConcurrentFuture
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
 
+from typing_extensions import deprecated
+
 from tinker import types
 from tinker._models import BaseModel
 from tinker._types import NoneType
@@ -28,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 # How often to poll the server while a session trace export is being built.
 _TRACE_EXPORT_POLL_INTERVAL_SECONDS = 5.0
+
+_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE = (
+    "DEPRECATED: RestClient.get_checkpoint_archive_url*() is deprecated and will NOT be "
+    "supported in future tinker SDK versions; the server may already reject it for your "
+    "organization. Migrate now: save the weights with TrainingClient.save_weights_external() "
+    "and download them with RestClient.get_external_weights_urls()."
+)
 
 
 class _SessionTraceExportPollResponse(BaseModel):
@@ -62,7 +71,7 @@ class RestClient(TelemetryProvider):
     - list_user_checkpoints() - list all checkpoints across all user's training runs
     - get_training_run() - get model information and metadata as ModelEntry
     - delete_checkpoint() - delete an existing checkpoint for a training run
-    - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
+    - get_checkpoint_archive_url() - (deprecated) get signed URL to download checkpoint archive
     - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
     - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
@@ -349,6 +358,7 @@ class RestClient(TelemetryProvider):
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> AwaitableConcurrentFuture[types.CheckpointArchiveUrlResponse]:
         """Internal method to submit get checkpoint archive URL request."""
+        logger.error(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE)
 
         async def _status_task():
             logger.warning(
@@ -379,12 +389,16 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_checkpoint_archive_url_async())
 
+    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
     @sync_only
     @capture_exceptions(fatal=True)
     def get_checkpoint_archive_url(
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]:
         """Get signed URL to download checkpoint archive.
+
+        Deprecated: will not be supported in future SDK versions. Use
+        `TrainingClient.save_weights_external()` + `get_external_weights_urls()` instead.
 
         Args:
         - `training_run_id`: The training run ID to download weights for
@@ -404,6 +418,7 @@ class RestClient(TelemetryProvider):
         """
         return self._get_checkpoint_archive_url_submit(training_run_id, checkpoint_id).future()
 
+    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
     @capture_exceptions(fatal=True)
     async def get_checkpoint_archive_url_async(
         self, training_run_id: types.ModelID, checkpoint_id: str
@@ -572,12 +587,16 @@ class RestClient(TelemetryProvider):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
+    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
     @sync_only
     @capture_exceptions(fatal=True)
     def get_checkpoint_archive_url_from_tinker_path(
         self, tinker_path: str
     ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]:
         """Get signed URL to download checkpoint archive.
+
+        Deprecated: will not be supported in future SDK versions. Use
+        `TrainingClient.save_weights_external()` + `get_external_weights_urls()` instead.
 
         Args:
         - `tinker_path`: The tinker path to the checkpoint
@@ -590,6 +609,7 @@ class RestClient(TelemetryProvider):
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
         ).future()
 
+    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
     @capture_exceptions(fatal=True)
     async def get_checkpoint_archive_url_from_tinker_path_async(
         self, tinker_path: str
