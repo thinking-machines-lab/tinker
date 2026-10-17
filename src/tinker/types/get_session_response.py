@@ -13,3 +13,6 @@ class GetSessionResponse(BaseModel):
 
     user_metadata: dict[str, str] | None = None
     """Optional metadata attached to this session by the user."""
+
+    display_name: str | None = None
+    """Optional human-readable display name for the session. Does not need to be unique. Only used for display and search purposes."""

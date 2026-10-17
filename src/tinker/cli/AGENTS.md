@@ -60,11 +60,13 @@ class LazyGroup(click.Group):
 - `tinker version` - Show CLI and SDK version
 - `tinker auth login` - Print the console's New API Key URL (`/keys?new_key=true&key_name=tinker-cli-<machine>`), prompt for the key created there, and store it in ~/.tinker/credentials.json
 - `tinker auth logout` - Remove the default credential; a CLI-minted key is also deleted on the server, while a pasted key is only removed locally and gets a console deletion link
+- `tinker auth whoami` - Show the email, user URN, and organization URN of the active credential
 - `tinker run list` - List all training runs
 - `tinker run info <run-id>` - Show details of a specific run
 - `tinker checkpoint list` - List all checkpoints
 - `tinker checkpoint info <checkpoint-id>` - Show checkpoint details
 - `tinker checkpoint push-hf <checkpoint-path>` - Upload a checkpoint to Hugging Face Hub
+- `tinker model list [substring]` - List the models the organization can use, filtered by a case-insensitive name substring
 - `tinker session export-trace <session-id>` - Export a session's timeline as a Perfetto trace
 
 ### 4. Output System with Inheritance
@@ -224,6 +226,7 @@ cli/
 │   ├── version.py        # Version command
 │   ├── run.py            # Run commands and output classes
 │   ├── checkpoint.py     # Checkpoint commands and output classes
+│   ├── model.py          # Model commands and output classes
 │   └── session.py        # Session commands and output classes
 └── CLAUDE.md             # This documentation
 ```
@@ -242,6 +245,9 @@ tinker auth login
 # leaves a pasted key active and only removes it locally
 tinker auth logout
 
+# Show the user and organization of the active credential
+tinker auth whoami
+
 # List all training runs
 tinker run list
 
@@ -259,6 +265,10 @@ tinker checkpoint info ckpt-xyz789
 
 # Upload checkpoint to Hugging Face Hub
 tinker checkpoint push-hf tinker://run-abc123/sampler_weights/000040 --repo username/my-lora-adapter
+
+# List the models this organization can use, or those whose name contains a substring
+tinker model list
+tinker model list qwen3
 
 # Export a session's timeline as a Perfetto trace (open in ui.perfetto.dev)
 tinker session export-trace session-abc123

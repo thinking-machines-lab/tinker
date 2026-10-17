@@ -31,6 +31,7 @@ _KEY_TO_TYPE = {
     "logprobs": "float32",
     "clip_low_threshold": "float32",
     "clip_high_threshold": "float32",
+    "sequence_ratio_mask": "float32",
 }
 
 _SPARSE_ELIGIBLE_KEYS = {"target_tokens", "weights"}

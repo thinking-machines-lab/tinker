@@ -48,6 +48,8 @@ class ServiceClient(TelemetryProvider):
         user_metadata: Optional metadata attached to the created session.
         project_id: Optional project ID to attach to the created session. If not
             provided, falls back to the `TINKER_PROJECT_ID` environment variable.
+        display_name: Optional human-readable display name for the session. Does
+            not need to be unique. Only used for display and search purposes.
         base_url: The Tinker API URL. Defaults to the `TINKER_BASE_URL` environment
             variable, then to the production API.
         api_key: The Tinker API key. Defaults to the `TINKER_API_KEY` environment
@@ -78,6 +80,7 @@ class ServiceClient(TelemetryProvider):
         user_metadata: dict[str, str] | None = None,
         project_id: str | None = None,
         *,
+        display_name: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
         default_headers_overrides: Mapping[str, str] | None = None,
@@ -94,6 +97,7 @@ class ServiceClient(TelemetryProvider):
             project_id = os.environ.get("TINKER_PROJECT_ID") or None
         self._user_metadata: dict[str, str] | None = user_metadata
         self._project_id: str | None = project_id
+        self._display_name: str | None = display_name
         self._base_url: str | None = base_url
         self._api_key: str | None = api_key
         self._default_headers_overrides: dict[str, str] = dict(default_headers_overrides or {})
@@ -144,6 +148,7 @@ class ServiceClient(TelemetryProvider):
                     self._session_holder = InternalClientHolder(
                         user_metadata=self._user_metadata,
                         project_id=self._project_id,
+                        display_name=self._display_name,
                         base_url=self._base_url,
                         api_key=self._api_key,
                         default_headers_overrides=self._default_headers_overrides,
@@ -435,37 +440,6 @@ class ServiceClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_create_via_load_weights_async())
 
-    def _copy_weights_submit(
-        self,
-        path: str,
-        ttl_seconds: int | None,
-        weights_access_token: str | None,
-    ) -> AwaitableConcurrentFuture[str]:
-        """Copy weights with a single CopyWeightsRequest."""
-        session_id = self.holder.get_session_id()
-        model_seq_id = self.holder.get_training_client_id()
-
-        @capture_exceptions(fatal=True)
-        async def _copy_weights_async() -> str:
-            request = types.CopyWeightsRequest(
-                session_id=session_id,
-                model_seq_id=model_seq_id,
-                source_path=path,
-                ttl_seconds=ttl_seconds,
-                weights_access_token=weights_access_token,
-            )
-
-            async def _send_request():
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.models.copy_weights(request=request)
-
-            # No _APIFuture: copy is synchronous, since nothing is queued.
-            response = await self.holder.execute_with_retries(_send_request)
-            logger.info(f"Copied {path} to {response.tinker_path}")
-            return response.tinker_path
-
-        return self.holder.run_coroutine_threadsafe(_copy_weights_async())
-
     def copy_weights(
         self,
         path: str,
@@ -473,11 +447,11 @@ class ServiceClient(TelemetryProvider):
         ttl_seconds: int | None = None,
         weights_access_token: str | None = None,
     ) -> AwaitableConcurrentFuture[str]:
-        """Copy weights into this client's project.
+        """Copy weights into this client's project, using a new session.
 
         Storage is shared with the source, so no bytes are duplicated. Either kind
         of weights can be copied, and the copy keeps that kind. A new training
-        run is created to hold it, which cannot be trained on.
+        run in a new session is created to hold it, which cannot be trained on.
 
         Args:
         - `path`: Tinker path of the weights to copy
@@ -496,7 +470,12 @@ class ServiceClient(TelemetryProvider):
         archived_path = archive.copy_weights("tinker://run-id/weights/step-400").result()
         ```
         """
-        return self._copy_weights_submit(path, ttl_seconds, weights_access_token)
+        return self.create_rest_client().copy_weights(
+            path,
+            destination_project_id=self._project_id,
+            ttl_seconds=ttl_seconds,
+            weights_access_token=weights_access_token,
+        )
 
     @sync_only
     def create_training_client_from_state(

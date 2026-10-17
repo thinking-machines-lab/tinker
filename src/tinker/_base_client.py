@@ -427,6 +427,7 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
         options: FinalRequestOptions,
         *,
         retries_taken: int = 0,
+        extra_headers_secret: Mapping[str, str] | None = None,
     ) -> httpx.Request:
         if log.isEnabledFor(logging.DEBUG):
             log.debug(
@@ -447,6 +448,8 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
                 )
 
         headers = self._build_headers(options, retries_taken=retries_taken)
+        if extra_headers_secret is not None:
+            headers.update(extra_headers_secret)
         params = _merge_mappings(self.default_query, options.params)
         content_type = headers.get("Content-Type")
         files = options.files
@@ -746,6 +749,15 @@ class BaseClient(Generic[_HttpxClientT, _DefaultStreamT]):
         return f"stainless-python-retry-{uuid.uuid4()}"
 
 
+def _log_deprecation_note(response: httpx.Response) -> None:
+    note = response.headers.get("x-deprecation-note")
+    if not note:
+        return
+    level_header = response.headers.get("x-deprecation-level", "").strip().lower()
+    level = logging.ERROR if level_header == "error" else logging.WARNING
+    log.log(level, "Deprecation notice: %s", note)
+
+
 def _default_pyqwest_transport() -> httpx.AsyncBaseTransport:
     # pyqwest is a reqwest/hyper-based HTTP backend exposed through an
     # httpx-compatible transport adapter. Gated by
@@ -925,6 +937,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         cast_to: Type[ResponseT],
         options: FinalRequestOptions,
         *,
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: Literal[False] = False,
     ) -> ResponseT: ...
 
@@ -934,6 +947,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         cast_to: Type[ResponseT],
         options: FinalRequestOptions,
         *,
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: Literal[True],
         stream_cls: type[_AsyncStreamT],
     ) -> _AsyncStreamT: ...
@@ -944,6 +958,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         cast_to: Type[ResponseT],
         options: FinalRequestOptions,
         *,
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: bool,
         stream_cls: type[_AsyncStreamT] | None = None,
     ) -> ResponseT | _AsyncStreamT: ...
@@ -953,6 +968,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         cast_to: Type[ResponseT],
         options: FinalRequestOptions,
         *,
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: bool = False,
         stream_cls: type[_AsyncStreamT] | None = None,
     ) -> ResponseT | _AsyncStreamT:
@@ -980,7 +996,9 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
             options = await self._prepare_options(options)
 
             remaining_retries = max_retries - retries_taken
-            request = self._build_request(options, retries_taken=retries_taken)
+            request = self._build_request(
+                options, retries_taken=retries_taken, extra_headers_secret=extra_headers_secret
+            )
             await self._prepare_request(request)
 
             kwargs: HttpxSendArgs = {}
@@ -1062,12 +1080,14 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
                 if not err.response.is_closed:
                     await err.response.aread()
 
+                _log_deprecation_note(err.response)
                 log.debug("Re-raising status error")
                 raise self._make_status_error_from_response(err.response) from None
 
             break
 
         assert response is not None, "could not resolve response (should never happen)"
+        _log_deprecation_note(response)
         return await self._process_response(
             cast_to=cast_to,
             options=options,
@@ -1215,6 +1235,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         body: Body | None = None,
         files: RequestFiles | None = None,
         options: RequestOptions = {},
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: Literal[False] = False,
     ) -> ResponseT: ...
 
@@ -1227,6 +1248,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         body: Body | None = None,
         files: RequestFiles | None = None,
         options: RequestOptions = {},
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: Literal[True],
         stream_cls: type[_AsyncStreamT],
     ) -> _AsyncStreamT: ...
@@ -1240,6 +1262,7 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         body: Body | None = None,
         files: RequestFiles | None = None,
         options: RequestOptions = {},
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: bool,
         stream_cls: type[_AsyncStreamT] | None = None,
     ) -> ResponseT | _AsyncStreamT: ...
@@ -1252,9 +1275,11 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
         body: Body | None = None,
         files: RequestFiles | None = None,
         options: RequestOptions = {},
+        extra_headers_secret: Mapping[str, str] | None = None,
         stream: bool = False,
         stream_cls: type[_AsyncStreamT] | None = None,
     ) -> ResponseT | _AsyncStreamT:
+        """Send a POST; secret headers bypass request options and their logging."""
         opts = FinalRequestOptions.construct(
             method="post",
             url=path,
@@ -1262,7 +1287,13 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
             files=await async_to_httpx_files(files),
             **options,
         )
-        return await self.request(cast_to, opts, stream=stream, stream_cls=stream_cls)
+        return await self.request(
+            cast_to,
+            opts,
+            stream=stream,
+            stream_cls=stream_cls,
+            extra_headers_secret=extra_headers_secret,
+        )
 
     async def patch(
         self,

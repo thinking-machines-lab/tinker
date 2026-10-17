@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ from tinker.cli import auth_api as auth_api_module
 from tinker.cli.auth_api import AuthApiError, SelfApiKeyResponse, TinkerAuthApi
 from tinker.cli.commands import auth as auth_command_module
 from tinker.cli.commands.auth import cli as auth_cli
+from tinker.cli.context import CLIContext
 from tinker.cli.exceptions import TinkerCliError
 from tinker.lib.credentials import (
     ApiKeyDetails,
@@ -23,6 +25,7 @@ from tinker.lib.credentials import (
     JsonCredentialStore,
     ManualKey,
 )
+from tinker.types import WhoamiResponse
 
 
 def _authentication_error() -> AuthenticationError:
@@ -384,3 +387,22 @@ def test_status_fails_when_credentials_are_rejected(monkeypatch: pytest.MonkeyPa
     assert isinstance(result.exception, TinkerCliError)
     assert "Credentials available: yes" in result.output
     assert "Tinker accessible: no" in result.output
+
+
+def test_whoami_prints_the_organization_urn(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = MagicMock()
+    client.whoami.return_value.result.return_value = WhoamiResponse(
+        user_urn="tml:organization_user:abc",
+        org_urn="tml:organization:def",
+        email="user@acme.test",
+    )
+    monkeypatch.setattr(auth_command_module, "create_rest_client", lambda: client)
+
+    result = CliRunner().invoke(auth_cli, ["whoami"], obj=CLIContext(format="json"))
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "user_urn": "tml:organization_user:abc",
+        "org_urn": "tml:organization:def",
+        "email": "user@acme.test",
+    }

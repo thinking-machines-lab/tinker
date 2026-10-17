@@ -51,7 +51,7 @@ def _make_request(
 
 _FINITE_FLOAT32 = st.floats(allow_nan=False, allow_infinity=False, allow_subnormal=False, width=32)
 _LOSS_FN: st.SearchStrategy[types.LossFnType] = st.sampled_from(
-    ["cross_entropy", "importance_sampling", "ppo", "cispo", "dro"]
+    ["cross_entropy", "importance_sampling", "ppo", "cispo", "dro", "gspo"]
 )
 
 
@@ -90,11 +90,13 @@ def _datum(draw: DrawFn) -> types.Datum:
         st.lists(st.integers(min_value=0, max_value=32000), min_size=n, max_size=n)
     )
     weights = draw(st.lists(_FINITE_FLOAT32, min_size=n, max_size=n))
+    sequence_ratio_mask = draw(st.lists(st.sampled_from([0.0, 1.0]), min_size=n, max_size=n))
     return types.Datum(
         model_input=types.ModelInput(chunks=chunks),
         loss_fn_inputs={
             "target_tokens": target_tokens,
             "weights": weights,
+            "sequence_ratio_mask": sequence_ratio_mask,
         },
     )
 

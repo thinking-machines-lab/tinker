@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import uuid
 from concurrent.futures import Future as ConcurrentFuture
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
@@ -13,6 +15,7 @@ from typing_extensions import deprecated
 from tinker import types
 from tinker._models import BaseModel
 from tinker._types import NoneType
+from tinker._version import __version__ as tinker_sdk_version
 from tinker.lib._jwt_auth import jwt_claims
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
@@ -55,8 +58,19 @@ def _whoami_response_from_jwt(jwt: str) -> types.WhoamiResponse:
     claims = jwt_claims(jwt)
     return types.WhoamiResponse(
         user_urn=claims["sub"],
+        org_urn=f"tml:organization:{claims['org_id']}",
         email=claims.get("email") or None,
     )
+
+
+def _sdk_headers(sdk_method: str) -> dict[str, str]:
+    """Headers attributing a REST request to the SDK version and public method that sent it.
+
+    The server uses these to see who still calls an endpoint, and through which
+    method, before deprecating it. `sdk_method` is the public method name without
+    its `_async` suffix, since both variants are the same API.
+    """
+    return {"x-sdk-version": tinker_sdk_version, "x-sdk-method": sdk_method}
 
 
 class RestClient(TelemetryProvider):
@@ -73,6 +87,7 @@ class RestClient(TelemetryProvider):
     - delete_checkpoint() - delete an existing checkpoint for a training run
     - get_checkpoint_archive_url() - (deprecated) get signed URL to download checkpoint archive
     - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
+    - copy_weights() - copy a checkpoint into a selected project
     - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
     - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
     - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
@@ -102,6 +117,8 @@ class RestClient(TelemetryProvider):
         self,
         training_run_id: types.ModelID,
         access_scope: Literal["owned", "accessible"] = "owned",
+        *,
+        sdk_method: str,
     ) -> AwaitableConcurrentFuture[types.TrainingRun]:
         """Internal method to submit get model request."""
 
@@ -110,7 +127,10 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/training_runs/{training_run_id}",
-                        options={"params": {"access_scope": access_scope}},
+                        options={
+                            "params": {"access_scope": access_scope},
+                            "headers": _sdk_headers(sdk_method),
+                        },
                         cast_to=types.TrainingRun,
                     )
 
@@ -140,14 +160,18 @@ class RestClient(TelemetryProvider):
         print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         ```
         """
-        return self._get_training_run_submit(training_run_id, access_scope=access_scope).future()
+        return self._get_training_run_submit(
+            training_run_id, access_scope=access_scope, sdk_method="get_training_run"
+        ).future()
 
     @capture_exceptions(fatal=True)
     async def get_training_run_async(
         self, training_run_id: types.ModelID, access_scope: Literal["owned", "accessible"] = "owned"
     ) -> types.TrainingRun:
         """Async version of get_training_run."""
-        return await self._get_training_run_submit(training_run_id, access_scope=access_scope)
+        return await self._get_training_run_submit(
+            training_run_id, access_scope=access_scope, sdk_method="get_training_run"
+        )
 
     @sync_only
     @capture_exceptions(fatal=True)
@@ -172,10 +196,11 @@ class RestClient(TelemetryProvider):
         parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
             tinker_path
         )
-        return self.get_training_run(
+        return self._get_training_run_submit(
             parsed_checkpoint_tinker_path.training_run_id,
             access_scope=access_scope,
-        )
+            sdk_method="get_training_run_by_tinker_path",
+        ).future()
 
     @capture_exceptions(fatal=True)
     async def get_training_run_by_tinker_path_async(
@@ -185,9 +210,10 @@ class RestClient(TelemetryProvider):
         parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
             tinker_path
         )
-        return await self.get_training_run_async(
+        return await self._get_training_run_submit(
             parsed_checkpoint_tinker_path.training_run_id,
             access_scope=access_scope,
+            sdk_method="get_training_run_by_tinker_path",
         )
 
     @capture_exceptions(fatal=True)
@@ -216,6 +242,7 @@ class RestClient(TelemetryProvider):
                     return await client.post(
                         "/api/v1/weights_info",
                         body={"tinker_path": tinker_path},
+                        options={"headers": _sdk_headers("get_weights_info_by_tinker_path")},
                         cast_to=types.WeightsInfoResponse,
                     )
 
@@ -245,7 +272,7 @@ class RestClient(TelemetryProvider):
 
                     return await client.get(
                         "/api/v1/training_runs",
-                        options={"params": params},
+                        options={"params": params, "headers": _sdk_headers("list_training_runs")},
                         cast_to=types.TrainingRunsResponse,
                     )
 
@@ -315,7 +342,9 @@ class RestClient(TelemetryProvider):
         async def _list_checkpoints_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.weights.list(training_run_id)
+                    return await client.weights.list(
+                        training_run_id, extra_headers=_sdk_headers("list_checkpoints")
+                    )
 
             return await self.holder.execute_with_retries(_send_request)
 
@@ -355,7 +384,7 @@ class RestClient(TelemetryProvider):
         return await self._list_checkpoints_submit(training_run_id)
 
     def _get_checkpoint_archive_url_submit(
-        self, training_run_id: types.ModelID, checkpoint_id: str
+        self, training_run_id: types.ModelID, checkpoint_id: str, *, sdk_method: str
     ) -> AwaitableConcurrentFuture[types.CheckpointArchiveUrlResponse]:
         """Internal method to submit get checkpoint archive URL request."""
         logger.error(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE)
@@ -377,6 +406,7 @@ class RestClient(TelemetryProvider):
                     return await client.weights.get_checkpoint_archive_url(
                         model_id=training_run_id,
                         checkpoint_id=checkpoint_id,
+                        extra_headers=_sdk_headers(sdk_method),
                     )
 
             status_task = asyncio.create_task(_status_task())
@@ -416,7 +446,9 @@ class RestClient(TelemetryProvider):
         # Use the URL to download the archive with your preferred HTTP client
         ```
         """
-        return self._get_checkpoint_archive_url_submit(training_run_id, checkpoint_id).future()
+        return self._get_checkpoint_archive_url_submit(
+            training_run_id, checkpoint_id, sdk_method="get_checkpoint_archive_url"
+        ).future()
 
     @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
     @capture_exceptions(fatal=True)
@@ -424,7 +456,9 @@ class RestClient(TelemetryProvider):
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> types.CheckpointArchiveUrlResponse:
         """Async version of get_checkpoint_archive_url."""
-        return await self._get_checkpoint_archive_url_submit(training_run_id, checkpoint_id)
+        return await self._get_checkpoint_archive_url_submit(
+            training_run_id, checkpoint_id, sdk_method="get_checkpoint_archive_url"
+        )
 
     def _get_external_weights_urls_submit(
         self, tinker_path: str
@@ -442,6 +476,7 @@ class RestClient(TelemetryProvider):
                     return await client.weights.get_external_weights_urls(
                         model_id=parsed_tinker_path.training_run_id,
                         checkpoint_id=parsed_tinker_path.checkpoint_id,
+                        extra_headers=_sdk_headers("get_external_weights_urls"),
                     )
 
             return await self.holder.execute_with_retries(_send_request)
@@ -473,7 +508,7 @@ class RestClient(TelemetryProvider):
         return await self._get_external_weights_urls_submit(tinker_path)
 
     def _delete_checkpoint_submit(
-        self, training_run_id: types.ModelID, checkpoint_id: str
+        self, training_run_id: types.ModelID, checkpoint_id: str, *, sdk_method: str
     ) -> AwaitableConcurrentFuture[None]:
         """Internal method to submit delete checkpoint request."""
 
@@ -482,6 +517,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     await client.delete(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}",
+                        options={"headers": _sdk_headers(sdk_method)},
                         cast_to=NoneType,
                     )
 
@@ -496,7 +532,9 @@ class RestClient(TelemetryProvider):
     ) -> ConcurrentFuture[None]:
         """Delete a checkpoint for a training run."""
 
-        return self._delete_checkpoint_submit(training_run_id, checkpoint_id).future()
+        return self._delete_checkpoint_submit(
+            training_run_id, checkpoint_id, sdk_method="delete_checkpoint"
+        ).future()
 
     @capture_exceptions(fatal=True)
     async def delete_checkpoint_async(
@@ -504,7 +542,9 @@ class RestClient(TelemetryProvider):
     ) -> None:
         """Async version of delete_checkpoint."""
 
-        await self._delete_checkpoint_submit(training_run_id, checkpoint_id)
+        await self._delete_checkpoint_submit(
+            training_run_id, checkpoint_id, sdk_method="delete_checkpoint"
+        )
 
     @sync_only
     @capture_exceptions(fatal=True)
@@ -513,7 +553,9 @@ class RestClient(TelemetryProvider):
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._delete_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id,
+            parsed_tinker_path.checkpoint_id,
+            sdk_method="delete_checkpoint_from_tinker_path",
         ).future()
 
     @capture_exceptions(fatal=True)
@@ -522,7 +564,9 @@ class RestClient(TelemetryProvider):
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         await self._delete_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id,
+            parsed_tinker_path.checkpoint_id,
+            sdk_method="delete_checkpoint_from_tinker_path",
         )
 
     @sync_only
@@ -578,7 +622,7 @@ class RestClient(TelemetryProvider):
             with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
                 return await client.get(
                     "/api/v1/audit",
-                    options={"params": params},
+                    options={"params": params, "headers": _sdk_headers("get_audit_log")},
                     cast_to=types.AuditLogResponse,
                 )
 
@@ -606,7 +650,9 @@ class RestClient(TelemetryProvider):
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._get_checkpoint_archive_url_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id,
+            parsed_tinker_path.checkpoint_id,
+            sdk_method="get_checkpoint_archive_url_from_tinker_path",
         ).future()
 
     @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
@@ -617,7 +663,102 @@ class RestClient(TelemetryProvider):
         """Async version of get_checkpoint_archive_url_from_tinker_path."""
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return await self._get_checkpoint_archive_url_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
+            parsed_tinker_path.training_run_id,
+            parsed_tinker_path.checkpoint_id,
+            sdk_method="get_checkpoint_archive_url_from_tinker_path",
+        )
+
+    def _copy_weights_submit(
+        self,
+        request: types.CopyWeightsRequest,
+        weights_access_token: str | None,
+    ) -> AwaitableConcurrentFuture[str]:
+        # Reuse one key across HTTP-client and holder retries to avoid duplicate copies.
+        headers = {**_sdk_headers("copy_weights"), "X-Idempotency-Key": str(uuid.uuid4())}
+        headers_secret = (
+            {"X-Tinker-Weights-Access-Token": weights_access_token}
+            if weights_access_token is not None
+            else None
+        )
+
+        async def _copy_weights_async() -> str:
+            async def _send_request() -> types.CopyWeightsResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.models.copy_weights(
+                        request=request,
+                        extra_headers=headers,
+                        extra_headers_secret=headers_secret,
+                    )
+
+            response = await self.holder.execute_with_retries(_send_request)
+            logger.info(f"Copied {request.source_path} to {response.tinker_path}")
+            return response.tinker_path
+
+        return self.holder.run_coroutine_threadsafe(_copy_weights_async())
+
+    def copy_weights(
+        self,
+        path: str,
+        destination_project_id: str | None = None,
+        *,
+        ttl_seconds: int | None = None,
+        weights_access_token: str | None = None,
+    ) -> AwaitableConcurrentFuture[str]:
+        """Copy a checkpoint into a selected project.
+
+        Storage is shared with the source, so no bytes are duplicated. The copy
+        keeps the source's checkpoint kind and belongs to a new training run
+        that cannot be trained on.
+
+        Args:
+        - `path`: Tinker path of the checkpoint to copy
+        - `destination_project_id`: Project that will own the copy. If omitted,
+          defaults to the `TINKER_PROJECT_ID` environment variable.
+        - `ttl_seconds`: Seconds until the copy expires, between 1 hour (3600)
+          and 10 years, or None for no expiry
+        - `weights_access_token`: Optional access token for copying weights readable
+          under a different account
+
+        Returns:
+        - A future for the tinker path of the copy. Await it, or call `.result()`.
+
+        Raises:
+        - `ValueError`: If neither a destination project nor `TINKER_PROJECT_ID` is set
+
+        Example:
+        ```python
+        copied_path = rest_client.copy_weights(
+            "tinker://run-id/weights/step-400", "proj-archive"
+        ).result()
+        print(copied_path)
+        ```
+        """
+        if destination_project_id is None:
+            destination_project_id = os.environ.get("TINKER_PROJECT_ID") or None
+        if destination_project_id is None:
+            raise ValueError("Provide destination_project_id or set TINKER_PROJECT_ID")
+        request = types.CopyWeightsRequest(
+            source_path=path,
+            destination_project_id=destination_project_id,
+            ttl_seconds=ttl_seconds,
+        )
+        return self._copy_weights_submit(request, weights_access_token)
+
+    @capture_exceptions(fatal=True)
+    async def copy_weights_async(
+        self,
+        path: str,
+        destination_project_id: str | None = None,
+        *,
+        ttl_seconds: int | None = None,
+        weights_access_token: str | None = None,
+    ) -> str:
+        """Async version of copy_weights."""
+        return await self.copy_weights(
+            path,
+            destination_project_id,
+            ttl_seconds=ttl_seconds,
+            weights_access_token=weights_access_token,
         )
 
     def _publish_checkpoint_submit(
@@ -630,6 +771,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     await client.post(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/publish",
+                        options={"headers": _sdk_headers("publish_checkpoint_from_tinker_path")},
                         cast_to=NoneType,
                     )
 
@@ -687,6 +829,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     await client.delete(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/publish",
+                        options={"headers": _sdk_headers("unpublish_checkpoint_from_tinker_path")},
                         cast_to=NoneType,
                     )
 
@@ -745,6 +888,7 @@ class RestClient(TelemetryProvider):
                     await client.put(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/ttl",
                         body={"ttl_seconds": ttl_seconds},
+                        options={"headers": _sdk_headers("set_checkpoint_ttl_from_tinker_path")},
                         cast_to=NoneType,
                     )
 
@@ -809,7 +953,10 @@ class RestClient(TelemetryProvider):
 
                     return await client.get(
                         "/api/v1/checkpoints",
-                        options={"params": params},
+                        options={
+                            "params": params,
+                            "headers": _sdk_headers("list_user_checkpoints"),
+                        },
                         cast_to=types.CheckpointsListResponse,
                     )
 
@@ -869,7 +1016,10 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/sessions/{session_id}",
-                        options={"params": {"access_scope": access_scope}},
+                        options={
+                            "params": {"access_scope": access_scope},
+                            "headers": _sdk_headers("get_session"),
+                        },
                         cast_to=types.GetSessionResponse,
                     )
 
@@ -928,7 +1078,7 @@ class RestClient(TelemetryProvider):
 
                     return await client.get(
                         "/api/v1/sessions",
-                        options={"params": params},
+                        options={"params": params, "headers": _sdk_headers("list_sessions")},
                         cast_to=types.ListSessionsResponse,
                     )
 
@@ -993,6 +1143,7 @@ class RestClient(TelemetryProvider):
                     await client.put(
                         f"/api/v1/sessions/{session_id}/project",
                         body={"project_id": project_id},
+                        options={"headers": _sdk_headers("assign_session_project")},
                         cast_to=NoneType,
                     )
 
@@ -1042,6 +1193,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/sessions/{session_id}/trace_export",
+                        options={"headers": _sdk_headers("export_session_trace")},
                         cast_to=_SessionTraceExportPollResponse,
                     )
 
@@ -1115,8 +1267,9 @@ class RestClient(TelemetryProvider):
     def whoami(self) -> APIFuture[types.WhoamiResponse]:
         """Get the calling principal's identity.
 
-        Returns the user URN associated with the credential in use,
-        and the user's email when the principal is user-backed.
+        Returns the user URN and organization URN associated with the
+        credential in use, and the user's email when the principal is
+        user-backed.
 
         The identity is read from the claims of the JWT the SDK already
         holds from auth (cached and refreshed in the background), so this
@@ -1129,7 +1282,7 @@ class RestClient(TelemetryProvider):
         ```python
         # Sync usage
         response = rest_client.whoami().result()
-        print(f"URN: {response.user_urn}, email: {response.email}")
+        print(f"user: {response.user_urn}, org: {response.org_urn}, email: {response.email}")
 
         # Async usage
         response = await rest_client.whoami()
@@ -1176,6 +1329,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/samplers/{sampler_id}",
+                        options={"headers": _sdk_headers("get_sampler")},
                         cast_to=types.GetSamplerResponse,
                     )
 
@@ -1209,7 +1363,10 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         "/api/v1/billing/usage/events",
-                        options={"params": request.model_dump(mode="json", exclude_none=True)},
+                        options={
+                            "params": request.model_dump(mode="json", exclude_none=True),
+                            "headers": _sdk_headers("get_billing_usage"),
+                        },
                         cast_to=types.BillingUsageResponse,
                     )
 
@@ -1305,7 +1462,10 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         "/api/v1/billing/usage/checkpoints/current",
-                        options={"params": request.model_dump(mode="json", exclude_none=True)},
+                        options={
+                            "params": request.model_dump(mode="json", exclude_none=True),
+                            "headers": _sdk_headers("get_current_checkpoint_storage_usage"),
+                        },
                         cast_to=types.CurrentCheckpointStorageUsageResponse,
                     )
 

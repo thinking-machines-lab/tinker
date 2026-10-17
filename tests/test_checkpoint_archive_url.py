@@ -28,6 +28,7 @@ class _FakeWeights:
         *,
         model_id: str,
         checkpoint_id: str,
+        extra_headers: dict[str, str],
     ) -> CheckpointArchiveUrlResponse:
         self.attempts += 1
         if self.attempts == 1:
@@ -76,6 +77,7 @@ def test_get_checkpoint_archive_url_uses_holder_retries() -> None:
     result = rest_client._get_checkpoint_archive_url_submit(
         "run-id",
         "sampler_weights/final",
+        sdk_method="get_checkpoint_archive_url",
     )
 
     assert result is response

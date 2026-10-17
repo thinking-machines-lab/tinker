@@ -17,6 +17,8 @@ Args:
     user_metadata: Optional metadata attached to the created session.
     project_id: Optional project ID to attach to the created session. If not
         provided, falls back to the `TINKER_PROJECT_ID` environment variable.
+    display_name: Optional human-readable display name for the session. Does not
+        need to be unique. Only used for display and search purposes.
     base_url: The Tinker API URL. Defaults to the `TINKER_BASE_URL` environment
         variable, then to the production API.
     api_key: The Tinker API key. Defaults to the `TINKER_API_KEY` environment
@@ -152,11 +154,11 @@ def copy_weights(
 ) -> AwaitableConcurrentFuture[str]
 ```
 
-Copy weights into this client's project.
+Copy weights into this client's project, using a new session.
 
 Storage is shared with the source, so no bytes are duplicated. Either kind
 of weights can be copied, and the copy keeps that kind. A new training
-run is created to hold it, which cannot be trained on.
+run in a new session is created to hold it, which cannot be trained on.
 
 Args:
 - `path`: Tinker path of the weights to copy
