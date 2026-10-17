@@ -19,6 +19,7 @@ Key methods:
 - delete_checkpoint() - delete an existing checkpoint for a training run
 - get_checkpoint_archive_url() - get signed URL to download checkpoint archive
 - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
+- copy_weights() - copy a checkpoint into a selected project
 - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
 - unpublish_checkpoint_from_tinker_path() - unpublish a checkpoint to make it private
 - set_checkpoint_ttl_from_tinker_path() - set or remove TTL on a checkpoint
@@ -383,6 +384,59 @@ async def get_checkpoint_archive_url_from_tinker_path_async(
 
 Async version of get_checkpoint_archive_url_from_tinker_path.
 
+#### `copy_weights`
+
+```python
+def copy_weights(
+        path: str,
+        destination_project_id: str | None = None,
+        *,
+        ttl_seconds: int | None = None,
+        weights_access_token: str | None = None
+) -> AwaitableConcurrentFuture[str]
+```
+
+Copy a checkpoint into a selected project.
+
+Storage is shared with the source, so no bytes are duplicated. The copy
+keeps the source's checkpoint kind and belongs to a new training run
+that cannot be trained on.
+
+Args:
+- `path`: Tinker path of the checkpoint to copy
+- `destination_project_id`: Project that will own the copy. If omitted,
+  defaults to the `TINKER_PROJECT_ID` environment variable.
+- `ttl_seconds`: Seconds until the copy expires, between 1 hour (3600)
+  and 10 years, or None for no expiry
+- `weights_access_token`: Optional access token for copying weights readable
+  under a different account
+
+Returns:
+- A future for the tinker path of the copy. Await it, or call `.result()`.
+
+Raises:
+- `ValueError`: If neither a destination project nor `TINKER_PROJECT_ID` is set
+
+Example:
+```python
+copied_path = rest_client.copy_weights(
+    "tinker://run-id/weights/step-400", "proj-archive"
+).result()
+print(copied_path)
+```
+
+#### `copy_weights_async`
+
+```python
+async def copy_weights_async(path: str,
+                             destination_project_id: str | None = None,
+                             *,
+                             ttl_seconds: int | None = None,
+                             weights_access_token: str | None = None) -> str
+```
+
+Async version of copy_weights.
+
 #### `publish_checkpoint_from_tinker_path`
 
 ```python
@@ -563,7 +617,7 @@ Args:
 
 Returns:
 - A `Future` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
-  and user_metadata
+  user_metadata, and display_name
 
 Example:
 ```python
@@ -572,6 +626,7 @@ response = future.result()
 print(f"Training runs: {len(response.training_run_ids)}")
 print(f"Samplers: {len(response.sampler_ids)}")
 print(f"User metadata: {response.user_metadata}")
+print(f"Display name: {response.display_name}")
 ```
 
 #### `get_session_async`
@@ -724,8 +779,9 @@ def whoami() -> APIFuture[types.WhoamiResponse]
 
 Get the calling principal's identity.
 
-Returns the user URN associated with the credential in use,
-and the user's email when the principal is user-backed.
+Returns the user URN and organization URN associated with the
+credential in use, and the user's email when the principal is
+user-backed.
 
 The identity is read from the claims of the JWT the SDK already
 holds from auth (cached and refreshed in the background), so this
@@ -738,7 +794,7 @@ Example:
 ```python
 # Sync usage
 response = rest_client.whoami().result()
-print(f"URN: {response.user_urn}, email: {response.email}")
+print(f"user: {response.user_urn}, org: {response.org_urn}, email: {response.email}")
 
 # Async usage
 response = await rest_client.whoami()

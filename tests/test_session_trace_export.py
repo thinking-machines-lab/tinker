@@ -21,7 +21,9 @@ class _FakeClient:
         self.responses = responses
         self.requests: list[str] = []
 
-    async def get(self, path: str, *, cast_to: type) -> _SessionTraceExportPollResponse:
+    async def get(
+        self, path: str, *, options: dict[str, object], cast_to: type
+    ) -> _SessionTraceExportPollResponse:
         assert cast_to is _SessionTraceExportPollResponse
         self.requests.append(path)
         return self.responses[min(len(self.requests) - 1, len(self.responses) - 1)]

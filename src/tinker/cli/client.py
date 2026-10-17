@@ -6,33 +6,41 @@ and network errors.
 """
 
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
 from .exceptions import TinkerCliError
 
 if TYPE_CHECKING:
+    from tinker import ServiceClient
     from tinker.lib.public_interfaces.rest_client import RestClient
 
 
 def create_rest_client() -> "RestClient":
-    """Create and configure a RestClient instance with proper error handling.
+    """Create a RestClient, translating setup failures into TinkerCliError."""
+    with _client_setup_errors():
+        return _new_service_client().create_rest_client()
 
-    This function handles the creation of the ServiceClient and RestClient,
-    with appropriate error messages for common failure cases.
 
-    Returns:
-        A configured RestClient instance
+def create_service_client() -> "ServiceClient":
+    """Create a ServiceClient, translating setup failures into TinkerCliError."""
+    with _client_setup_errors():
+        return _new_service_client()
 
-    Raises:
-        TinkerCliError: If client creation fails
-    """
+
+def _new_service_client() -> "ServiceClient":
     # Lazy import to avoid slow startup
     from tinker import ServiceClient
 
+    return ServiceClient()
+
+
+@contextmanager
+def _client_setup_errors() -> Iterator[None]:
     try:
-        service_client = ServiceClient()
-        return service_client.create_rest_client()
+        yield
     except ImportError as e:
         raise TinkerCliError(
             f"Failed to import Tinker SDK: {e}",

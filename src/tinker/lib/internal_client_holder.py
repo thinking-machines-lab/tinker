@@ -225,6 +225,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         user_metadata: dict[str, str] | None = None,
         project_id: str | None = None,
         *,
+        display_name: str | None = None,
         session_id: str | None = None,
         base_url: str | None = None,
         api_key: str | None = None,
@@ -350,7 +351,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             # Normal mode: create new session.
             self._assert_not_on_event_loop("create a new session")
             self._session_id = self.run_coroutine_threadsafe(
-                self._create_session(user_metadata=user_metadata, project_id=project_id)
+                self._create_session(
+                    user_metadata=user_metadata, project_id=project_id, display_name=display_name
+                )
             ).result()
             self._training_client_counter = 0
             self._sampling_client_counter = 0
@@ -692,6 +695,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self,
         user_metadata: dict[str, str] | None = None,
         project_id: str | None = None,
+        display_name: str | None = None,
     ) -> str:
         if (tags_str := os.environ.get("TINKER_TAGS")) is not None:
             tags: set[str] = set(tags_str.split(","))
@@ -703,6 +707,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 user_metadata=user_metadata or {},
                 sdk_version=tinker_sdk_version,
                 project_id=project_id,
+                display_name=display_name,
             )
             result = await client.service.create_session(request=request)
         if result.info_message:

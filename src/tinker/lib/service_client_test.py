@@ -39,6 +39,7 @@ def test_service_client_ignores_unsupported_kwargs_with_warning(
     assert captured_kwargs == {
         "user_metadata": None,
         "project_id": None,
+        "display_name": None,
         "base_url": "http://127.0.0.1:4010",
         "api_key": None,
         "default_headers_overrides": {},

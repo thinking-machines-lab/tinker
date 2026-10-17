@@ -22,6 +22,7 @@ from .lazy_group import LazyGroup
         "auth": "tinker.cli.commands.auth:cli",
         "billing": "tinker.cli.commands.billing:cli",
         "checkpoint": "tinker.cli.commands.checkpoint:cli",
+        "model": "tinker.cli.commands.model:cli",
         "run": "tinker.cli.commands.run:cli",
         "session": "tinker.cli.commands.session:cli",
         "version": "tinker.cli.commands.version:cli",

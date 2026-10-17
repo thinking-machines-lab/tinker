@@ -114,6 +114,8 @@ class AsyncWeightsResource(AsyncAPIResource):
     async def list(
         self,
         model_id: ModelID,
+        *,
+        extra_headers: Headers | None = None,
     ) -> CheckpointsListResponse:
         """
         Lists available model checkpoints (both training and sampler)
@@ -125,11 +127,12 @@ class AsyncWeightsResource(AsyncAPIResource):
             raise ValueError(f"Expected a non-empty value for `model_id` but received {model_id!r}")
         return await self._get(
             f"/api/v1/training_runs/{model_id}/checkpoints",
+            options=make_request_options(extra_headers=extra_headers),
             cast_to=CheckpointsListResponse,
         )
 
     async def get_external_weights_urls(
-        self, *, model_id: ModelID, checkpoint_id: str
+        self, *, model_id: ModelID, checkpoint_id: str, extra_headers: Headers | None = None
     ) -> ExternalWeightsUrlsResponse:
         """Signed download URLs, one per file, for an external weights checkpoint."""
         if not model_id:
@@ -140,6 +143,7 @@ class AsyncWeightsResource(AsyncAPIResource):
             )
         return await self._get(
             f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/external_weights_urls",
+            options=make_request_options(extra_headers=extra_headers),
             cast_to=ExternalWeightsUrlsResponse,
         )
 
@@ -148,6 +152,7 @@ class AsyncWeightsResource(AsyncAPIResource):
         *,
         model_id: ModelID,
         checkpoint_id: str,
+        extra_headers: Headers | None = None,
     ) -> CheckpointArchiveUrlResponse:
         """
         Get signed URL to download checkpoint archive.
@@ -163,7 +168,7 @@ class AsyncWeightsResource(AsyncAPIResource):
                 f"Expected a non-empty value for `checkpoint_id` but received {checkpoint_id!r}"
             )
 
-        merged_headers: Headers = {"accept": "application/json"}
+        merged_headers: Headers = {**(extra_headers or {}), "accept": "application/json"}
         options = make_request_options(extra_headers=merged_headers)
         options["follow_redirects"] = False
 

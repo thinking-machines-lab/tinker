@@ -25,18 +25,21 @@ def test_jwt_claims_invalid_token_raises():
 
 
 def test_whoami_response_from_jwt_with_email():
-    jwt = _make_jwt({"sub": "tml:organization_user:abc", "email": "user@example.com"})
+    jwt = _make_jwt(
+        {"sub": "tml:organization_user:abc", "org_id": "def", "email": "user@example.com"}
+    )
     response = _whoami_response_from_jwt(jwt)
     assert response.user_urn == "tml:organization_user:abc"
+    assert response.org_urn == "tml:organization:def"
     assert response.email == "user@example.com"
 
 
 def test_whoami_response_from_jwt_coerces_empty_email_to_none():
     # Non-user-backed principals carry an empty email claim.
-    jwt = _make_jwt({"sub": "tml:organization_user:abc", "email": ""})
+    jwt = _make_jwt({"sub": "tml:organization_user:abc", "org_id": "def", "email": ""})
     assert _whoami_response_from_jwt(jwt).email is None
 
 
 def test_whoami_response_from_jwt_missing_email_claim():
-    jwt = _make_jwt({"sub": "tml:organization_user:abc"})
+    jwt = _make_jwt({"sub": "tml:organization_user:abc", "org_id": "def"})
     assert _whoami_response_from_jwt(jwt).email is None

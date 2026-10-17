@@ -6,11 +6,16 @@ __all__ = ["CopyWeightsRequest"]
 
 
 class CopyWeightsRequest(StrictBase):
-    session_id: str
+    """Provide a destination project, or both a session ID and its model sequence ID."""
+
+    session_id: Optional[str] = None
     """Session that will own the copy; the copy inherits its project."""
 
-    model_seq_id: int
+    model_seq_id: Optional[int] = None
     """Training run slot within the session, as CreateModelRequest and LoadWeightsRequest use."""
+
+    destination_project_id: Optional[str] = None
+    """Project that will own the copy when no session_id is provided."""
 
     source_path: str
     """A tinker URI for the weights to copy. Either kind is accepted."""

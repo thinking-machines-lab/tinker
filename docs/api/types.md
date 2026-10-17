@@ -460,6 +460,10 @@ class GetSessionResponse(BaseModel)
 
 Optional metadata attached to this session by the user.
 
+#### `display_name`
+
+Optional human-readable display name for the session. Does not need to be unique. Only used for display and search purposes.
+
 ## `EncodedTextChunk` Objects
 
 ```python

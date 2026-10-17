@@ -1,9 +1,16 @@
 """Commands for managing Tinker authentication."""
 
+from typing import TYPE_CHECKING, Any, Dict, List
+
 import click
 
-from ..client import handle_api_errors
+if TYPE_CHECKING:
+    from tinker.types import WhoamiResponse
+
+from ..client import create_rest_client, handle_api_errors
+from ..context import CLIContext
 from ..exceptions import TinkerCliError
+from ..output import OutputBase, format_optional
 
 _HTTP_TIMEOUT_SECONDS = 30.0
 _OSC = "\x1b]"
@@ -156,3 +163,32 @@ def status() -> None:
         click.echo("Tinker accessible: no")
         raise
     click.echo("Tinker accessible: yes")
+
+
+class WhoamiOutput(OutputBase):
+    """Output for 'tinker auth whoami'."""
+
+    def __init__(self, identity: "WhoamiResponse"):
+        self.identity = identity
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.identity.model_dump()
+
+    def get_table_columns(self) -> List[str]:
+        return ["Property", "Value"]
+
+    def get_table_rows(self) -> List[List[str]]:
+        return [
+            ["Email", format_optional(self.identity.email)],
+            ["User", self.identity.user_urn],
+            ["Organization", self.identity.org_urn],
+        ]
+
+
+@cli.command()
+@click.pass_obj
+@handle_api_errors
+def whoami(cli_context: CLIContext) -> None:
+    """Show the user and organization of the active credential."""
+    identity = create_rest_client().whoami().result()
+    WhoamiOutput(identity).print(format=cli_context.format)

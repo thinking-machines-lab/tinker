@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from .._base_client import make_request_options
 from .._compat import model_copy, model_dump
 from .._resource import AsyncAPIResource
+from .._types import Headers
 from ..types.copy_weights_request import CopyWeightsRequest
 from ..types.copy_weights_response import CopyWeightsResponse
 from ..types.create_model_request import CreateModelRequest
@@ -37,17 +41,24 @@ class AsyncModelsResource(AsyncAPIResource):
         self,
         *,
         request: CopyWeightsRequest,
+        extra_headers: Headers | None = None,
+        extra_headers_secret: Mapping[str, str] | None = None,
     ) -> CopyWeightsResponse:
         """
         Copies weights into the caller's project
 
         Args:
-          request: The copy request containing session_id, model_seq_id and source_path
+          request: The copy request containing source_path and either destination_project_id
+            or session_id and model_seq_id
+          extra_headers: Additional headers, including the idempotency key
+          extra_headers_secret: Headers excluded from request-options logging
         """
         return await self._post(
             "/api/v1/copy_weights",
             body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
             cast_to=CopyWeightsResponse,
+            options=make_request_options(extra_headers=extra_headers),
+            extra_headers_secret=extra_headers_secret,
         )
 
     async def get_info(

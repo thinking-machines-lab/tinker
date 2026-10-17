@@ -15,6 +15,8 @@ class CreateSessionRequest(StrictBase):
     user_metadata: dict[str, Any] | None
     sdk_version: str
     project_id: str | None = None
+    display_name: str | None = None
+    """Optional human-readable display name for the session. Does not need to be unique. Only used for display and search purposes."""
 
     type: Literal["create_session"] = "create_session"
 
