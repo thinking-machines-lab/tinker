@@ -81,6 +81,12 @@ class SampleRequest(StrictBase):
     prompt."""
 
     record_stability_info: Optional[bool] = None
+    """If set to `true`, the server records stability information for each
+    sampled sequence, referenced from training requests by the sequence's
+    ``sequence_id`` (StableReinforce training).
+
+    Defaults to false.
+    """
 
     type: Literal["sample"] = "sample"
 

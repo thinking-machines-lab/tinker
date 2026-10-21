@@ -9,4 +9,5 @@ LossFnType: TypeAlias = Literal[
     "cispo",
     "dro",
     "gspo",
+    "stable_reinforce",
 ]

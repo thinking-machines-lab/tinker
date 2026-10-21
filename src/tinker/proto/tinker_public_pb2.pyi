@@ -438,7 +438,9 @@ class ForwardBackwardRequest(google.protobuf.message.Message):
 
     @property
     def loss_fn_config_v2(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, Global___LossConfigValue]:
-        """Loss constructor kwargs. Supersedes loss_fn_config."""
+        """Loss constructor kwargs (e.g. {"kl_coeff": 0.01} for
+        stable_reinforce). Supersedes loss_fn_config.
+        """
 
     def __init__(
         self,

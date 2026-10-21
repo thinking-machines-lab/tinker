@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Dict, List, Optional, Self, Union
+from typing import TYPE_CHECKING, Dict, Optional, Self, Union
 
 import numpy as np
 
 from .loss_fn_inputs import LossFnInputs
-from .provenance_spans import PromptProvenanceSpan, SampledProvenanceSpan
+from .provenance_spans import PromptProvenanceSpan, ProvenanceSpans, SampledProvenanceSpan
 from .tensor_data import TensorData
 
 try:
@@ -35,9 +35,6 @@ _KEY_TO_TYPE = {
 }
 
 _SPARSE_ELIGIBLE_KEYS = {"target_tokens", "weights"}
-
-
-ProvenanceSpans = List[Union[PromptProvenanceSpan, SampledProvenanceSpan]]
 
 
 @dataclass(frozen=True)
