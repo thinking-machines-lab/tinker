@@ -51,7 +51,7 @@ def _make_request(
 
 _FINITE_FLOAT32 = st.floats(allow_nan=False, allow_infinity=False, allow_subnormal=False, width=32)
 _LOSS_FN: st.SearchStrategy[types.LossFnType] = st.sampled_from(
-    ["cross_entropy", "importance_sampling", "ppo", "cispo", "dro", "gspo"]
+    ["cross_entropy", "importance_sampling", "ppo", "cispo", "dro", "gspo", "stable_reinforce"]
 )
 
 

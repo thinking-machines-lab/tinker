@@ -22,8 +22,8 @@ def _datum(*, model_input_spans=None, loss_fn_input_spans=None) -> tinker_types.
 
 
 def test_span_type_validation():
-    with pytest.raises(ValueError, match="length must be >= 1"):
-        PromptProvenanceSpan(sequence_id="req:0", length=0)
+    with pytest.raises(ValueError, match="length must be >= 0"):
+        PromptProvenanceSpan(sequence_id="req:0", length=-1)
     with pytest.raises(ValueError, match="sequence_id must be non-empty"):
         PromptProvenanceSpan(
             sequence_id="",
@@ -35,11 +35,13 @@ def test_span_type_validation():
             offset=-1,
             length=1,
         )
-    with pytest.raises(ValueError, match="length must be >= 1"):
+    with pytest.raises(ValueError, match="length must be >= 0"):
         SampledProvenanceSpan(
             sequence_id="req:0",
-            length=0,
+            length=-1,
         )
+    # An empty run is valid: a one-token generation puts none of it in the model input.
+    assert SampledProvenanceSpan(sequence_id="req:0", length=0).length == 0
     with pytest.raises(ValueError, match="offset must be >= 0"):
         SampledProvenanceSpan(
             sequence_id="req:0",

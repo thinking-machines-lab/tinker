@@ -1070,6 +1070,10 @@ class TrainingClient(TelemetryProvider):
         Args:
         - `model_path`: Tinker path to saved weights
         - `retry_config`: Optional configuration for retrying failed requests
+        - `record_stability_info`: When true, every sample from this client
+            records stability information for its sequences (StableReinforce
+            training); recorded data is referenced from training requests by
+            `sequence_id`, is session-scoped, and expires after inactivity.
 
         Returns:
         - `SamplingClient` configured with the specified weights
@@ -1114,6 +1118,10 @@ class TrainingClient(TelemetryProvider):
         Args:
         - `name`: Deprecated, has no effect. Will be removed in a future release.
         - `retry_config`: Optional configuration for retrying failed requests
+        - `record_stability_info`: When true, every sample from this client
+            records stability information for its sequences (StableReinforce
+            training); recorded data is referenced from training requests by
+            `sequence_id`, is session-scoped, and expires after inactivity.
 
         Returns:
         - `SamplingClient` configured with the current model weights

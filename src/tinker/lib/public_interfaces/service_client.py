@@ -712,6 +712,10 @@ class ServiceClient(TelemetryProvider):
         - `model_path`: Path to saved model weights (e.g., "tinker://run-id/weights/checkpoint-001")
         - `base_model`: Name of base model to use (e.g., "Qwen/Qwen3-8B")
         - `retry_config`: Optional configuration for retrying failed requests
+        - `record_stability_info`: When true, every sample from this client
+            records stability information for its sequences (StableReinforce
+            training); recorded data is referenced from training requests by
+            `sequence_id`, is session-scoped, and expires after inactivity.
 
         Returns:
         - `SamplingClient` configured for text generation

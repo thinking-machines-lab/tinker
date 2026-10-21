@@ -18,4 +18,4 @@ class ForwardBackwardInput:
     """Fully qualified function path for the loss function"""
 
     loss_fn_config: Optional[Mapping[str, Union[float, str]]] = field(default=None)
-    """Optional configuration parameters for the loss function (e.g., PPO clip thresholds, DPO beta)"""
+    """Optional configuration parameters for the loss function (e.g., PPO clip thresholds, StableReinforce kl_coeff)"""
