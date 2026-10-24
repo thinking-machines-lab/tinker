@@ -263,7 +263,7 @@ def test_checkpoint_storage_command_org_default_and_project_filter(
     future.result.return_value = _checkpoint_storage_response()
     client = MagicMock()
     client.get_current_checkpoint_storage_usage.return_value = future
-    monkeypatch.setattr(billing_command, "create_rest_client", lambda: client)
+    monkeypatch.setattr(billing_command, "create_admin_client", lambda: client)
 
     result = CliRunner().invoke(
         billing_command.cli,

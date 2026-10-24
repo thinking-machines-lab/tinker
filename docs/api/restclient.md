@@ -9,15 +9,14 @@ class RestClient(TelemetryProvider)
 Client for REST API operations like listing checkpoints and metadata.
 
 The RestClient provides access to various REST endpoints for querying
-model information, checkpoints, and other resources. You typically get one
-by calling `service_client.create_rest_client()`.
+model information, checkpoints, and other resources. Construct one directly
+with `RestClient()`; no ServiceClient or training session is needed.
 
 Key methods:
 - list_checkpoints() - list available model checkpoints (both training and sampler)
 - list_user_checkpoints() - list all checkpoints across all user's training runs
 - get_training_run() - get model information and metadata as ModelEntry
 - delete_checkpoint() - delete an existing checkpoint for a training run
-- get_checkpoint_archive_url() - get signed URL to download checkpoint archive
 - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
 - copy_weights() - copy a checkpoint into a selected project
 - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
@@ -26,13 +25,32 @@ Key methods:
 - assign_session_project() - move a session into a project
 - whoami() - get the calling principal's user URN and email
 - export_session_trace() - export a session's timeline as a Perfetto trace and get a signed download URL
+- search_sessions() - (experimental) search your organization's sessions, newest first
+
+A RestClient constructed directly talks to the REST API only: no session is
+created on the server, so no project is needed and nothing shows up in the
+sessions list. Its connections are shared by every client constructed this
+way with the same base URL and API key, stay open for the life of the
+process, and need no closing.
+
+Operations that need an organization admin or billing-admin role live on
+`AdminClient`, which is constructed the same way.
 
 Args:
-- `holder`: Internal client managing HTTP connections and async operations
+- `base_url`: The Tinker API URL. Defaults to the `TINKER_BASE_URL`
+  environment variable, then to the production API.
+- `api_key`: The Tinker API key. Defaults to the `TINKER_API_KEY`
+  environment variable, then to the stored credentials.
+- `_holder`: Internal use only. The client managing HTTP connections and
+  async operations that a `ServiceClient` hands over; it cannot be combined
+  with `base_url` or `api_key`.
 
 Example:
 ```python
-rest_client = service_client.create_rest_client()
+rest_client = tinker.RestClient()
+checkpoints = rest_client.list_user_checkpoints().result()
+print(f"Found {len(checkpoints.checkpoints)} checkpoints")
+
 training_run = rest_client.get_training_run("run-id").result()
 print(f"Training Run: {training_run.training_run_id}, LoRA: {training_run.is_lora}")
 checkpoints = rest_client.list_checkpoints("run-id").result()
@@ -214,42 +232,6 @@ async def list_checkpoints_async(
 
 Async version of list_checkpoints.
 
-#### `get_checkpoint_archive_url`
-
-```python
-def get_checkpoint_archive_url(
-    training_run_id: types.ModelID, checkpoint_id: str
-) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]
-```
-
-Get signed URL to download checkpoint archive.
-
-Args:
-- `training_run_id`: The training run ID to download weights for
-- `checkpoint_id`: The checkpoint ID to download
-
-Returns:
-- A `Future` containing the `CheckpointArchiveUrlResponse` with signed URL and expiration
-
-Example:
-```python
-future = rest_client.get_checkpoint_archive_url("run-id", "checkpoint-123")
-response = future.result()
-print(f"Download URL: {response.url}")
-print(f"Expires at: {response.expires_at}")
-# Use the URL to download the archive with your preferred HTTP client
-```
-
-#### `get_checkpoint_archive_url_async`
-
-```python
-async def get_checkpoint_archive_url_async(
-        training_run_id: types.ModelID,
-        checkpoint_id: str) -> types.CheckpointArchiveUrlResponse
-```
-
-Async version of get_checkpoint_archive_url.
-
 #### `get_external_weights_urls`
 
 ```python
@@ -316,73 +298,27 @@ Async version of delete_checkpoint_from_tinker_path.
 
 ```python
 def get_audit_log(
-        event_type: Literal["all", "checkpoints", "projects", "teams",
-                            "organizations"] = "all",
-        day: date | None = None) -> ConcurrentFuture[types.AuditLogResponse]
+    event_type: Literal["all", "checkpoints", "projects", "teams",
+                        "organizations"] = "all",
+    day: date | None = None
+) -> ConcurrentFuture[types.AuditLogResponse]
 ```
 
-Get an audit log of events for the caller's organization.
-
-Requires the tinker-admin RBAC role (VIEW_AUDIT_LOG capability).
-
-Args:
-- `event_type`: Which resource's events to include: "checkpoints",
-    "projects", "teams", "organizations", or "all". Defaults to "all".
-- `day`: The date to query (default: today). The window covers
-    midnight to midnight UTC.
-
-Returns:
-- A `Future` containing the `AuditLogResponse` with audit log entries
-
-Example:
-```python
-from datetime import date
-
-future = rest_client.get_audit_log()
-response = future.result()
-print(f"Found {len(response.entries)} audit entries")
-for entry in response.entries:
-    print(f"  {entry.timestamp}: {entry.event} {entry.event_details}")
-
-# Query a specific day
-future = rest_client.get_audit_log(day=date(2025, 1, 15))
-```
+Deprecated: use `AdminClient.get_audit_log()` instead. This method will be removed in
+a subsequent release.
 
 #### `get_audit_log_async`
 
 ```python
 async def get_audit_log_async(
-        event_type: Literal["all", "checkpoints", "projects", "teams",
-                            "organizations"] = "all",
-        day: date | None = None) -> types.AuditLogResponse
+    event_type: Literal["all", "checkpoints", "projects", "teams",
+                        "organizations"] = "all",
+    day: date | None = None
+) -> types.AuditLogResponse
 ```
 
-Async version of get_audit_log.
-
-#### `get_checkpoint_archive_url_from_tinker_path`
-
-```python
-def get_checkpoint_archive_url_from_tinker_path(
-        tinker_path: str
-) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]
-```
-
-Get signed URL to download checkpoint archive.
-
-Args:
-- `tinker_path`: The tinker path to the checkpoint
-
-Returns:
-- A `Future` containing the `CheckpointArchiveUrlResponse` with signed URL and expiration
-
-#### `get_checkpoint_archive_url_from_tinker_path_async`
-
-```python
-async def get_checkpoint_archive_url_from_tinker_path_async(
-        tinker_path: str) -> types.CheckpointArchiveUrlResponse
-```
-
-Async version of get_checkpoint_archive_url_from_tinker_path.
+Deprecated: use `AdminClient.get_audit_log_async()` instead. This method will be removed in
+a subsequent release.
 
 #### `copy_weights`
 
@@ -838,77 +774,22 @@ Async version of get_sampler.
 #### `get_billing_usage`
 
 ```python
-def get_billing_usage(
-    starting_on: datetime | str, ending_before: datetime | str
-) -> ConcurrentFuture[types.BillingUsageResponse]
+def get_billing_usage(starting_on: datetime | str,
+                      ending_before: datetime | str) -> ConcurrentFuture[types.BillingUsageResponse]
 ```
 
-Get detailed billing usage for your organization.
-
-Returns hourly-bucketed usage as a list of `BillingUsageEvent`
-envelopes: the shared attribution (bucket, base model, user, session,
-project) lives on the envelope, and the usage-kind-specific payload
-is `event_info` — a union discriminated on `.type` (training /
-sampling_prefill / sampling_sample / checkpoint / storage). Each
-variant carries exactly the fields that apply (token_count, gigabyte_hours,
-count, the prefill cached flag). Session user_metadata comes once
-per session in `response.sessions`, keyed by session_id. Token and
-storage events include `estimated_cost_usd`, an estimated gross usage
-cost before credits and commits, plus the applicable effective rate
-per million tokens or per GB-month. These are not invoice amounts due.
-Token cost is the rate per million tokens multiplied by `token_count /
-1_000_000`; storage cost is the rate per GB-month multiplied by
-`gigabyte_hours / 720`.
-For a completed UTC day, each model/usage-category group is priced only
-after its full-day quantity reconciles with finalized invoice usage
-line items, or the latest draft when no finalized invoice is available.
-Other groups on the same day may remain null. The current incomplete
-UTC day instead uses the published Tinker rate-card snapshot, so its
-estimate is not invoice-reconciled and can change after the day
-completes.
-Estimated costs can use either invoice-derived effective rates or
-fixed published rates. `cost_data_through` marks the exclusive UTC
-boundary between those pricing sources: non-null estimates before it
-use invoice-derived rates, while newer non-null estimates use fixed
-published rates. A cost or rate may still be null when the data
-required to price that row is unavailable. It is null when the
-response has no completed day with invoice pricing data.
-Data lags real time by up to a few hours. Requires billing view access
-in your organization.
-
-Args:
-- `starting_on`: Inclusive window start (RFC 3339 string or datetime),
-  aligned to a UTC hour boundary; must not be in the future
-- `ending_before`: Exclusive window end, aligned to a UTC hour
-  boundary; at most 14 days after `starting_on`
-
-Returns:
-- A `Future` containing the `BillingUsageResponse`
-
-Example:
-```python
-future = rest_client.get_billing_usage(
-    "2026-07-13T00:00:00Z", "2026-07-14T00:00:00Z"
-)
-for event in future.result().data:
-    match event.event_info:
-        case types.StorageBillingEvent() as info:
-            print(event.bucket_start, "storage", info.gigabyte_hours, "GB-h")
-        case types.CheckpointBillingEvent() as info:
-            print(event.bucket_start, "checkpoints", info.count)
-        case info:
-            print(event.bucket_start, info.type, event.base_model, info.token_count)
-```
+Deprecated: use `AdminClient.get_billing_usage()` instead. This method will be removed in
+a subsequent release.
 
 #### `get_billing_usage_async`
 
 ```python
-async def get_billing_usage_async(
-        starting_on: datetime | str,
-        ending_before: datetime | str) -> types.BillingUsageResponse
+async def get_billing_usage_async(starting_on: datetime | str,
+                            ending_before: datetime | str) -> types.BillingUsageResponse
 ```
 
-Async version of get_billing_usage.
+Deprecated: use `AdminClient.get_billing_usage_async()` instead. This method will be removed in
+a subsequent release.
 
 #### `get_current_checkpoint_storage_usage`
 
@@ -918,13 +799,8 @@ def get_current_checkpoint_storage_usage(
 ) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]
 ```
 
-Get current checkpoint count, size, and projected storage cost.
-
-With no arguments, returns checkpoint storage usage for the entire authenticated
-organization, grouped by project and session owner. Pass `project_id` to limit
-results to one project within that organization. Checkpoint usage data can lag
-by 1-2 hours. Projected costs use current publicly available rates, before credits and commits,
-and are not invoice amounts due.
+Deprecated: use `AdminClient.get_current_checkpoint_storage_usage()` instead. This method will be removed in
+a subsequent release.
 
 #### `get_current_checkpoint_storage_usage_async`
 
@@ -934,4 +810,51 @@ async def get_current_checkpoint_storage_usage_async(
 ) -> types.CurrentCheckpointStorageUsageResponse
 ```
 
-Async version of `get_current_checkpoint_storage_usage`.
+Deprecated: use `AdminClient.get_current_checkpoint_storage_usage_async()` instead. This method will be removed in
+a subsequent release.
+
+#### `search_sessions`
+
+```python
+def search_sessions(
+    request: types.SessionSearchRequest
+) -> ConcurrentFuture[types.SessionSearchResponse]
+```
+
+Search your organization's sessions, newest first.
+
+Experimental: this API may change or be removed in any release.
+
+Results are restricted to projects you may list. Page through them by
+passing each response's `next_cursor` as the next request's `cursor`.
+
+Args:
+- `request`: The search filters, page size and cursor
+
+Returns:
+- A `Future` containing one `SessionSearchResponse` page
+
+Example:
+```python
+from tinker.types import AccessibleSearchOwner, SessionSearchRequest
+
+request = SessionSearchRequest(display_name="nightly", owner=AccessibleSearchOwner())
+page = rest_client.search_sessions(request).result()
+while True:
+    for session in page.sessions:
+        print(session.session_id, session.display_name)
+    if page.next_cursor is None:
+        break
+    request = request.model_copy(update={"cursor": page.next_cursor})
+    page = rest_client.search_sessions(request).result()
+```
+
+#### `search_sessions_async`
+
+```python
+async def search_sessions_async(
+    request: types.SessionSearchRequest
+) -> types.SessionSearchResponse
+```
+
+Async version of `search_sessions`.

@@ -19,7 +19,7 @@ import click
 if TYPE_CHECKING:
     from tinker.types import BillingUsageResponse, CurrentCheckpointStorageUsageResponse
 
-from ..client import create_rest_client, handle_api_errors
+from ..client import create_admin_client, handle_api_errors
 from ..context import CLIContext
 from ..output import OutputBase
 
@@ -259,7 +259,7 @@ def usage(
 
     Requires billing view access in your organization.
     """
-    client = create_rest_client()
+    client = create_admin_client()
     response = client.get_billing_usage(starting_on, ending_before).result()
 
     if sessions_csv_path is not None:
@@ -295,7 +295,7 @@ def checkpoint_storage(
     720-hour projections using current publicly available rates, before
     credits and commits; they are not invoice amounts due.
     """
-    client = create_rest_client()
+    client = create_admin_client()
     response = client.get_current_checkpoint_storage_usage(
         project_id=project_id,
     ).result()

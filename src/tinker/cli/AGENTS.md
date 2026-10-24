@@ -264,7 +264,7 @@ tinker checkpoint list run-abc123
 tinker checkpoint info ckpt-xyz789
 
 # Upload checkpoint to Hugging Face Hub
-tinker checkpoint push-hf tinker://run-abc123/sampler_weights/000040 --repo username/my-lora-adapter
+tinker checkpoint push-hf tinker://run-abc123/external_weights/final --repo username/my-lora-adapter
 
 # List the models this organization can use, or those whose name contains a substring
 tinker model list

@@ -162,6 +162,7 @@ class DocumentationGenerator:
             ("TrainingClient", "tinker.lib.public_interfaces.training_client"),
             ("SamplingClient", "tinker.lib.public_interfaces.sampling_client"),
             ("RestClient", "tinker.lib.public_interfaces.rest_client"),
+            ("AdminClient", "tinker.lib.public_interfaces.admin_client"),
             ("APIFuture", "tinker.lib.public_interfaces.api_future"),
         ]
 
@@ -197,6 +198,7 @@ class DocumentationGenerator:
             "trainingclient": "TrainingClient",
             "samplingclient": "SamplingClient",
             "restclient": "RestClient",
+            "adminclient": "AdminClient",
             "apifuture": "APIFuture",
             "types": "Parameters",
             "exceptions": "Exceptions",

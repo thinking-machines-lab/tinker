@@ -13,19 +13,22 @@ from typing import TYPE_CHECKING, Literal
 from typing_extensions import deprecated
 
 from tinker import types
+from tinker._compat import model_dump
 from tinker._models import BaseModel
 from tinker._types import NoneType
-from tinker._version import __version__ as tinker_sdk_version
 from tinker.lib._jwt_auth import jwt_claims
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.experimental import ExperimentalWarning, experimental
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.public_interfaces.rest_client_common import rest_client_holder, sdk_headers
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
+from ..internal_client_holder import InternalClientHolder
 from ..sync_only import sync_only
 
 if TYPE_CHECKING:
-    from ..internal_client_holder import InternalClientHolder
+    from .admin_client import AdminClient
 
 # pyright: reportPrivateImportUsage=false
 
@@ -33,13 +36,6 @@ logger = logging.getLogger(__name__)
 
 # How often to poll the server while a session trace export is being built.
 _TRACE_EXPORT_POLL_INTERVAL_SECONDS = 5.0
-
-_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE = (
-    "DEPRECATED: RestClient.get_checkpoint_archive_url*() is deprecated and will NOT be "
-    "supported in future tinker SDK versions; the server may already reject it for your "
-    "organization. Migrate now: save the weights with TrainingClient.save_weights_external() "
-    "and download them with RestClient.get_external_weights_urls()."
-)
 
 
 class _SessionTraceExportPollResponse(BaseModel):
@@ -63,29 +59,20 @@ def _whoami_response_from_jwt(jwt: str) -> types.WhoamiResponse:
     )
 
 
-def _sdk_headers(sdk_method: str) -> dict[str, str]:
-    """Headers attributing a REST request to the SDK version and public method that sent it.
-
-    The server uses these to see who still calls an endpoint, and through which
-    method, before deprecating it. `sdk_method` is the public method name without
-    its `_async` suffix, since both variants are the same API.
-    """
-    return {"x-sdk-version": tinker_sdk_version, "x-sdk-method": sdk_method}
-
-
 class RestClient(TelemetryProvider):
     """Client for REST API operations like listing checkpoints and metadata.
 
     The RestClient provides access to various REST endpoints for querying
-    model information, checkpoints, and other resources. You typically get one
-    by calling `service_client.create_rest_client()`.
+    model information, checkpoints, and other resources. Construct one directly
+    with `RestClient()`; no ServiceClient or training session is needed.
 
     Key methods:
     - list_checkpoints() - list available model checkpoints (both training and sampler)
     - list_user_checkpoints() - list all checkpoints across all user's training runs
     - get_training_run() - get model information and metadata as ModelEntry
     - delete_checkpoint() - delete an existing checkpoint for a training run
-    - get_checkpoint_archive_url() - (deprecated) get signed URL to download checkpoint archive
+    - get_billing_usage(), get_current_checkpoint_storage_usage(), get_audit_log() -
+      (deprecated) admin-only operations, now on `AdminClient`
     - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
     - copy_weights() - copy a checkpoint into a selected project
     - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
@@ -94,13 +81,32 @@ class RestClient(TelemetryProvider):
     - assign_session_project() - move a session into a project
     - whoami() - get the calling principal's user URN and email
     - export_session_trace() - export a session's timeline as a Perfetto trace and get a signed download URL
+    - search_sessions() - (experimental) search your organization's sessions, newest first
+
+    A RestClient constructed directly talks to the REST API only: no session is
+    created on the server, so no project is needed and nothing shows up in the
+    sessions list. Its connections are shared by every client constructed this
+    way with the same base URL and API key, stay open for the life of the
+    process, and need no closing.
+
+    Operations that need an organization admin or billing-admin role live on
+    `AdminClient`, which is constructed the same way.
 
     Args:
-    - `holder`: Internal client managing HTTP connections and async operations
+    - `base_url`: The Tinker API URL. Defaults to the `TINKER_BASE_URL`
+      environment variable, then to the production API.
+    - `api_key`: The Tinker API key. Defaults to the `TINKER_API_KEY`
+      environment variable, then to the stored credentials.
+    - `_holder`: Internal use only. The client managing HTTP connections and
+      async operations that a `ServiceClient` hands over; it cannot be combined
+      with `base_url` or `api_key`.
 
     Example:
     ```python
-    rest_client = service_client.create_rest_client()
+    rest_client = tinker.RestClient()
+    checkpoints = rest_client.list_user_checkpoints().result()
+    print(f"Found {len(checkpoints.checkpoints)} checkpoints")
+
     training_run = rest_client.get_training_run("run-id").result()
     print(f"Training Run: {training_run.training_run_id}, LoRA: {training_run.is_lora}")
     checkpoints = rest_client.list_checkpoints("run-id").result()
@@ -110,8 +116,23 @@ class RestClient(TelemetryProvider):
     ```
     """
 
-    def __init__(self, holder: InternalClientHolder):
-        self.holder = holder
+    def __init__(
+        self,
+        _holder: InternalClientHolder | None = None,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ):
+        self.holder = rest_client_holder("RestClient", _holder, base_url=base_url, api_key=api_key)
+
+    def get_telemetry(self) -> Telemetry | None:
+        return self.holder.get_telemetry()
+
+    def _admin_client(self) -> AdminClient:
+        """An AdminClient over this client's holder, backing the deprecated admin methods."""
+        from .admin_client import AdminClient
+
+        return AdminClient(self.holder)
 
     def _get_training_run_submit(
         self,
@@ -129,7 +150,7 @@ class RestClient(TelemetryProvider):
                         f"/api/v1/training_runs/{training_run_id}",
                         options={
                             "params": {"access_scope": access_scope},
-                            "headers": _sdk_headers(sdk_method),
+                            "headers": sdk_headers(sdk_method),
                         },
                         cast_to=types.TrainingRun,
                     )
@@ -242,7 +263,7 @@ class RestClient(TelemetryProvider):
                     return await client.post(
                         "/api/v1/weights_info",
                         body={"tinker_path": tinker_path},
-                        options={"headers": _sdk_headers("get_weights_info_by_tinker_path")},
+                        options={"headers": sdk_headers("get_weights_info_by_tinker_path")},
                         cast_to=types.WeightsInfoResponse,
                     )
 
@@ -272,7 +293,7 @@ class RestClient(TelemetryProvider):
 
                     return await client.get(
                         "/api/v1/training_runs",
-                        options={"params": params, "headers": _sdk_headers("list_training_runs")},
+                        options={"params": params, "headers": sdk_headers("list_training_runs")},
                         cast_to=types.TrainingRunsResponse,
                     )
 
@@ -343,7 +364,7 @@ class RestClient(TelemetryProvider):
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.weights.list(
-                        training_run_id, extra_headers=_sdk_headers("list_checkpoints")
+                        training_run_id, extra_headers=sdk_headers("list_checkpoints")
                     )
 
             return await self.holder.execute_with_retries(_send_request)
@@ -383,83 +404,6 @@ class RestClient(TelemetryProvider):
         """Async version of list_checkpoints."""
         return await self._list_checkpoints_submit(training_run_id)
 
-    def _get_checkpoint_archive_url_submit(
-        self, training_run_id: types.ModelID, checkpoint_id: str, *, sdk_method: str
-    ) -> AwaitableConcurrentFuture[types.CheckpointArchiveUrlResponse]:
-        """Internal method to submit get checkpoint archive URL request."""
-        logger.error(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE)
-
-        async def _status_task():
-            logger.warning(
-                f"Creating checkpoint archive for run id: {training_run_id} checkpoint id: {checkpoint_id} (this may take a while)"
-            )
-            i = 0
-            while True:
-                await asyncio.sleep(30)
-                i += 1
-                if i > 5:
-                    logger.warning("... still running")
-
-        async def _get_checkpoint_archive_url_async() -> types.CheckpointArchiveUrlResponse:
-            async def _send_request() -> types.CheckpointArchiveUrlResponse:
-                with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
-                    return await client.weights.get_checkpoint_archive_url(
-                        model_id=training_run_id,
-                        checkpoint_id=checkpoint_id,
-                        extra_headers=_sdk_headers(sdk_method),
-                    )
-
-            status_task = asyncio.create_task(_status_task())
-            try:
-                result = await self.holder.execute_with_retries(_send_request)
-            finally:
-                status_task.cancel()
-
-            return result
-
-        return self.holder.run_coroutine_threadsafe(_get_checkpoint_archive_url_async())
-
-    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
-    @sync_only
-    @capture_exceptions(fatal=True)
-    def get_checkpoint_archive_url(
-        self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]:
-        """Get signed URL to download checkpoint archive.
-
-        Deprecated: will not be supported in future SDK versions. Use
-        `TrainingClient.save_weights_external()` + `get_external_weights_urls()` instead.
-
-        Args:
-        - `training_run_id`: The training run ID to download weights for
-        - `checkpoint_id`: The checkpoint ID to download
-
-        Returns:
-        - A `Future` containing the `CheckpointArchiveUrlResponse` with signed URL and expiration
-
-        Example:
-        ```python
-        future = rest_client.get_checkpoint_archive_url("run-id", "checkpoint-123")
-        response = future.result()
-        print(f"Download URL: {response.url}")
-        print(f"Expires at: {response.expires_at}")
-        # Use the URL to download the archive with your preferred HTTP client
-        ```
-        """
-        return self._get_checkpoint_archive_url_submit(
-            training_run_id, checkpoint_id, sdk_method="get_checkpoint_archive_url"
-        ).future()
-
-    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
-    @capture_exceptions(fatal=True)
-    async def get_checkpoint_archive_url_async(
-        self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> types.CheckpointArchiveUrlResponse:
-        """Async version of get_checkpoint_archive_url."""
-        return await self._get_checkpoint_archive_url_submit(
-            training_run_id, checkpoint_id, sdk_method="get_checkpoint_archive_url"
-        )
-
     def _get_external_weights_urls_submit(
         self, tinker_path: str
     ) -> AwaitableConcurrentFuture[types.ExternalWeightsUrlsResponse]:
@@ -476,7 +420,7 @@ class RestClient(TelemetryProvider):
                     return await client.weights.get_external_weights_urls(
                         model_id=parsed_tinker_path.training_run_id,
                         checkpoint_id=parsed_tinker_path.checkpoint_id,
-                        extra_headers=_sdk_headers("get_external_weights_urls"),
+                        extra_headers=sdk_headers("get_external_weights_urls"),
                     )
 
             return await self.holder.execute_with_retries(_send_request)
@@ -517,7 +461,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     await client.delete(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}",
-                        options={"headers": _sdk_headers(sdk_method)},
+                        options={"headers": sdk_headers(sdk_method)},
                         cast_to=NoneType,
                     )
 
@@ -569,104 +513,35 @@ class RestClient(TelemetryProvider):
             sdk_method="delete_checkpoint_from_tinker_path",
         )
 
-    @sync_only
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_audit_log() is deprecated and will be removed in a future "
+        "tinker SDK version. Use AdminClient.get_audit_log() instead; AdminClient is constructed "
+        "the same way as RestClient.",
+        category=FutureWarning,
+    )
     def get_audit_log(
         self,
         event_type: Literal["all", "checkpoints", "projects", "teams", "organizations"] = "all",
         day: date | None = None,
     ) -> ConcurrentFuture[types.AuditLogResponse]:
-        """Get an audit log of events for the caller's organization.
+        """Deprecated: use `AdminClient.get_audit_log()` instead. This method will be removed in a
+        subsequent release."""
+        return self._admin_client().get_audit_log(event_type, day)
 
-        Requires the tinker-admin RBAC role (VIEW_AUDIT_LOG capability).
-
-        Args:
-        - `event_type`: Which resource's events to include: "checkpoints",
-            "projects", "teams", "organizations", or "all". Defaults to "all".
-        - `day`: The date to query (default: today). The window covers
-            midnight to midnight UTC.
-
-        Returns:
-        - A `Future` containing the `AuditLogResponse` with audit log entries
-
-        Example:
-        ```python
-        from datetime import date
-
-        future = rest_client.get_audit_log()
-        response = future.result()
-        print(f"Found {len(response.entries)} audit entries")
-        for entry in response.entries:
-            print(f"  {entry.timestamp}: {entry.event} {entry.event_details}")
-
-        # Query a specific day
-        future = rest_client.get_audit_log(day=date(2025, 1, 15))
-        ```
-        """
-        return self.holder.run_coroutine_threadsafe(
-            self.get_audit_log_async(event_type, day)
-        ).future()
-
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_audit_log_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use AdminClient.get_audit_log_async() instead; AdminClient is "
+        "constructed the same way as RestClient.",
+        category=FutureWarning,
+    )
     async def get_audit_log_async(
         self,
         event_type: Literal["all", "checkpoints", "projects", "teams", "organizations"] = "all",
         day: date | None = None,
     ) -> types.AuditLogResponse:
-        """Async version of get_audit_log."""
-
-        async def _send_request() -> types.AuditLogResponse:
-            params: dict[str, object] = {"event_type": event_type}
-            if day is not None:
-                params["day"] = day.isoformat()
-            with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
-                return await client.get(
-                    "/api/v1/audit",
-                    options={"params": params, "headers": _sdk_headers("get_audit_log")},
-                    cast_to=types.AuditLogResponse,
-                )
-
-        return await self.holder.execute_with_retries(_send_request)
-
-    def get_telemetry(self) -> Telemetry | None:
-        return self.holder.get_telemetry()
-
-    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
-    @sync_only
-    @capture_exceptions(fatal=True)
-    def get_checkpoint_archive_url_from_tinker_path(
-        self, tinker_path: str
-    ) -> ConcurrentFuture[types.CheckpointArchiveUrlResponse]:
-        """Get signed URL to download checkpoint archive.
-
-        Deprecated: will not be supported in future SDK versions. Use
-        `TrainingClient.save_weights_external()` + `get_external_weights_urls()` instead.
-
-        Args:
-        - `tinker_path`: The tinker path to the checkpoint
-
-        Returns:
-        - A `Future` containing the `CheckpointArchiveUrlResponse` with signed URL and expiration
-        """
-        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        return self._get_checkpoint_archive_url_submit(
-            parsed_tinker_path.training_run_id,
-            parsed_tinker_path.checkpoint_id,
-            sdk_method="get_checkpoint_archive_url_from_tinker_path",
-        ).future()
-
-    @deprecated(_CHECKPOINT_ARCHIVE_DEPRECATION_MESSAGE, category=FutureWarning)
-    @capture_exceptions(fatal=True)
-    async def get_checkpoint_archive_url_from_tinker_path_async(
-        self, tinker_path: str
-    ) -> types.CheckpointArchiveUrlResponse:
-        """Async version of get_checkpoint_archive_url_from_tinker_path."""
-        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        return await self._get_checkpoint_archive_url_submit(
-            parsed_tinker_path.training_run_id,
-            parsed_tinker_path.checkpoint_id,
-            sdk_method="get_checkpoint_archive_url_from_tinker_path",
-        )
+        """Deprecated: use `AdminClient.get_audit_log_async()` instead. This method will be removed
+        in a subsequent release."""
+        return await self._admin_client().get_audit_log_async(event_type, day)
 
     def _copy_weights_submit(
         self,
@@ -674,7 +549,7 @@ class RestClient(TelemetryProvider):
         weights_access_token: str | None,
     ) -> AwaitableConcurrentFuture[str]:
         # Reuse one key across HTTP-client and holder retries to avoid duplicate copies.
-        headers = {**_sdk_headers("copy_weights"), "X-Idempotency-Key": str(uuid.uuid4())}
+        headers = {**sdk_headers("copy_weights"), "X-Idempotency-Key": str(uuid.uuid4())}
         headers_secret = (
             {"X-Tinker-Weights-Access-Token": weights_access_token}
             if weights_access_token is not None
@@ -771,7 +646,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     await client.post(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/publish",
-                        options={"headers": _sdk_headers("publish_checkpoint_from_tinker_path")},
+                        options={"headers": sdk_headers("publish_checkpoint_from_tinker_path")},
                         cast_to=NoneType,
                     )
 
@@ -829,7 +704,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     await client.delete(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/publish",
-                        options={"headers": _sdk_headers("unpublish_checkpoint_from_tinker_path")},
+                        options={"headers": sdk_headers("unpublish_checkpoint_from_tinker_path")},
                         cast_to=NoneType,
                     )
 
@@ -888,7 +763,7 @@ class RestClient(TelemetryProvider):
                     await client.put(
                         f"/api/v1/training_runs/{training_run_id}/checkpoints/{checkpoint_id}/ttl",
                         body={"ttl_seconds": ttl_seconds},
-                        options={"headers": _sdk_headers("set_checkpoint_ttl_from_tinker_path")},
+                        options={"headers": sdk_headers("set_checkpoint_ttl_from_tinker_path")},
                         cast_to=NoneType,
                     )
 
@@ -955,7 +830,7 @@ class RestClient(TelemetryProvider):
                         "/api/v1/checkpoints",
                         options={
                             "params": params,
-                            "headers": _sdk_headers("list_user_checkpoints"),
+                            "headers": sdk_headers("list_user_checkpoints"),
                         },
                         cast_to=types.CheckpointsListResponse,
                     )
@@ -1018,7 +893,7 @@ class RestClient(TelemetryProvider):
                         f"/api/v1/sessions/{session_id}",
                         options={
                             "params": {"access_scope": access_scope},
-                            "headers": _sdk_headers("get_session"),
+                            "headers": sdk_headers("get_session"),
                         },
                         cast_to=types.GetSessionResponse,
                     )
@@ -1078,7 +953,7 @@ class RestClient(TelemetryProvider):
 
                     return await client.get(
                         "/api/v1/sessions",
-                        options={"params": params, "headers": _sdk_headers("list_sessions")},
+                        options={"params": params, "headers": sdk_headers("list_sessions")},
                         cast_to=types.ListSessionsResponse,
                     )
 
@@ -1143,7 +1018,7 @@ class RestClient(TelemetryProvider):
                     await client.put(
                         f"/api/v1/sessions/{session_id}/project",
                         body={"project_id": project_id},
-                        options={"headers": _sdk_headers("assign_session_project")},
+                        options={"headers": sdk_headers("assign_session_project")},
                         cast_to=NoneType,
                     )
 
@@ -1193,7 +1068,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/sessions/{session_id}/trace_export",
-                        options={"headers": _sdk_headers("export_session_trace")},
+                        options={"headers": sdk_headers("export_session_trace")},
                         cast_to=_SessionTraceExportPollResponse,
                     )
 
@@ -1329,7 +1204,7 @@ class RestClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         f"/api/v1/samplers/{sampler_id}",
-                        options={"headers": _sdk_headers("get_sampler")},
+                        options={"headers": sdk_headers("get_sampler")},
                         cast_to=types.GetSamplerResponse,
                     )
 
@@ -1342,158 +1217,133 @@ class RestClient(TelemetryProvider):
         """Async version of get_sampler."""
         return await self.get_sampler(sampler_id)
 
-    def _get_billing_usage_submit(
-        self,
-        starting_on: datetime | str,
-        ending_before: datetime | str,
-    ) -> AwaitableConcurrentFuture[types.BillingUsageResponse]:
-        """Internal method to submit the billing usage request."""
-        # Typed request model: bad arguments fail here with a clear
-        # validation error, and datetimes serialize to RFC 3339 via pydantic
-        # (RFC 3339 strings are accepted and parsed too).
-        request = types.GetBillingUsageRequest.model_validate(
-            {
-                "starting_on": starting_on,
-                "ending_before": ending_before,
-            }
-        )
-
-        async def _get_billing_usage_async() -> types.BillingUsageResponse:
-            async def _send_request() -> types.BillingUsageResponse:
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.get(
-                        "/api/v1/billing/usage/events",
-                        options={
-                            "params": request.model_dump(mode="json", exclude_none=True),
-                            "headers": _sdk_headers("get_billing_usage"),
-                        },
-                        cast_to=types.BillingUsageResponse,
-                    )
-
-            return await self.holder.execute_with_retries(_send_request)
-
-        return self.holder.run_coroutine_threadsafe(_get_billing_usage_async())
-
-    @sync_only
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_billing_usage() is deprecated and will be removed in a future "
+        "tinker SDK version. Use AdminClient.get_billing_usage() instead; AdminClient is "
+        "constructed the same way as RestClient.",
+        category=FutureWarning,
+    )
     def get_billing_usage(
         self,
         starting_on: datetime | str,
         ending_before: datetime | str,
     ) -> ConcurrentFuture[types.BillingUsageResponse]:
-        """Get detailed billing usage for your organization.
+        """Deprecated: use `AdminClient.get_billing_usage()` instead. This method will be removed in
+        a subsequent release."""
+        return self._admin_client().get_billing_usage(starting_on, ending_before)
 
-        Returns hourly-bucketed usage as a list of `BillingUsageEvent`
-        envelopes: the shared attribution (bucket, base model, user, session,
-        project) lives on the envelope, and the usage-kind-specific payload
-        is `event_info` — a union discriminated on `.type` (training /
-        sampling_prefill / sampling_sample / checkpoint / storage). Each
-        variant carries exactly the fields that apply (token_count, gigabyte_hours,
-        count, the prefill cached flag). Session user_metadata comes once
-        per session in `response.sessions`, keyed by session_id. Token and
-        storage events include `estimated_cost_usd`, an estimated gross usage
-        cost before credits and commits, plus the applicable effective rate
-        per million tokens or per GB-month. These are not invoice amounts due.
-        Token cost is the rate per million tokens multiplied by `token_count /
-        1_000_000`; storage cost is the rate per GB-month multiplied by
-        `gigabyte_hours / 720`.
-        For a completed UTC day, each model/usage-category group is priced only
-        after its full-day quantity reconciles with finalized invoice usage
-        line items, or the latest draft when no finalized invoice is available.
-        Other groups on the same day may remain null. The current incomplete
-        UTC day instead uses the published Tinker rate-card snapshot, so its
-        estimate is not invoice-reconciled and can change after the day
-        completes.
-        Estimated costs can use either invoice-derived effective rates or
-        fixed published rates. `cost_data_through` marks the exclusive UTC
-        boundary between those pricing sources: non-null estimates before it
-        use invoice-derived rates, while newer non-null estimates use fixed
-        published rates. A cost or rate may still be null when the data
-        required to price that row is unavailable. It is null when the
-        response has no completed day with invoice pricing data.
-        Data lags real time by up to a few hours. Requires billing view access
-        in your organization.
-
-        Args:
-        - `starting_on`: Inclusive window start (RFC 3339 string or datetime),
-          aligned to a UTC hour boundary; must not be in the future
-        - `ending_before`: Exclusive window end, aligned to a UTC hour
-          boundary; at most 14 days after `starting_on`
-
-        Returns:
-        - A `Future` containing the `BillingUsageResponse`
-
-        Example:
-        ```python
-        future = rest_client.get_billing_usage(
-            "2026-07-13T00:00:00Z", "2026-07-14T00:00:00Z"
-        )
-        for event in future.result().data:
-            match event.event_info:
-                case types.StorageBillingEvent() as info:
-                    print(event.bucket_start, "storage", info.gigabyte_hours, "GB-h")
-                case types.CheckpointBillingEvent() as info:
-                    print(event.bucket_start, "checkpoints", info.count)
-                case info:
-                    print(event.bucket_start, info.type, event.base_model, info.token_count)
-        ```
-        """
-        return self._get_billing_usage_submit(starting_on, ending_before).future()
-
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_billing_usage_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use AdminClient.get_billing_usage_async() instead; AdminClient "
+        "is constructed the same way as RestClient.",
+        category=FutureWarning,
+    )
     async def get_billing_usage_async(
         self,
         starting_on: datetime | str,
         ending_before: datetime | str,
     ) -> types.BillingUsageResponse:
-        """Async version of get_billing_usage."""
-        return await self._get_billing_usage_submit(starting_on, ending_before)
+        """Deprecated: use `AdminClient.get_billing_usage_async()` instead. This method will be
+        removed in a subsequent release."""
+        return await self._admin_client().get_billing_usage_async(starting_on, ending_before)
 
-    def _get_current_checkpoint_storage_usage_submit(
-        self,
-        project_id: str | None,
-    ) -> AwaitableConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]:
-        request = types.GetCurrentCheckpointStorageUsageRequest(
-            project_id=project_id,
-        )
-
-        async def _get_usage_async() -> types.CurrentCheckpointStorageUsageResponse:
-            async def _send_request() -> types.CurrentCheckpointStorageUsageResponse:
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.get(
-                        "/api/v1/billing/usage/checkpoints/current",
-                        options={
-                            "params": request.model_dump(mode="json", exclude_none=True),
-                            "headers": _sdk_headers("get_current_checkpoint_storage_usage"),
-                        },
-                        cast_to=types.CurrentCheckpointStorageUsageResponse,
-                    )
-
-            return await self.holder.execute_with_retries(_send_request)
-
-        return self.holder.run_coroutine_threadsafe(_get_usage_async())
-
-    @sync_only
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_current_checkpoint_storage_usage() is deprecated and will be "
+        "removed in a future tinker SDK version. Use "
+        "AdminClient.get_current_checkpoint_storage_usage() instead; AdminClient is constructed "
+        "the same way as RestClient.",
+        category=FutureWarning,
+    )
     def get_current_checkpoint_storage_usage(
         self,
         project_id: str | None = None,
     ) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]:
-        """Get current checkpoint count, size, and projected storage cost.
+        """Deprecated: use `AdminClient.get_current_checkpoint_storage_usage()` instead. This method
+        will be removed in a subsequent release."""
+        return self._admin_client().get_current_checkpoint_storage_usage(project_id)
 
-        With no arguments, returns checkpoint storage usage for the entire
-        authenticated organization, grouped by project and session owner.
-        Pass `project_id` to limit results to one project within that organization.
-        Checkpoint usage data can lag by 1-2 hours. Projected costs use
-        current publicly available rates, before credits and commits,
-        and are not invoice amounts due.
-        """
-        return self._get_current_checkpoint_storage_usage_submit(project_id).future()
-
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_current_checkpoint_storage_usage_async() is deprecated and "
+        "will be removed in a future tinker SDK version. Use "
+        "AdminClient.get_current_checkpoint_storage_usage_async() instead; AdminClient is "
+        "constructed the same way as RestClient.",
+        category=FutureWarning,
+    )
     async def get_current_checkpoint_storage_usage_async(
         self,
         project_id: str | None = None,
     ) -> types.CurrentCheckpointStorageUsageResponse:
-        """Async version of get_current_checkpoint_storage_usage."""
-        return await self._get_current_checkpoint_storage_usage_submit(project_id)
+        """Deprecated: use `AdminClient.get_current_checkpoint_storage_usage_async()` instead. This
+        method will be removed in a subsequent release."""
+        return await self._admin_client().get_current_checkpoint_storage_usage_async(project_id)
+
+    def _search_sessions_submit(
+        self, request: types.SessionSearchRequest
+    ) -> AwaitableConcurrentFuture[types.SessionSearchResponse]:
+        """Internal method to submit the session search request."""
+
+        async def _search_sessions_async() -> types.SessionSearchResponse:
+            async def _send_request() -> types.SessionSearchResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.post(
+                        "/api/v1/sessions/search",
+                        body=model_dump(request, mode="json", exclude_none=True),
+                        options={"headers": sdk_headers("search_sessions")},
+                        cast_to=types.SessionSearchResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_search_sessions_async())
+
+    @experimental(
+        "RestClient.search_sessions is experimental: it may change or be removed in "
+        "any release without a deprecation period.",
+        category=ExperimentalWarning,
+    )
+    @sync_only
+    @capture_exceptions(fatal=True)
+    def search_sessions(
+        self, request: types.SessionSearchRequest
+    ) -> ConcurrentFuture[types.SessionSearchResponse]:
+        """Search your organization's sessions, newest first.
+
+        Experimental: this API may change or be removed in any release.
+
+        Results are restricted to projects you may list. Page through them by
+        passing each response's `next_cursor` as the next request's `cursor`.
+
+        Args:
+        - `request`: The search filters, page size and cursor
+
+        Returns:
+        - A `Future` containing one `SessionSearchResponse` page
+
+        Example:
+        ```python
+        from tinker.types import AccessibleSearchOwner, SessionSearchRequest
+
+        request = SessionSearchRequest(display_name="nightly", owner=AccessibleSearchOwner())
+        page = rest_client.search_sessions(request).result()
+        while True:
+            for session in page.sessions:
+                print(session.session_id, session.display_name)
+            if page.next_cursor is None:
+                break
+            request = request.model_copy(update={"cursor": page.next_cursor})
+            page = rest_client.search_sessions(request).result()
+        ```
+        """
+        return self._search_sessions_submit(request).future()
+
+    @experimental(
+        "RestClient.search_sessions_async is experimental: it may change or be removed in "
+        "any release without a deprecation period.",
+        category=ExperimentalWarning,
+    )
+    @capture_exceptions(fatal=True)
+    async def search_sessions_async(
+        self, request: types.SessionSearchRequest
+    ) -> types.SessionSearchResponse:
+        """Async version of search_sessions."""
+        return await self._search_sessions_submit(request)

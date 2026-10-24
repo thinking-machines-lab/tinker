@@ -10,4 +10,5 @@ LossFnType: TypeAlias = Literal[
     "dro",
     "gspo",
     "stable_reinforce",
+    "custom",
 ]

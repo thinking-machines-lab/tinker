@@ -10,6 +10,8 @@ import warnings
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Mapping, Tuple
 
+from typing_extensions import deprecated
+
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.console_urls import training_run_console_url
@@ -26,6 +28,7 @@ from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
 from ..queue_state_logger import QueueStateLogger
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
+from .custom_loss import LossHandle, check_loss_inputs, run_loss_handle
 from .sampling_client import SamplingClient, _load_tokenizer_from_model_info
 
 try:
@@ -83,10 +86,35 @@ MODEL_ID_NOT_SET_ERROR = "model_id must be set before calling forward. Try initi
 # Args: (data: List[Datum], model_outputs: List[Any]) -> (loss: Any, metrics: Dict[str, float])
 CustomLossFnV1 = Callable[[List[types.Datum], List[Any]], Tuple[Any, Dict[str, float]]]
 
+_LOAD_STATE_DEPRECATION_MESSAGE = (
+    "DEPRECATED: TrainingClient.load_state*() is deprecated and will NOT be supported in "
+    "future tinker SDK versions. Migrate now: create a new training client from the "
+    "checkpoint with ServiceClient.create_training_client_from_state() or "
+    "ServiceClient.create_training_client_from_state_with_optimizer()."
+)
+
 _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS = frozenset({"cross_entropy"})
+
 _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE: dict[Literal["logprobs"], types.LossFnType] = {
     "logprobs": "cross_entropy",
 }
+
+
+def _check_loss_type_input(loss_type_input: str | None, method: str) -> None:
+    if loss_type_input is None:
+        return
+    warnings.warn(
+        f"The 'loss_type_input' parameter of {method}() is deprecated: the loss always "
+        "receives logprobs. This parameter will be removed in a future release; remove it "
+        "from your call.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    if loss_type_input not in _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE:
+        supported = ", ".join(sorted(_CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE))
+        raise ValueError(
+            f"Unsupported loss_type_input={loss_type_input!r}. Supported values are: {supported}"
+        )
 
 
 class TrainingClient(TelemetryProvider):
@@ -389,21 +417,24 @@ class TrainingClient(TelemetryProvider):
     def forward_backward_custom(
         self,
         data: List[types.Datum],
-        loss_fn: CustomLossFnV1,
+        loss_fn: CustomLossFnV1 | LossHandle,
         *,
-        loss_type_input: Literal["logprobs"] = "logprobs",
+        loss_type_input: Literal["logprobs"] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Compute forward/backward with a custom loss function.
 
         Allows you to define custom loss functions that operate on log probabilities.
-        Only `target_tokens` and `weights` in `loss_fn_inputs` are sent to the server.
-        Other fields are available to the custom loss function but are stripped off
-        before being sent to the server.
+        A callable, or a `LossHandle` that runs client-side, receives every
+        `loss_fn_inputs` field, but only `target_tokens` and `weights` are sent to the
+        server. A `LossHandle` the server runs (one with a `loss_id`) is sent with its
+        data unchanged and runs in a single server-side forward/backward.
 
         Args:
         - `data`: List of training data samples
-        - `loss_fn`: Custom loss function that takes (data, logprobs) and returns (loss, metrics)
-        - `loss_type_input`: Input space for `loss_fn`. Currently the only supported value is `"logprobs"`.
+        - `loss_fn`: Custom loss function that takes (data, logprobs) and returns (loss, metrics),
+          or a `LossHandle` from `ServiceClient.create_custom_loss`
+        - `loss_type_input`: Deprecated; the loss always receives logprobs. Will be removed in
+          a future release.
 
         Returns:
         - `APIFuture` containing the forward/backward outputs with custom loss
@@ -444,33 +475,37 @@ class TrainingClient(TelemetryProvider):
         future = training_client.forward_backward_custom(data, custom_loss)
         ```
         """
+        _check_loss_type_input(loss_type_input, "forward_backward_custom")
         return self.holder.run_coroutine_threadsafe(
-            self.forward_backward_custom_async(
-                data,
-                loss_fn,
-                loss_type_input=loss_type_input,
-            )
+            self.forward_backward_custom_async(data, loss_fn)
         ).result()
 
     async def forward_backward_custom_async(
         self,
         data: List[types.Datum],
-        loss_fn: CustomLossFnV1,
+        loss_fn: CustomLossFnV1 | LossHandle,
         *,
-        loss_type_input: Literal["logprobs"] = "logprobs",
+        loss_type_input: Literal["logprobs"] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
         """Async version of forward_backward_custom."""
         if torch is None:
             raise ImportError("PyTorch is not installed. Cannot run custom forward_backward.")
 
-        if loss_type_input not in _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE:
-            supported = ", ".join(sorted(_CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE))
+        _check_loss_type_input(loss_type_input, "forward_backward_custom_async")
+        if isinstance(loss_fn, LossHandle) and loss_fn.session_id != self.holder.get_session_id():
             raise ValueError(
-                f"Unsupported loss_type_input={loss_type_input!r}. "
-                f"Supported values are: {supported}"
+                f"LossHandle {loss_fn.name!r} was created in session {loss_fn.session_id}; it can "
+                "only be used by clients of that session"
             )
+        if isinstance(loss_fn, LossHandle):
+            check_loss_inputs(loss_fn, data)
 
-        surrogate_loss_fn = _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE[loss_type_input]
+        if isinstance(loss_fn, LossHandle) and loss_fn.loss_id is not None:
+            # An uploaded loss runs on the server in one forward_backward, with no
+            # client-side forward pass or surrogate.
+            return await self.forward_backward_async(data, "custom", {"loss_id": loss_fn.loss_id})
+
+        surrogate_loss_fn = _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE["logprobs"]
 
         forward_data = self._get_custom_loss_forward_data(data, surrogate_loss_fn)
 
@@ -490,7 +525,10 @@ class TrainingClient(TelemetryProvider):
             logprobs_list.append(logprob)
 
         # Now apply user-provided function
-        loss, metrics = loss_fn(data, logprobs_list)
+        if isinstance(loss_fn, LossHandle):
+            loss, metrics = run_loss_handle(loss_fn, data, logprobs_list)
+        else:
+            loss, metrics = loss_fn(data, logprobs_list)
         custom_loss_sum = float(loss.detach().sum().item())
         loss.backward()
         grads = []
@@ -767,6 +805,15 @@ class TrainingClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_load_state_async())
 
+    def _deprecated_load_state(
+        self, path: str, optimizer: bool, weights_access_token: str | None
+    ) -> APIFuture[types.LoadWeightsResponse]:
+        logger.error(_LOAD_STATE_DEPRECATION_MESSAGE)
+        return self._load_state_impl(
+            path, optimizer=optimizer, weights_access_token=weights_access_token
+        )
+
+    @deprecated(_LOAD_STATE_DEPRECATION_MESSAGE, category=FutureWarning)
     def load_state(
         self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
@@ -774,6 +821,9 @@ class TrainingClient(TelemetryProvider):
 
         This loads only the model weights, not optimizer state (e.g., Adam momentum).
         To also restore optimizer state, use load_state_with_optimizer.
+
+        Deprecated: will not be supported in future SDK versions. Use
+        `ServiceClient.create_training_client_from_state()` instead.
 
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
@@ -790,20 +840,27 @@ class TrainingClient(TelemetryProvider):
         # Continue training from loaded state
         ```
         """
-        return self._load_state_impl(
+        return self._deprecated_load_state(
             path, optimizer=False, weights_access_token=weights_access_token
         )
 
+    @deprecated(_LOAD_STATE_DEPRECATION_MESSAGE, category=FutureWarning)
     async def load_state_async(
         self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
         """Async version of load_state."""
-        return self.load_state(path, weights_access_token=weights_access_token)
+        return self._deprecated_load_state(
+            path, optimizer=False, weights_access_token=weights_access_token
+        )
 
+    @deprecated(_LOAD_STATE_DEPRECATION_MESSAGE, category=FutureWarning)
     def load_state_with_optimizer(
         self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
         """Load model weights and optimizer state from a checkpoint.
+
+        Deprecated: will not be supported in future SDK versions. Use
+        `ServiceClient.create_training_client_from_state_with_optimizer()` instead.
 
         Args:
         - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
@@ -822,15 +879,18 @@ class TrainingClient(TelemetryProvider):
         # Continue training with restored optimizer momentum
         ```
         """
-        return self._load_state_impl(
+        return self._deprecated_load_state(
             path, optimizer=True, weights_access_token=weights_access_token
         )
 
+    @deprecated(_LOAD_STATE_DEPRECATION_MESSAGE, category=FutureWarning)
     async def load_state_with_optimizer_async(
         self, path: str, weights_access_token: str | None = None
     ) -> APIFuture[types.LoadWeightsResponse]:
         """Async version of load_state_with_optimizer."""
-        return self.load_state_with_optimizer(path, weights_access_token=weights_access_token)
+        return self._deprecated_load_state(
+            path, optimizer=True, weights_access_token=weights_access_token
+        )
 
     def _save_weights_for_sampler_impl(
         self,

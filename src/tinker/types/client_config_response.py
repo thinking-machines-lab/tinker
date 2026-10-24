@@ -58,6 +58,11 @@ class ClientConfigResponse(BaseModel):
     carries the completion metadata) before doing the normal payload fetch,
     instead of polling ``/api/v1/retrieve_future`` per request. Requires a
     server exposing the retrieve_futures endpoint."""
+    custom_loss_server_side: bool = False
+    """When true, ``ServiceClient.create_custom_loss`` uploads the traced loss
+    (``/api/v1/create_custom_loss``) and ``forward_backward_custom`` runs it on the
+    server by its loss id. When false, custom losses run client-side. Requires a
+    server that stores and runs custom losses."""
     sample_join_sampling_session: bool = False
     """When true, an unpickled SamplingClient asks the server for its clone id
     (``/api/v1/join_sampling_session``) before its first sample, instead of

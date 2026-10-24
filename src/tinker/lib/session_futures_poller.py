@@ -54,6 +54,9 @@ class SessionFuturesPoller:
         self._events: dict[str, asyncio.Event] = {}
         # request_id -> its completion metadata, kept until a waiter consumes it.
         self._completions: dict[str, FutureCompletion] = {}
+        # Ids whose results were retrieved, reported on the next poll and kept
+        # until a poll carrying them succeeds.
+        self._retrieved: set[str] = set()
         # Set once the poll loop hits a non-retryable error. Terminal: every
         # current and future waiter fails with this message.
         self._failure: str | None = None
@@ -103,6 +106,11 @@ class SessionFuturesPoller:
         assert self._failure is not None
         raise TinkerError(self._failure)
 
+    def mark_retrieved(self, request_id: str) -> None:
+        """Report ``request_id``'s result as fully retrieved on the next poll."""
+        self._retrieved.add(request_id)
+        self._has_work.set()
+
     def _fail(self, message: str) -> None:
         """Record a terminal failure and wake every registered waiter.
 
@@ -120,13 +128,19 @@ class SessionFuturesPoller:
         )
         bad_request_retries = 0
         while True:
-            # Idle while no request is waiting rather than long-polling for
-            # completions that cannot arrive; wait_for wakes us when one registers.
-            if not self._events:
+            # Idle while no request is waiting and nothing is left to report,
+            # rather than long-polling for completions that cannot arrive;
+            # wait_for and mark_retrieved wake us.
+            if not self._events and not self._retrieved:
                 self._has_work.clear()
                 await self._has_work.wait()
+            retrieved = set(self._retrieved)
             try:
-                request = FuturesRetrieveRequest(target=target, prev_cursor=self._cursor)
+                request = FuturesRetrieveRequest(
+                    target=target,
+                    prev_cursor=self._cursor,
+                    retrieved_request_ids=sorted(retrieved),
+                )
                 with self._holder.aclient(ClientConnectionPoolType.RETRIEVE_FUTURES) as client:
                     response = await client.futures.retrieve_multi(
                         request=request,
@@ -171,6 +185,7 @@ class SessionFuturesPoller:
 
             # A completed round-trip clears the transient-400 budget.
             bad_request_retries = 0
+            self._retrieved -= retrieved
             self._cursor = response.cursor
             for completion in response.completions:
                 self._completions[completion.request_id] = completion

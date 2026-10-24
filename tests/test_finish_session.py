@@ -146,7 +146,7 @@ def test_close_rejects_lazy_holder_creation() -> None:
     with pytest.raises(RuntimeError, match="ServiceClient is closed"):
         _ = service_client.holder
     with pytest.raises(RuntimeError, match="ServiceClient is closed"):
-        service_client.create_rest_client()
+        service_client._get_rest_holder()
 
 
 def test_context_manager_finishes_successful_session() -> None:

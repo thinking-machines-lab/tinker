@@ -88,20 +88,6 @@ A file/directory name for the external weights (required)
 
 TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)
 
-## `CheckpointArchiveUrlResponse` Objects
-
-```python
-class CheckpointArchiveUrlResponse(BaseModel)
-```
-
-#### `url`
-
-Signed URL to download the checkpoint archive
-
-#### `expires`
-
-Unix timestamp when the signed URL expires, if available
-
 ## `GenericEvent` Objects
 
 ```python
@@ -675,6 +661,11 @@ class FuturesRetrieveRequest(StrictBase)
 
 Opaque cursor from the previous response; events at or before it are
 considered seen and get trimmed server-side. 0 starts from the beginning.
+
+#### `retrieved_request_ids`
+
+Requests of the target whose results have been fully retrieved, so the
+server may delete their payloads.
 
 ## `DmelChunk` Objects
 

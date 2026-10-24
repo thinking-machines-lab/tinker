@@ -3,6 +3,7 @@
   "trainingclient": "TrainingClient",
   "samplingclient": "SamplingClient",
   "restclient": "RestClient",
+  "adminclient": "AdminClient",
   "apifuture": "APIFuture",
   "types": "Parameters",
   "exceptions": "Exceptions"

@@ -24,7 +24,17 @@ from ._response import APIResponse as APIResponse
 from ._response import AsyncAPIResponse as AsyncAPIResponse
 from ._utils._logs import setup_logging as _setup_logging
 from ._version import __title__, __version__
-from .lib.public_interfaces import APIFuture, SamplingClient, ServiceClient, TrainingClient
+from .lib.experimental import ExperimentalWarning
+from .lib.public_interfaces import (
+    AdminClient,
+    APIFuture,
+    LossHandle,
+    PerDatumLossFn,
+    RestClient,
+    SamplingClient,
+    ServiceClient,
+    TrainingClient,
+)
 
 # Import commonly used types for easier access
 from .types import (
@@ -63,7 +73,11 @@ __all__ = [
     "TrainingClient",
     "ServiceClient",
     "SamplingClient",
+    "RestClient",
+    "AdminClient",
     "APIFuture",
+    "LossHandle",
+    "PerDatumLossFn",
     "auth",
     # Commonly used types
     "AdamOptimizerConfig",
@@ -114,6 +128,8 @@ __all__ = [
     "UnprocessableEntityError",
     "RateLimitError",
     "InternalServerError",
+    # Warning types
+    "ExperimentalWarning",
     # Keep types module for advanced use
     "types",
     # Version info

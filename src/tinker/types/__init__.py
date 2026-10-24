@@ -42,9 +42,6 @@ from .checkpoint import (
 from .checkpoint import (
     ParsedCheckpointTinkerPath as ParsedCheckpointTinkerPath,
 )
-from .checkpoint_archive_url_response import (
-    CheckpointArchiveUrlResponse as CheckpointArchiveUrlResponse,
-)
 from .checkpoints_list_response import CheckpointsListResponse as CheckpointsListResponse
 from .client_config_request import ClientConfigRequest as ClientConfigRequest
 from .client_config_response import ClientConfigResponse as ClientConfigResponse
@@ -53,6 +50,8 @@ from .client_dynamic_config_response import (
 )
 from .copy_weights_request import CopyWeightsRequest as CopyWeightsRequest
 from .copy_weights_response import CopyWeightsResponse as CopyWeightsResponse
+from .create_custom_loss_request import CreateCustomLossRequest as CreateCustomLossRequest
+from .create_custom_loss_response import CreateCustomLossResponse as CreateCustomLossResponse
 from .create_model_request import CreateModelRequest as CreateModelRequest
 from .create_model_response import CreateModelResponse as CreateModelResponse
 from .create_sampling_session_request import (
@@ -73,6 +72,10 @@ from .current_checkpoint_storage_usage_response import (
     CurrentCheckpointStorageUsageResponse as CurrentCheckpointStorageUsageResponse,
 )
 from .cursor import Cursor as Cursor
+from .custom_loss_graph import CustomLossGraph as CustomLossGraph
+from .custom_loss_graph import CustomLossNode as CustomLossNode
+from .custom_loss_input import CustomLossInput as CustomLossInput
+from .custom_loss_input import CustomLossInputRank as CustomLossInputRank
 from .datum import Datum as Datum
 from .dmel_chunk import DmelChunk as DmelChunk
 from .encoded_text_chunk import EncodedTextChunk as EncodedTextChunk
@@ -159,10 +162,39 @@ from .save_weights_for_sampler_response import (
 )
 from .save_weights_request import SaveWeightsRequest as SaveWeightsRequest
 from .save_weights_response import SaveWeightsResponse as SaveWeightsResponse
+from .search_owner import AccessibleSearchOwner as AccessibleSearchOwner
+from .search_owner import OwnSearchOwner as OwnSearchOwner
+from .search_owner import SearchOwner as SearchOwner
+from .search_owner import UserSearchOwner as UserSearchOwner
 from .session_end_event import SessionEndEvent as SessionEndEvent
 from .session_heartbeat_request import SessionHeartbeatRequest as SessionHeartbeatRequest
 from .session_heartbeat_response import SessionHeartbeatResponse as SessionHeartbeatResponse
+from .session_search_cursor import SessionSearchCursor as SessionSearchCursor
+from .session_search_request import SessionSearchRequest as SessionSearchRequest
+from .session_search_response import SessionSearchResponse as SessionSearchResponse
 from .session_start_event import SessionStartEvent as SessionStartEvent
+from .session_status import ClientSessionFinished as ClientSessionFinished
+from .session_status import ClientSessionFinishErrored as ClientSessionFinishErrored
+from .session_status import ClientSessionFinishInterrupted as ClientSessionFinishInterrupted
+from .session_status import ClientSessionFinishReason as ClientSessionFinishReason
+from .session_status import ClientSessionFinishSuccess as ClientSessionFinishSuccess
+from .session_status import SessionActive as SessionActive
+from .session_status import SessionCancelled as SessionCancelled
+from .session_status import SessionFailed as SessionFailed
+from .session_status import SessionFailedReason as SessionFailedReason
+from .session_status import SessionFailedRequestReason as SessionFailedRequestReason
+from .session_status import SessionFailedSamplingSessionReason as SessionFailedSamplingSessionReason
+from .session_status import SessionFailedTrainingRunReason as SessionFailedTrainingRunReason
+from .session_status import SessionStatus as SessionStatus
+from .session_status_query import ActiveSessionStatusQuery as ActiveSessionStatusQuery
+from .session_status_query import CancelledSessionStatusQuery as CancelledSessionStatusQuery
+from .session_status_query import (
+    ClientFinishedSessionStatusQuery as ClientFinishedSessionStatusQuery,
+)
+from .session_status_query import ClientSessionFinishReasonType as ClientSessionFinishReasonType
+from .session_status_query import FailedSessionStatusQuery as FailedSessionStatusQuery
+from .session_status_query import SessionStatusQuery as SessionStatusQuery
+from .session_summary import SessionSummary as SessionSummary
 from .severity import Severity as Severity
 from .shared import UntypedAPIFuture as UntypedAPIFuture
 from .stop_reason import StopReason as StopReason

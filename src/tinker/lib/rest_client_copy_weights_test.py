@@ -341,7 +341,7 @@ def test_copy_destination_is_independent_of_service_project(
     service = ServiceClient(api_key="tml-test-key", project_id=project_id)
     monkeypatch.setattr(service, "_get_rest_holder", lambda: holder)
     monkeypatch.setenv("TINKER_PROJECT_ID", "proj-changed")
-    rest = service.create_rest_client()
+    rest = RestClient(service._get_rest_holder())
 
     rest.copy_weights("tinker://src/weights/one").result(timeout=5)
     rest.copy_weights("tinker://src/weights/one", "proj-explicit").result(timeout=5)

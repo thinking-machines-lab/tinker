@@ -62,7 +62,7 @@ def test_holders_created_lazily_and_split(monkeypatch: pytest.MonkeyPatch) -> No
     sc = ServiceClient(base_url="http://127.0.0.1:4010")
     assert calls == []
 
-    rest_client = sc.create_rest_client()
+    rest_holder = sc._get_rest_holder()
     assert len(calls) == 1
     assert calls[0].get("_skip_session") is True
 
@@ -70,9 +70,11 @@ def test_holders_created_lazily_and_split(monkeypatch: pytest.MonkeyPatch) -> No
     assert len(calls) == 2
     assert "_skip_session" not in calls[1]
 
-    # Both holders are cached.
-    assert sc.create_rest_client().holder is rest_client.holder
+    # Both holders are cached, and the deprecated factory still wraps the REST one.
+    assert sc._get_rest_holder() is rest_holder
     assert sc.holder is session_holder
+    with pytest.warns(FutureWarning, match="Construct tinker.RestClient\\(\\) directly"):
+        assert sc.create_rest_client().holder is rest_holder
     assert len(calls) == 2
 
 
@@ -101,7 +103,7 @@ def _run_to_result(coro: Coroutine[object, object, object]) -> _ResultFuture:
 
 
 def _record(sink: list[str | None], token: str | None) -> _ResultFuture:
-    """Fake training_client.load_state: capture the token it was handed."""
+    """Fake training_client._load_state_impl: capture the token it was handed."""
     sink.append(token)
     return _ResultFuture(None)
 
@@ -129,7 +131,7 @@ def _build_service_client(
 def test_create_training_client_from_state_exchanges_source_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A source access token must be exchanged for a JWT before load_state, not forwarded raw."""
+    """A source access token must be exchanged for a JWT before loading, not forwarded raw."""
     seen: list[str | None] = []
     source_rest = SimpleNamespace(
         get_weights_info_by_tinker_path=lambda path: _ResultFuture(_WEIGHTS_INFO),
@@ -139,7 +141,9 @@ def test_create_training_client_from_state_exchanges_source_token(
         ),
     )
     training_client = SimpleNamespace(
-        load_state=lambda path, weights_access_token: _record(seen, weights_access_token)
+        _load_state_impl=lambda path, optimizer, weights_access_token: _record(
+            seen, weights_access_token
+        )
     )
     sc = _build_service_client(monkeypatch, source_rest, training_client)
 
@@ -154,7 +158,7 @@ def test_create_training_client_from_state_exchanges_source_token(
 def test_create_training_client_from_state_without_token_skips_exchange(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without a source token, load_state gets None and no token exchange is attempted."""
+    """Without a source token, loading gets None and no token exchange is attempted."""
     seen: list[str | None] = []
     source_rest = SimpleNamespace(
         get_weights_info_by_tinker_path=lambda path: _ResultFuture(_WEIGHTS_INFO),
@@ -162,7 +166,9 @@ def test_create_training_client_from_state_without_token_skips_exchange(
         holder=SimpleNamespace(_default_auth=SimpleNamespace()),
     )
     training_client = SimpleNamespace(
-        load_state=lambda path, weights_access_token: _record(seen, weights_access_token)
+        _load_state_impl=lambda path, optimizer, weights_access_token: _record(
+            seen, weights_access_token
+        )
     )
     sc = _build_service_client(monkeypatch, source_rest, training_client)
 
