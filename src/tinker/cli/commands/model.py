@@ -11,7 +11,7 @@ import click
 if TYPE_CHECKING:
     from tinker.types import SupportedModel
 
-from ..client import create_service_client, handle_api_errors
+from ..client import create_rest_client, create_service_client, handle_api_errors
 from ..context import CLIContext
 from ..exceptions import TinkerCliError
 from ..output import OutputBase, format_bool, format_optional
@@ -66,7 +66,7 @@ def list_models(cli_context: CLIContext, substring: str | None) -> None:
             if model.model_name is not None and substring.lower() in model.model_name.lower()
         ]
         if not models:
-            org_urn = service_client.create_rest_client().whoami().result().org_urn
+            org_urn = create_rest_client().whoami().result().org_urn
             raise TinkerCliError(
                 f"No model name contains '{substring}' for organization {org_urn}",
                 "Run 'tinker model list' to see every model this organization can use.",

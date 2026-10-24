@@ -26,3 +26,7 @@ class FuturesRetrieveRequest(StrictBase):
     considered seen and get trimmed server-side. 0 starts from the beginning."""
 
     timeout: float | None = None
+
+    retrieved_request_ids: list[str] = []
+    """Requests of the target whose results have been fully retrieved, so the
+    server may delete their payloads."""

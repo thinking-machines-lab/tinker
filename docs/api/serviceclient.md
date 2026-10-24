@@ -10,7 +10,6 @@ The ServiceClient is the main entry point for the Tinker API. It provides method
 - Query server capabilities and health status
 - Generate TrainingClient instances for model training workflows
 - Generate SamplingClient instances for text generation and inference
-- Generate RestClient instances for REST API operations like listing weights
 - Close the client by finishing the current session when the training script is done
 
 Args:
@@ -38,9 +37,6 @@ training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
 
 # Near-instant
 sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
-
-# Near-instant
-rest_client = client.create_rest_client()
 ```
 
 #### `holder`
@@ -327,29 +323,11 @@ Async version of create_sampling_client.
 def create_rest_client() -> RestClient
 ```
 
-Create a RestClient for REST API operations.
-
-The RestClient provides access to various REST endpoints for querying
-model information, checkpoints, sessions, and managing checkpoint visibility.
+Deprecated: construct `RestClient()` directly instead. This method will be
+removed in a subsequent release.
 
 Returns:
 - `RestClient` for accessing REST API endpoints
-
-Example:
-```python
-rest_client = service_client.create_rest_client()
-
-# List checkpoints for a training run
-checkpoints = rest_client.list_checkpoints("run-id").result()
-
-# Get training run info
-training_run = rest_client.get_training_run("run-id").result()
-
-# Publish a checkpoint
-rest_client.publish_checkpoint_from_tinker_path(
-    "tinker://run-id/weights/checkpoint-001"
-).result()
-```
 
 #### `close`
 

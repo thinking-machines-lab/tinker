@@ -28,11 +28,13 @@ class _FakeFutures:
     def __init__(self, responses: list[FuturesRetrieveResponse | Exception]) -> None:
         self._responses = list(responses)
         self.seen_cursors: list[int] = []
+        self.seen_retrieved: list[list[str]] = []
 
     async def retrieve_multi(
         self, *, request: FuturesRetrieveRequest, timeout: float, max_retries: int
     ) -> FuturesRetrieveResponse:
         self.seen_cursors.append(request.prev_cursor)
+        self.seen_retrieved.append(request.retrieved_request_ids)
         if self._responses:
             item = self._responses.pop(0)
             if isinstance(item, Exception):
@@ -350,5 +352,49 @@ async def test_no_further_poll_after_last_request_completes() -> None:
         for _ in range(20):
             await asyncio.sleep(0)
         assert futures.seen_cursors == [0]  # exactly one poll, then idle
+    finally:
+        poller.close()
+
+
+@pytest.mark.asyncio
+async def test_retrieved_ids_sent_once_after_success() -> None:
+    futures = _FakeFutures([_resp("s:sample:0:1", cursor=1), _resp("s:sample:0:2", cursor=2)])
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    try:
+        await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
+        poller.mark_retrieved("s:sample:0:1")
+        await asyncio.wait_for(poller.wait_for("s:sample:0:2"), timeout=5)
+        poller.mark_retrieved("s:sample:0:2")
+        # The ack alone wakes the idle loop; it blocks in the third (empty) poll.
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert futures.seen_retrieved == [[], ["s:sample:0:1"], ["s:sample:0:2"]]
+    finally:
+        poller.close()
+
+
+@pytest.mark.asyncio
+async def test_retrieved_ids_resent_after_failed_poll() -> None:
+    futures = _FakeFutures([_resp("s:sample:0:1", cursor=1), _status_error(500)])
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    try:
+        await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
+        poller.mark_retrieved("s:sample:0:1")
+        # The retryable failure backs off ~1s before resending.
+        for _ in range(100):
+            if len(futures.seen_retrieved) >= 3:
+                break
+            await asyncio.sleep(0.05)
+        assert futures.seen_retrieved == [[], ["s:sample:0:1"], ["s:sample:0:1"]]
     finally:
         poller.close()

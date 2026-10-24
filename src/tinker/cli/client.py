@@ -15,13 +15,26 @@ from .exceptions import TinkerCliError
 
 if TYPE_CHECKING:
     from tinker import ServiceClient
+    from tinker.lib.public_interfaces.admin_client import AdminClient
     from tinker.lib.public_interfaces.rest_client import RestClient
 
 
 def create_rest_client() -> "RestClient":
     """Create a RestClient, translating setup failures into TinkerCliError."""
     with _client_setup_errors():
-        return _new_service_client().create_rest_client()
+        # Lazy import to avoid slow startup
+        from tinker import RestClient
+
+        return RestClient()
+
+
+def create_admin_client() -> "AdminClient":
+    """Create an AdminClient, translating setup failures into TinkerCliError."""
+    with _client_setup_errors():
+        # Lazy import to avoid slow startup
+        from tinker import AdminClient
+
+        return AdminClient()
 
 
 def create_service_client() -> "ServiceClient":

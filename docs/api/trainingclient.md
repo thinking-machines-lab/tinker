@@ -320,6 +320,9 @@ Load model weights from a saved checkpoint.
 This loads only the model weights, not optimizer state (e.g., Adam momentum).
 To also restore optimizer state, use load_state_with_optimizer.
 
+Deprecated: will not be supported in future SDK versions. Use
+`ServiceClient.create_training_client_from_state()` instead.
+
 Args:
 - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")
 - `weights_access_token`: Optional access token for loading checkpoints under a different account.
@@ -356,6 +359,9 @@ def load_state_with_optimizer(
 ```
 
 Load model weights and optimizer state from a checkpoint.
+
+Deprecated: will not be supported in future SDK versions. Use
+`ServiceClient.create_training_client_from_state_with_optimizer()` instead.
 
 Args:
 - `path`: Tinker path to saved weights (e.g., "tinker://run-id/weights/checkpoint-001")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ import traceback
 import weakref
 from collections.abc import Coroutine, Generator
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeVar
 
 import httpx
 
@@ -37,6 +38,9 @@ from tinker.lib.credentials import JsonCredentialStore, default_credentials_path
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
+
+if TYPE_CHECKING:
+    from tinker.lib.public_interfaces.custom_loss import LossHandle
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +189,34 @@ class _ShadowHolderSingleton:
 _shadow_holder_singleton = _ShadowHolderSingleton()
 
 
+class _SessionlessHolderCache:
+    """Process-wide session-less holders, one per (base URL, API key).
+
+    Clients that only need the REST API, such as `RestClient()`, share these so
+    that every client over the same credentials reuses one set of connections.
+    A holder stays for the life of the process: nothing closes it, so a later
+    client finds its connections open rather than opening new ones.
+    """
+
+    def __init__(self) -> None:
+        self._lock: threading.Lock = threading.Lock()
+        self._holders: dict[tuple[str | None, str | None], InternalClientHolder] = {}
+
+    def get_or_create(self, base_url: str | None, api_key: str | None) -> InternalClientHolder:
+        # The key lives for the process, so it holds a digest of the API key, not the key.
+        key = (base_url, None if api_key is None else hashlib.sha256(api_key.encode()).hexdigest())
+        with self._lock:
+            holder = self._holders.get(key)
+            if holder is None:
+                holder = self._holders[key] = InternalClientHolder(
+                    base_url=base_url, api_key=api_key, _skip_session=True
+                )
+            return holder
+
+
+sessionless_holder_cache = _SessionlessHolderCache()
+
+
 class BytesSemaphore:
     def __init__(self, max_bytes: int):
         self._bytes: int = max_bytes
@@ -266,6 +298,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._sample_dispatch_semaphore: asyncio.Semaphore = asyncio.Semaphore(400)
         self._sample_dispatch_throttled_semaphore: asyncio.Semaphore = asyncio.Semaphore(10)
         self._training_client_lock: threading.Lock = threading.Lock()
+        # Custom losses this session created, by LossHandle.key.
+        self._custom_losses: dict[str, LossHandle] = {}
         self._telemetry: Telemetry | None = None
 
         # Fetch server-side client config before any server contact so that
@@ -341,11 +375,13 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             # which is all a REST read needs.
             self._session_id: str | None = None
             self._training_client_counter: int | None = None
+            self._custom_loss_counter: int | None = None
             self._sampling_client_counter: int | None = None
         elif session_id is not None:
             # Shadow mode: reuse existing session, can't create new clients
             self._session_id = session_id
             self._training_client_counter = None
+            self._custom_loss_counter = None
             self._sampling_client_counter = None
         else:
             # Normal mode: create new session.
@@ -356,6 +392,7 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
                 )
             ).result()
             self._training_client_counter = 0
+            self._custom_loss_counter = 0
             self._sampling_client_counter = 0
 
         if _skip_session:
@@ -570,6 +607,29 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             result = await client.service.create_sampling_session(request=request)
             return result.sampling_session_id
 
+    async def _create_custom_loss(
+        self, name: str, inputs: list[types.CustomLossInput], graph: types.CustomLossGraph
+    ) -> types.UntypedAPIFuture:
+        # _create_custom_loss can only be called via a ServiceClient.
+        # ServiceClient will never have a shadow holder, so we can safely assert.
+        assert self._custom_loss_counter is not None
+        assert self._session_id is not None
+        custom_loss_seq_id = self._custom_loss_counter
+        self._custom_loss_counter += 1
+        request = types.CreateCustomLossRequest(
+            session_id=self._session_id,
+            custom_loss_seq_id=custom_loss_seq_id,
+            name=name,
+            inputs=inputs,
+            graph=graph,
+        )
+
+        async def _send_request() -> types.UntypedAPIFuture:
+            with self.aclient(ClientConnectionPoolType.TRAIN) as client:
+                return await client.service.create_custom_loss(request=request)
+
+        return await self.execute_with_retries(_send_request)
+
     async def _start_heartbeat(self) -> asyncio.Task[None]:
         """Start the session heartbeat task."""
         assert self._session_id is not None
@@ -779,6 +839,16 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             training_client_id = self._training_client_counter
             self._training_client_counter += 1
             return training_client_id
+
+    def _register_custom_loss(self, loss_handle: LossHandle) -> None:
+        # Runs on the holder's event loop, so it needs no lock.
+        existing = self._custom_losses.get(loss_handle.key)
+        if existing is not None:
+            raise ValueError(
+                f"create_custom_loss: this session already created {existing.name!r} with the "
+                "same traced loss; reuse its LossHandle"
+            )
+        self._custom_losses[loss_handle.key] = loss_handle
 
     def aclient(
         self, client_pool_type: ClientConnectionPoolType

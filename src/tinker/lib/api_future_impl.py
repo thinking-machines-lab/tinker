@@ -274,12 +274,17 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                         await self._handle_transport_error(fetched, state, iteration, start_time)
                         continue
 
+                    # A failed request's error is as final as a result: either
+                    # way its payloads are no longer needed server-side.
+                    if isinstance(fetched, _Failed):
+                        self._mark_retrieved()
                     result = await self._handle_outcome(
                         fetched, state, stack, iteration, start_time
                     )
                     if result is None:
                         # Business-level retry (try_again / metadata-only peek).
                         continue
+                    self._mark_retrieved()
                     return result
         except asyncio.CancelledError:
             # Polling was abandoned; tell the server to stop the sampling work
@@ -291,6 +296,10 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
 
         # Unreachable: the while-True either returns or raises.
         raise AssertionError("unreachable")
+
+    def _mark_retrieved(self) -> None:
+        if self._futures_poller is not None:
+            self._futures_poller.mark_retrieved(self.request_id)
 
     async def _handle_transport_error(
         self,

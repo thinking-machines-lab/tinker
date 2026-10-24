@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import threading
@@ -12,11 +13,13 @@ from concurrent.futures import Future as ConcurrentFuture
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Self
 
+from typing_extensions import deprecated
+
 from tinker import types
 from tinker._types import NoneType
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.console_urls import session_console_url, sessions_console_url
-from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
@@ -25,6 +28,7 @@ from ..internal_client_holder import InternalClientHolder
 from ..queue_state_logger import QueueStateLogger
 from ..retry_handler import RetryConfig
 from ..sync_only import sync_only
+from .custom_loss import LossHandle, PerDatumLossFn, encode_graph, trace_loss
 
 if TYPE_CHECKING:
     from .rest_client import RestClient
@@ -41,7 +45,6 @@ class ServiceClient(TelemetryProvider):
     - Query server capabilities and health status
     - Generate TrainingClient instances for model training workflows
     - Generate SamplingClient instances for text generation and inference
-    - Generate RestClient instances for REST API operations like listing weights
     - Close the client by finishing the current session when the training script is done
 
     Args:
@@ -69,9 +72,6 @@ class ServiceClient(TelemetryProvider):
 
     # Near-instant
     sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
-
-    # Near-instant
-    rest_client = client.create_rest_client()
     ```
     """
 
@@ -379,14 +379,14 @@ class ServiceClient(TelemetryProvider):
         authenticated with that token.
         """
         if weights_access_token is None:
-            return self.create_rest_client()
+            return self._rest_client()
 
         token_client = ServiceClient(
             base_url=self._base_url,
             api_key=weights_access_token,
             default_headers_overrides=self._default_headers_overrides,
         )
-        return token_client.create_rest_client()
+        return token_client._rest_client()
 
     def _create_training_client_via_load_weights_submit(
         self,
@@ -470,7 +470,7 @@ class ServiceClient(TelemetryProvider):
         archived_path = archive.copy_weights("tinker://run-id/weights/step-400").result()
         ```
         """
-        return self.create_rest_client().copy_weights(
+        return self._rest_client().copy_weights(
             path,
             destination_project_id=self._project_id,
             ttl_seconds=ttl_seconds,
@@ -545,7 +545,9 @@ class ServiceClient(TelemetryProvider):
             else None
         )
 
-        training_client.load_state(path, weights_access_token=auth_token).result()
+        training_client._load_state_impl(
+            path, optimizer=False, weights_access_token=auth_token
+        ).result()
         return training_client
 
     async def create_training_client_from_state_async(
@@ -586,10 +588,9 @@ class ServiceClient(TelemetryProvider):
             optimizer=optimizer,
         )
 
-        load_future = await training_client.load_state_async(
-            path, weights_access_token=weights_access_token
-        )
-        await load_future.result_async()
+        await training_client._load_state_impl(
+            path, optimizer=False, weights_access_token=weights_access_token
+        ).result_async()
         return training_client
 
     @sync_only
@@ -651,8 +652,8 @@ class ServiceClient(TelemetryProvider):
             optimizer=weights_info.optimizer_config,
         )
 
-        training_client.load_state_with_optimizer(
-            path, weights_access_token=weights_access_token
+        training_client._load_state_impl(
+            path, optimizer=True, weights_access_token=weights_access_token
         ).result()
         return training_client
 
@@ -693,10 +694,9 @@ class ServiceClient(TelemetryProvider):
             optimizer=weights_info.optimizer_config,
         )
 
-        load_future = await training_client.load_state_with_optimizer_async(
-            path, weights_access_token=weights_access_token
-        )
-        await load_future.result_async()
+        await training_client._load_state_impl(
+            path, optimizer=True, weights_access_token=weights_access_token
+        ).result_async()
         return training_client
 
     def create_sampling_client(
@@ -748,6 +748,82 @@ class ServiceClient(TelemetryProvider):
             record_stability_info=record_stability_info,
         ).result()
 
+    def _create_custom_loss_submit(
+        self, fn: PerDatumLossFn, input_ranks: Mapping[str, types.CustomLossInputRank]
+    ) -> AwaitableConcurrentFuture[LossHandle]:
+        loss_handle = trace_loss(fn, input_ranks, self.holder.get_session_id())
+        upload = self.holder.get_client_config().custom_loss_server_side
+
+        @capture_exceptions
+        async def _create_custom_loss_async():
+            self.holder._register_custom_loss(loss_handle)
+            if not upload:
+                return loss_handle
+            start_time = time.time()
+            future = await self.holder._create_custom_loss(
+                loss_handle.name,
+                list(loss_handle.inputs),
+                encode_graph(loss_handle),
+            )
+            create_custom_loss_response = await _APIFuture(
+                types.CreateCustomLossResponse,
+                self.holder,
+                future,
+                request_start_time=start_time,
+                request_type="CreateCustomLoss",
+            ).result_async()
+            return dataclasses.replace(loss_handle, loss_id=create_custom_loss_response.loss_id)
+
+        return self.holder.run_coroutine_threadsafe(_create_custom_loss_async())
+
+    def create_custom_loss(
+        self, fn: PerDatumLossFn, input_ranks: Mapping[str, types.CustomLossInputRank]
+    ) -> APIFuture[LossHandle]:
+        """Create a custom loss function for ``TrainingClient.forward_backward_custom``.
+
+        Alpha: the loss is traced and validated here. Where the server supports it, it is
+        then uploaded and runs on the server; otherwise it runs client-side, under the same
+        constraints.
+
+        ``fn`` runs once per datum and the per-datum losses are summed. It takes ``logprobs``
+        (the datum's target logprobs) first, then one parameter per ``loss_fn_inputs`` key it
+        reads, each as a tensor. It returns ``(loss, metrics)``: a scalar tensor and a dict
+        of scalar tensors keyed ``custom/<name>:sum`` or ``custom/<name>:mean`` in lowercase; the
+        suffix says how each metric combines across datums.
+
+        ``input_ranks`` gives the rank of each parameter, ``logprobs`` included: 0 for a
+        scalar, 1 for ``[T]`` and 2 for ``[T, K]``. ``logprobs`` has the rank of the datum's
+        ``target_tokens``. Every datum passed with the loss must match.
+
+        The function is traced with ``torch.fx`` and must be representable with torch and
+        math alone: no Python branching on tensor values, no other libraries, no
+        ``torch.nn`` modules, and no tensors captured from outside the function. A
+        function that breaks these rules is rejected here.
+
+        Each loss is created once per session, and its ``LossHandle`` only works with
+        clients of that session. Its name is ``fn``'s; wrap ``fn`` to change it.
+
+        Args:
+        - `fn`: The loss function
+        - `input_ranks`: The rank of each of ``fn``'s parameters
+
+        Returns:
+        - `APIFuture` of the `LossHandle` to pass to ``forward_backward_custom``
+
+        Example:
+        ```python
+        def neg_ll(logprobs, weights):
+            loss = -(logprobs * weights).sum()
+            return loss, {"custom/neg_ll:sum": loss}
+
+        loss_handle = service_client.create_custom_loss(
+            neg_ll, input_ranks={"logprobs": 1, "weights": 1}
+        ).result()
+        result = training_client.forward_backward_custom(data, loss_handle).result()
+        ```
+        """
+        return self._create_custom_loss_submit(fn, input_ranks)
+
     async def create_sampling_client_async(
         self,
         model_path: str | None = None,
@@ -768,34 +844,26 @@ class ServiceClient(TelemetryProvider):
             record_stability_info=record_stability_info,
         )
 
-    def create_rest_client(self) -> RestClient:
-        """Create a RestClient for REST API operations.
-
-        The RestClient provides access to various REST endpoints for querying
-        model information, checkpoints, sessions, and managing checkpoint visibility.
-
-        Returns:
-        - `RestClient` for accessing REST API endpoints
-
-        Example:
-        ```python
-        rest_client = service_client.create_rest_client()
-
-        # List checkpoints for a training run
-        checkpoints = rest_client.list_checkpoints("run-id").result()
-
-        # Get training run info
-        training_run = rest_client.get_training_run("run-id").result()
-
-        # Publish a checkpoint
-        rest_client.publish_checkpoint_from_tinker_path(
-            "tinker://run-id/weights/checkpoint-001"
-        ).result()
-        ```
-        """
+    def _rest_client(self) -> RestClient:
+        """A RestClient over this client's session-less holder."""
         from .rest_client import RestClient
 
         return RestClient(self._get_rest_holder())
+
+    @deprecated(
+        "DEPRECATED: ServiceClient.create_rest_client() is deprecated and will be removed in a "
+        "future tinker SDK version. Construct tinker.RestClient() directly instead; it takes the "
+        "same base_url and api_key and needs no ServiceClient.",
+        category=FutureWarning,
+    )
+    def create_rest_client(self) -> RestClient:
+        """Deprecated: construct `RestClient()` directly instead. This method will be
+        removed in a subsequent release.
+
+        Returns:
+        - `RestClient` for accessing REST API endpoints
+        """
+        return self._rest_client()
 
     def _close_submit(
         self,

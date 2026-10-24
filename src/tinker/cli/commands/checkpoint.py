@@ -3,23 +3,33 @@
 This module implements the 'tinker checkpoint' commands, including:
 - list: List all checkpoints or checkpoints for a specific run
 - info: Show details of a specific checkpoint
-- download: Download and extract checkpoint archives
+- download: Download training and external weights checkpoints
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Literal
 
 import click
 
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from tinker import ParsedCheckpointTinkerPath
     from tinker.lib.public_interfaces.rest_client import RestClient
     from tinker.types import Checkpoint, TrainingRun
 
-from ..client import create_rest_client, handle_api_errors
+from ..client import create_rest_client, create_service_client, handle_api_errors
 from ..context import CLIContext
 from ..exceptions import TinkerCliError
 from ..output import OutputBase, format_bool, format_size, format_timestamp
+
+_DOWNLOADABLE_PATH_HINT = (
+    "Only training (tinker://run-id/weights/name) and external weights "
+    "(tinker://run-id/external_weights/name) checkpoints can be downloaded."
+)
+
+# Lifetime of the temporary external weights export a training checkpoint is downloaded
+# through; renewed whenever download URLs are re-signed.
+_TEMPORARY_EXPORT_TTL_SECONDS = 3600
 
 
 class CheckpointListOutput(OutputBase):
@@ -201,8 +211,8 @@ class CheckpointDownloadOutput(OutputBase):
 
         Args:
             checkpoint_path: The tinker path to the checkpoint
-            file_size_bytes: Size of the archive in bytes
-            destination: Where the checkpoint was extracted
+            file_size_bytes: Total size of the downloaded files in bytes
+            destination: Where the checkpoint was downloaded
         """
         self.checkpoint_path = checkpoint_path
         self.file_size_bytes = file_size_bytes
@@ -233,10 +243,10 @@ class CheckpointDownloadOutput(OutputBase):
         ]
 
         if self.file_size_bytes is not None:
-            rows.append(["Archive Size", format_size(self.file_size_bytes)])
+            rows.append(["Total Size", format_size(self.file_size_bytes)])
 
         if self.destination:
-            rows.append(["Extracted to", self.destination])
+            rows.append(["Downloaded to", self.destination])
 
         return rows
 
@@ -355,10 +365,7 @@ def _export_checkpoint_to_hub(
     import tempfile
     from pathlib import Path
 
-    from tinker import ParsedCheckpointTinkerPath
-
-    # Validate tinker path
-    parsed_tinker_path = ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+    parsed_tinker_path = _parse_downloadable_path(tinker_path)
 
     api = HfApi()
     try:
@@ -379,35 +386,19 @@ def _export_checkpoint_to_hub(
         return name.strip("-_ .")
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        temp_root = Path(temp_dir)
-        archive_path = temp_root / "checkpoint.tar"
-        extract_dir = temp_root / "extract"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-
-        url_response = client.get_checkpoint_archive_url_from_tinker_path(tinker_path).result()
-        _download_checkpoint_archive(
-            url_response.url,
-            archive_path=archive_path,
-            show_progress=False,
-            format="json",
-        )
-        _safe_extract_tar(archive_path, extract_dir, show_progress=False, format="json")
+        extract_dir = Path(temp_dir)
+        _download_checkpoint(client, tinker_path, extract_dir, show_progress=False, format="json")
 
         adapter_config = extract_dir / "adapter_config.json"
         adapter_safetensors = extract_dir / "adapter_model.safetensors"
         adapter_bin = extract_dir / "adapter_model.bin"
-        checkpoint_complete = extract_dir / "checkpoint_complete"
         if not adapter_config.exists() or not (
             adapter_safetensors.exists() or adapter_bin.exists()
         ):
             raise TinkerCliError(
-                "Checkpoint archive does not contain a PEFT adapter.",
-                "Expected adapter_config.json and adapter_model.safetensors (or adapter_model.bin).",
-            )
-        if not checkpoint_complete.exists():
-            raise TinkerCliError(
-                "Checkpoint archive is missing 'checkpoint_complete'.",
-                "The adapter files may be incomplete.",
+                "Checkpoint does not contain a PEFT adapter.",
+                "Expected adapter_config.json and adapter_model.safetensors (or adapter_model.bin). "
+                "Encrypted (.age) external weights cannot be uploaded.",
             )
 
         base_model = "unknown"
@@ -540,47 +531,138 @@ def _export_checkpoint_to_hub(
     return repo_id
 
 
-def _safe_extract_tar(
-    archive_path,
-    extract_dir,
+def _parse_downloadable_path(tinker_path: str) -> "ParsedCheckpointTinkerPath":
+    from tinker import ParsedCheckpointTinkerPath
+
+    try:
+        parsed = ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
+    except ValueError as e:
+        raise TinkerCliError(f"Invalid checkpoint path: {e}", _DOWNLOADABLE_PATH_HINT) from e
+    if parsed.checkpoint_type == "sampler":
+        raise TinkerCliError(
+            f"Sampler checkpoints cannot be downloaded: {tinker_path}", _DOWNLOADABLE_PATH_HINT
+        )
+    return parsed
+
+
+def _download_checkpoint(
+    client: "RestClient",
+    tinker_path: str,
+    dest_dir,
     *,
     show_progress: bool,
     format: str,
-) -> None:
-    import tarfile
+) -> int:
+    """Download a training or external weights checkpoint into dest_dir.
 
-    base = extract_dir.resolve()
-    with tarfile.open(archive_path, "r") as tar:
-        members = tar.getmembers()
-        for member in members:
-            if member.issym() or member.islnk():
-                raise TinkerCliError(
-                    "Unsafe symlink or hardlink in tar archive",
-                    "Archive may be corrupted or malicious.",
+    A training checkpoint is loaded into a new training run and exported as temporary
+    external weights, which are deleted after the download.
+
+    Returns the total number of bytes downloaded.
+    """
+    if _parse_downloadable_path(tinker_path).checkpoint_type == "external":
+        return _download_external_weights(
+            client, tinker_path, dest_dir, show_progress=show_progress, format=format
+        )
+
+    if format != "json":
+        click.echo(
+            f"Exporting {tinker_path} as external weights (this starts a training session "
+            "on the checkpoint's base model)...",
+            err=True,
+        )
+    service_client = create_service_client()
+    status: Literal["success", "errored"] = "errored"
+    try:
+        training_client = service_client.create_training_client_from_state(
+            tinker_path, user_metadata={"created_by": "tinker checkpoint download"}
+        )
+        export_path = (
+            training_client.save_weights_external(
+                "download", ttl_seconds=_TEMPORARY_EXPORT_TTL_SECONDS
+            )
+            .result()
+            .path
+        )
+        try:
+            total_size = _download_external_weights(
+                client,
+                export_path,
+                dest_dir,
+                show_progress=show_progress,
+                format=format,
+                renew_ttl_seconds=_TEMPORARY_EXPORT_TTL_SECONDS,
+            )
+        finally:
+            try:
+                client.delete_checkpoint_from_tinker_path(export_path).result()
+            except Exception as e:
+                click.echo(
+                    f"Warning: failed to delete the temporary export {export_path} ({e}); "
+                    f"it expires in {_TEMPORARY_EXPORT_TTL_SECONDS} seconds.",
+                    err=True,
                 )
-            member_path = (extract_dir / member.name).resolve()
-            if not str(member_path).startswith(str(base)):
-                raise TinkerCliError(
-                    "Unsafe path in tar archive",
-                    "Archive may be corrupted or malicious.",
-                )
-        if show_progress and format != "json":
-            with click.progressbar(
-                members,
-                label="Extracting archive ",
-                show_percent=True,
-                show_pos=True,
-            ) as bar:
-                for member in bar:
-                    tar.extract(member, path=extract_dir)
-        else:
-            tar.extractall(path=extract_dir)
+        status = "success"
+        return total_size
+    finally:
+        service_client.close(status).result()
 
 
-def _download_checkpoint_archive(
+def _download_external_weights(
+    client: "RestClient",
+    tinker_path: str,
+    dest_dir,
+    *,
+    show_progress: bool,
+    format: str,
+    renew_ttl_seconds: int | None = None,
+) -> int:
+    """Download every file of an external weights checkpoint into dest_dir.
+
+    Re-signs the URLs when they are about to expire. If renew_ttl_seconds is set, the
+    checkpoint's TTL is reset to it each time URLs are signed, so it outlives them.
+
+    Returns the total number of bytes downloaded.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    def sign():
+        response = client.get_external_weights_urls(tinker_path).result()
+        if renew_ttl_seconds is not None:
+            client.set_checkpoint_ttl_from_tinker_path(tinker_path, renew_ttl_seconds).result()
+        return response
+
+    response = sign()
+    if not response.urls:
+        raise TinkerCliError(f"External weights checkpoint has no files: {tinker_path}")
+
+    base = dest_dir.resolve()
+    destinations = {}
+    for name in response.urls:
+        dest = (dest_dir / name).resolve()
+        if not dest.is_relative_to(base):
+            raise TinkerCliError(
+                f"Unsafe file path in checkpoint: {name}",
+                "The checkpoint may be corrupted or malicious.",
+            )
+        destinations[name] = dest
+
+    total_size = 0
+    for name, dest in sorted(destinations.items()):
+        if datetime.now(UTC) >= response.expires - timedelta(minutes=5):
+            response = sign()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        total_size += _download_file(
+            response.urls[name], dest=dest, label=name, show_progress=show_progress, format=format
+        )
+    return total_size
+
+
+def _download_file(
     url: str,
     *,
-    archive_path,
+    dest,
+    label: str,
     show_progress: bool,
     format: str,
 ) -> int:
@@ -594,12 +676,12 @@ def _download_checkpoint_archive(
             if show_progress and format != "json":
                 with click.progressbar(
                     length=total_size,
-                    label="Downloading archive",
+                    label=label,
                     show_percent=True,
                     show_pos=True,
                     show_eta=True,
                 ) as bar:
-                    with open(archive_path, "wb") as f:
+                    with open(dest, "wb") as f:
                         while True:
                             chunk = response.read(8192)
                             if not chunk:
@@ -607,7 +689,7 @@ def _download_checkpoint_archive(
                             f.write(chunk)
                             bar.update(len(chunk))
             else:
-                with open(archive_path, "wb") as f:
+                with open(dest, "wb") as f:
                     while True:
                         chunk = response.read(8192)
                         if not chunk:
@@ -621,7 +703,7 @@ def _download_checkpoint_archive(
     except IOError as e:
         raise TinkerCliError(
             f"Failed to save checkpoint: {e}",
-            f"Please check that you have write permissions to {archive_path.parent}",
+            f"Please check that you have write permissions to {dest.parent}",
         ) from e
 
     return total_size
@@ -1108,55 +1190,47 @@ def download(
     output: str | None,
     force: bool,
 ) -> None:
-    """Download and extract a checkpoint archive.
+    """Download a training or external weights checkpoint.
 
-    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/weights/0001).
+    CHECKPOINT_PATH must be a training checkpoint path
+    (e.g., tinker://run-id/weights/final, from TrainingClient.save_state()) or an
+    external weights path (e.g., tinker://run-id/external_weights/final, from
+    TrainingClient.save_weights_external()). A training checkpoint is exported
+    through a temporary external weights checkpoint, which starts a training
+    session on its base model; the export is deleted after the download.
 
-    Downloads and extracts the checkpoint into a dedicated directory named after
-    the checkpoint ID. The tar archive is automatically deleted after successful
-    extraction. If the target directory already exists, the command will fail
-    unless --force is specified.
+    Downloads the checkpoint files into a dedicated directory named after the
+    checkpoint ID. Files of an age-encrypted checkpoint keep their .age suffix;
+    decrypt them with `age -d`. If the target directory already exists, the
+    command will fail unless --force is specified.
 
     Examples:
 
         # Creates ./run-123_weights_final/ with checkpoint files
         tinker checkpoint download tinker://run-123/weights/final
 
-        # Creates ./models/run-123_weights_final/ with checkpoint files
-        tinker checkpoint download tinker://run-123/weights/final --output ./models/
+        # Creates ./models/run-123_external_weights_final/ with checkpoint files
+        tinker checkpoint download tinker://run-123/external_weights/final --output ./models/
 
         # Overwrites existing ./run-123_weights_final/ directory
         tinker checkpoint download tinker://run-123/weights/final --force
     """
     # Lazy imports to maintain fast CLI startup
     import shutil
-    import tempfile
     from pathlib import Path
 
-    # Validate it's a tinker path
-    if not checkpoint_path.startswith("tinker://"):
-        raise TinkerCliError(
-            f"Invalid checkpoint path: {checkpoint_path}",
-            "Checkpoint path must be in the format: tinker://run-id/weights/0001",
-        )
-
-    # Get format from context object
+    _parse_downloadable_path(checkpoint_path)
     format = cli_context.format
 
-    # Determine output directory
     if output:
         output_dir = Path(output)
         output_dir.mkdir(parents=True, exist_ok=True)
     else:
         output_dir = Path.cwd()
 
-    # Generate checkpoint ID from checkpoint path
     checkpoint_id = checkpoint_path.replace("tinker://", "").replace("/", "_")
-
-    # Target directory for extracted checkpoint
     target_path = output_dir / checkpoint_id
 
-    # Check if target directory already exists
     if target_path.exists():
         if force:
             shutil.rmtree(target_path)
@@ -1166,41 +1240,22 @@ def download(
                 "Use --force to overwrite or choose a different output directory.",
             )
 
-    # Use a temporary directory for the archive
-    with tempfile.TemporaryDirectory() as temp_dir:
-        archive_path = Path(temp_dir) / f"{checkpoint_id}.tar"
-        extract_dir = target_path
-
-        # Create client and get download URL
-        client = create_rest_client()
-        url_response = client.get_checkpoint_archive_url_from_tinker_path(checkpoint_path).result()
-
-        total_size = _download_checkpoint_archive(
-            url_response.url,
-            archive_path=archive_path,
-            show_progress=True,
-            format=format,
+    client = create_rest_client()
+    target_path.mkdir(parents=True)
+    try:
+        total_size = _download_checkpoint(
+            client, checkpoint_path, target_path, show_progress=True, format=format
         )
+    except BaseException:
+        shutil.rmtree(target_path, ignore_errors=True)
+        raise
 
-        # Extract the checkpoint
-        try:
-            extract_dir.mkdir(parents=True, exist_ok=True)
-            _safe_extract_tar(archive_path, extract_dir, show_progress=True, format=format)
-            destination = str(extract_dir)
-            if archive_path.exists():
-                archive_path.unlink()
-        except Exception as e:
-            raise TinkerCliError(
-                f"Failed to extract archive: {e}",
-                "The downloaded file may be corrupted. Try downloading again.",
-            )
-
-        output_obj = CheckpointDownloadOutput(
-            checkpoint_path=checkpoint_path,
-            file_size_bytes=total_size if total_size > 0 else None,
-            destination=destination,
-        )
-        output_obj.print(format=format)
+    output_obj = CheckpointDownloadOutput(
+        checkpoint_path=checkpoint_path,
+        file_size_bytes=total_size if total_size > 0 else None,
+        destination=str(target_path),
+    )
+    output_obj.print(format=format)
 
 
 @cli.command(name="push-hf")
@@ -1268,15 +1323,9 @@ def push_hf(
 ) -> None:
     """Upload a checkpoint to the Hugging Face Hub as a PEFT adapter.
 
-    CHECKPOINT_PATH must be a tinker path (e.g., tinker://run-id/sampler_weights/0001).
+    CHECKPOINT_PATH must be a training (tinker://run-id/weights/final) or external
+    weights (tinker://run-id/external_weights/final) checkpoint path.
     """
-    # Validate it's a tinker path
-    if not checkpoint_path.startswith("tinker://"):
-        raise TinkerCliError(
-            f"Invalid checkpoint path: {checkpoint_path}",
-            "Checkpoint path must be in the format: tinker://run-id/sampler_weights/0001",
-        )
-
     client = create_rest_client()
     repo_id_out = _export_checkpoint_to_hub(
         client,

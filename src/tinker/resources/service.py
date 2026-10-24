@@ -10,6 +10,7 @@ from ..types.auth_token_response import AuthTokenResponse
 from ..types.client_config_request import ClientConfigRequest
 from ..types.client_config_response import ClientConfigResponse
 from ..types.client_dynamic_config_response import ClientDynamicConfigResponse
+from ..types.create_custom_loss_request import CreateCustomLossRequest
 from ..types.create_sampling_session_request import CreateSamplingSessionRequest
 from ..types.create_sampling_session_response import CreateSamplingSessionResponse
 from ..types.create_session_request import CreateSessionRequest
@@ -20,6 +21,7 @@ from ..types.join_sampling_session_request import JoinSamplingSessionRequest
 from ..types.join_sampling_session_response import JoinSamplingSessionResponse
 from ..types.session_heartbeat_request import SessionHeartbeatRequest
 from ..types.session_heartbeat_response import SessionHeartbeatResponse
+from ..types.shared.untyped_api_future import UntypedAPIFuture
 
 __all__ = ["AsyncServiceResource"]
 
@@ -30,6 +32,14 @@ class AsyncServiceResource(AsyncAPIResource):
         return await self._get(
             "/api/v1/get_server_capabilities",
             cast_to=GetServerCapabilitiesResponse,
+        )
+
+    async def create_custom_loss(self, *, request: CreateCustomLossRequest) -> UntypedAPIFuture:
+        """Validates and stores a traced custom loss; the future resolves to its loss id."""
+        return await self._post(
+            "/api/v1/create_custom_loss",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            cast_to=UntypedAPIFuture,
         )
 
     async def health_check(self) -> HealthResponse:
