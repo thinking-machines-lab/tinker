@@ -5,6 +5,7 @@ from typing_extensions import Literal
 from .._compat import PYDANTIC_V2, ConfigDict
 from .._models import StrictBase
 from .model_id import ModelID
+from .sampling_client_kind import SamplingClientKind
 
 __all__ = ["SaveWeightsForSamplerRequest"]
 
@@ -17,10 +18,16 @@ class SaveWeightsForSamplerRequest(StrictBase):
 
     sampling_session_seq_id: Optional[int] = None
 
+    kind: SamplingClientKind = "snapshot"
+    """See `SamplingClientKind` for the snapshot and inflight sampling contracts."""
+
     seq_id: Optional[int] = None
 
     ttl_seconds: Optional[int] = None
-    """TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)"""
+    """TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires).
+
+    Inflight saves omit this field.
+    """
 
     user_metadata: Optional[dict[str, str]] = None
     """Optional user-provided metadata to attach to the checkpoint"""

@@ -24,6 +24,7 @@ from tinker.lib._auth_token_provider import (
 from tinker.lib._jwt_auth import (
     JwtAuthProvider,
     _jwt_expiry,
+    _refresh_delay,
     _seconds_until_expiry,
 )
 
@@ -32,12 +33,17 @@ from tinker.lib._jwt_auth import (
 # ---------------------------------------------------------------------------
 
 
-def _make_jwt(exp: float) -> str:
-    """Build a minimal fake JWT with a given exp claim."""
+def _jwt_with_claims(claims: dict[str, Any]) -> str:
+    """Build a minimal fake JWT with the given claims."""
     header = base64.urlsafe_b64encode(b'{"alg":"RS256","typ":"JWT"}').rstrip(b"=").decode()
-    payload_bytes = json.dumps({"exp": exp, "sub": "test"}).encode()
+    payload_bytes = json.dumps(claims).encode()
     payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode()
     return f"{header}.{payload}.fakesig"
+
+
+def _make_jwt(exp: float) -> str:
+    """Build a minimal fake one-hour JWT with a given exp claim."""
+    return _jwt_with_claims({"iat": exp - 3600, "exp": exp, "sub": "test"})
 
 
 class _MockAuthResponse:
@@ -102,6 +108,22 @@ def test_jwt_expiry_raises_on_missing_exp():
 async def test_api_key_provider_resolves_key():
     auth = ApiKeyAuthProvider(api_key="tml-test-key")
     assert await auth.get_token() == "tml-test-key"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_for",
+    [ApiKeyAuthProvider, lambda jwt: CredentialCmdAuthProvider(f"echo {jwt}")],
+)
+async def test_provider_refuses_an_expired_or_malformed_jwt(
+    provider_for: Callable[[str], AuthTokenProvider],
+):
+    fresh = _make_jwt(time.time() + 60)
+    assert await provider_for(fresh).get_token() == fresh
+    with pytest.raises(TinkerError, match="expired"):
+        await provider_for(_make_jwt(time.time() - 60)).get_token()
+    with pytest.raises(ValueError):
+        await provider_for("eyJnot-a-jwt").get_token()
 
 
 @pytest.mark.asyncio
@@ -194,6 +216,107 @@ async def test_auth_provider_failure_reaches_caller_unchanged(error: Exception):
 
 
 # ---------------------------------------------------------------------------
+# JwtAuthProvider replay after a rejected token
+# ---------------------------------------------------------------------------
+
+_INVALID_TOKEN = {"WWW-Authenticate": 'Bearer error="invalid_token"'}
+
+
+def _api(accepted: str, rejection_headers: dict[str, str], seen: list[str]) -> httpx.AsyncClient:
+    """An API that accepts one token and rejects every other with a 401."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        token = request.headers["X-API-Key"]
+        seen.append(token)
+        if token == accepted:
+            return httpx.Response(200, json={})
+        return httpx.Response(401, headers=rejection_headers, json={"detail": "Invalid JWT"})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_token_accepted", [True, False])
+async def test_invalid_token_401_replaces_the_token_and_replays_once(new_token_accepted: bool):
+    old, new = _make_jwt(time.time() + 3000), _make_jwt(time.time() + 3600)
+    holder = _MockHolder(new)
+    provider = _provider_with_token(holder.aclient, old)
+    seen: list[str] = []
+    http_client = _api(new if new_token_accepted else "", _INVALID_TOKEN, seen)
+    try:
+        client = AsyncTinker(
+            base_url="https://api.example.test", _auth=provider, http_client=http_client
+        )
+        if new_token_accepted:
+            await client.get("/api/v1/healthz", cast_to=object)
+        else:
+            with pytest.raises(AuthenticationError):
+                await client.get("/api/v1/healthz", cast_to=object)
+    finally:
+        await http_client.aclose()
+    assert seen == [old, new]
+    holder._cm.__enter__.return_value.service.auth_token.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unmarked_401_is_not_replayed():
+    """A 401 that a new token would not fix (e.g. a disabled credential type)."""
+    old = _make_jwt(time.time() + 3000)
+    holder = _MockHolder(_make_jwt(time.time() + 3600))
+    provider = _provider_with_token(holder.aclient, old)
+    seen: list[str] = []
+    http_client = _api("", {}, seen)
+    try:
+        client = AsyncTinker(
+            base_url="https://api.example.test", _auth=provider, http_client=http_client
+        )
+        with pytest.raises(AuthenticationError):
+            await client.get("/api/v1/healthz", cast_to=object)
+    finally:
+        await http_client.aclose()
+    assert seen == [old]
+    holder._cm.__enter__.return_value.service.auth_token.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_invalid_token_401s_share_one_exchange():
+    n = 5
+    old, new = _make_jwt(time.time() + 3000), _make_jwt(time.time() + 3600)
+    seen: list[str] = []
+    all_rejected = asyncio.Event()
+    exchanges = 0
+
+    async def exchange_after_all_rejections():
+        nonlocal exchanges
+        exchanges += 1
+        await all_rejected.wait()
+        return _MockAuthResponse(new)
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        token = request.headers["X-API-Key"]
+        seen.append(token)
+        if token == new:
+            return httpx.Response(200, json={})
+        if seen.count(old) == n:
+            all_rejected.set()
+        return httpx.Response(401, headers=_INVALID_TOKEN, json={"detail": "Invalid JWT"})
+
+    holder = _MockHolder(new)
+    holder._cm.__enter__.return_value.service.auth_token = exchange_after_all_rejections
+    provider = _provider_with_token(holder.aclient, old)
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    try:
+        client = AsyncTinker(
+            base_url="https://api.example.test", _auth=provider, http_client=http_client
+        )
+        await asyncio.gather(*(client.get("/api/v1/healthz", cast_to=object) for _ in range(n)))
+    finally:
+        await http_client.aclose()
+    assert exchanges == 1
+    assert seen.count(old) == n and seen.count(new) == n
+
+
+# ---------------------------------------------------------------------------
 # JwtAuthProvider._fetch
 # ---------------------------------------------------------------------------
 
@@ -228,6 +351,18 @@ def test_seconds_until_expiry_returns_zero_for_unparseable_jwt():
 def test_seconds_until_expiry_returns_negative_for_expired_jwt():
     exp = time.time() - 60
     assert _seconds_until_expiry(_make_jwt(exp)) < 0
+
+
+# ---------------------------------------------------------------------------
+# Refresh timing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("lifetime", [300, 600, 3600])
+def test_refresh_timing_scales_with_lifetime(lifetime: int):
+    now = time.time()
+    jwt = _jwt_with_claims({"iat": now, "exp": now + lifetime})
+    assert 0.45 * lifetime <= _refresh_delay(jwt) <= 0.55 * lifetime
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +461,21 @@ async def test_get_token_concurrent_refresh_only_fires_once():
 
 
 @pytest.mark.asyncio
+async def test_get_token_raises_when_refresh_is_rejected():
+    """A 401 from the exchange means the credential itself is bad: surface it
+    rather than serve the cached token until it expires."""
+    holder = _MockHolder("unused")
+    rejected = AuthenticationError(
+        "credential revoked", response=httpx.Response(401, request=_EXCHANGE_REQUEST), body=None
+    )
+    holder._cm.__enter__.return_value.service.auth_token.side_effect = rejected
+    provider = _provider_with_token(holder.aclient, _make_jwt(time.time() + 30))
+
+    with pytest.raises(AuthenticationError, match="credential revoked"):
+        await provider.get_token()
+
+
+@pytest.mark.asyncio
 async def test_get_token_returns_stale_token_when_refresh_fails(
     caplog: pytest.LogCaptureFixture,
 ):
@@ -344,3 +494,14 @@ async def test_get_token_returns_stale_token_when_refresh_fails(
 
     assert result == near_expiry_jwt
     assert "On-demand JWT refresh failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_get_token_raises_when_refresh_fails_and_cached_token_expired():
+    """An expired cached token is never sent, even when the refresh fails."""
+    holder = _MockHolder("unused", fail=True)
+    provider = _provider_with_token(holder.aclient, _make_jwt(time.time() - 30))
+
+    with pytest.raises(Exception, match="network error"):
+        await provider.get_token()
+    holder._cm.__enter__.return_value.service.auth_token.assert_called_once()

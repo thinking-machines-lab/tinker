@@ -36,6 +36,7 @@ from tinker.lib.base_url import resolve_base_url
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.credentials import JsonCredentialStore, default_credentials_path
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.sdk_method import without_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
 
@@ -252,6 +253,10 @@ def _get_default_headers() -> dict[str, str]:
 
 
 class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
+    # Construction sends the session's own requests (config, session creation) and
+    # starts its background loops (heartbeat, config refresh, cancel drain, telemetry);
+    # none of these belong to the public method that lazily constructed the holder.
+    @without_sdk_method_telemetry
     def __init__(
         self,
         user_metadata: dict[str, str] | None = None,

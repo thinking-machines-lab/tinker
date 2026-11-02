@@ -141,6 +141,7 @@ from .request_id import RequestID as RequestID
 from .sample_request import SampleRequest as SampleRequest
 from .sample_response import SampleResponse as SampleResponse
 from .sampled_sequence import SampledSequence as SampledSequence
+from .sampling_client_kind import SamplingClientKind as SamplingClientKind
 from .sampling_params import SamplingParams as SamplingParams
 from .save_weights_external_request import (
     SaveWeightsExternalRequest as SaveWeightsExternalRequest,

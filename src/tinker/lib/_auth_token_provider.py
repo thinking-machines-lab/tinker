@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import math
 import os
+import time
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -47,6 +49,14 @@ class AuthTokenProvider(httpx.Auth):
         yield request
 
 
+def _credential_expiry(credential: str) -> float:
+    """The exp claim of a JWT credential, or inf for an opaque API key."""
+    # Imported here because _jwt_auth imports this module.
+    from tinker.lib._jwt_auth import _jwt_expiry
+
+    return _jwt_expiry(credential) if credential.startswith("eyJ") else math.inf
+
+
 class ApiKeyAuthProvider(AuthTokenProvider):
     """A static API key."""
 
@@ -54,6 +64,7 @@ class ApiKeyAuthProvider(AuthTokenProvider):
         if not api_key.startswith("tml-") and not api_key.startswith("eyJ"):
             raise TinkerError("The api_key must start with the 'tml-' prefix")
         self._token = api_key
+        self._expires_at = _credential_expiry(api_key)
 
     @property
     def api_key(self) -> str:
@@ -80,6 +91,13 @@ class ApiKeyAuthProvider(AuthTokenProvider):
         return ApiKeyAuthProvider(record.key) if record is not None else None
 
     async def get_token(self) -> str | None:
+        # A fixed key cannot be refreshed: fail here rather than send a credential
+        # the server will reject.
+        if time.time() >= self._expires_at:
+            raise TinkerError(
+                "The api_key JWT has expired. Pass a fresh one, or remove it and set"
+                " TINKER_CREDENTIAL_CMD to a command that prints one."
+            )
         return self._token
 
 
@@ -106,6 +124,8 @@ class CredentialCmdAuthProvider(AuthTokenProvider):
         credential = stdout.decode().strip()
         if not credential:
             raise TinkerError("TINKER_CREDENTIAL_CMD returned an empty credential.")
+        if time.time() >= _credential_expiry(credential):
+            raise TinkerError("TINKER_CREDENTIAL_CMD printed an expired JWT.")
         return credential
 
 

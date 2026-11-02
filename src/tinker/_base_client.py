@@ -1032,9 +1032,8 @@ class AsyncAPIClient(BaseClient[httpx.AsyncClient, AsyncStream[Any]]):
                 log.debug("Raising timeout error")
                 raise APITimeoutError(request=request) from err
             except _AuthFlowError as err:
-                # The auth provider failed before this request was sent (e.g. the
-                # JWT exchange): surface its error as is, not as a retried
-                # connection failure of this request.
+                # The auth provider failed (e.g. the JWT exchange): surface its
+                # error as is, not as a retried connection failure of this request.
                 raise err.error from err.error.__cause__
             except Exception as err:
                 log.debug("Encountered Exception", exc_info=True)

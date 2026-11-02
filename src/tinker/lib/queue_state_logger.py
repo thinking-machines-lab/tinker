@@ -7,6 +7,10 @@ from .api_future_impl import QueueState, QueueStateObserver
 
 logger = logging.getLogger(__name__)
 
+# It can take a while for Tinker to make room for a request, so a pause is
+# only reported once it has lasted this long.
+PAUSE_GRACE_PERIOD = 15 * 60
+
 
 class QueueStateLogger(QueueStateObserver):
     """Observer that logs queue state changes with throttling.
@@ -20,12 +24,21 @@ class QueueStateLogger(QueueStateObserver):
         self._identifier = identifier
         self._message_prefix = message_prefix
         self._last_queue_state_logged: float = 0
+        self._last_state: QueueState | None = None
+        self._last_state_update_time: float = 0
 
     def on_queue_state_change(
         self, queue_state: QueueState, queue_state_reason: str | None
     ) -> None:
         QUEUE_STATE_LOG_INTERVAL = 60
-        if queue_state == QueueState.ACTIVE:
+        now = time.monotonic()
+        if queue_state != self._last_state:
+            self._last_state = queue_state
+            self._last_state_update_time = now
+        if (
+            queue_state == QueueState.ACTIVE
+            or now - self._last_state_update_time < PAUSE_GRACE_PERIOD
+        ):
             return
         if time.time() - self._last_queue_state_logged < QUEUE_STATE_LOG_INTERVAL:
             return

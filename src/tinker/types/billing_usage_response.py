@@ -60,9 +60,13 @@ class CheckpointBillingEvent(BaseModel):
 
 
 class StorageBillingEvent(BaseModel):
-    """Checkpoint storage, billed in gigabyte-hours."""
+    """Checkpoint storage in the public HTTP/JSON usage response."""
 
     type: Literal["storage"] = "storage"
+
+    free: bool = False
+    """True for free storage; False for paid storage. Defaults to False for
+    compatibility with responses from before the free-storage flag was added."""
 
     gigabyte_hours: float
     """Storage quantity for the bucket"""
