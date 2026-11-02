@@ -7,8 +7,21 @@ import logging
 import threading
 import time
 import warnings
+from concurrent.futures import Future
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Literal, Mapping, Tuple
+from dataclasses import dataclass
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Literal,
+    Mapping,
+    NamedTuple,
+    Tuple,
+)
 
 from typing_extensions import deprecated
 
@@ -16,6 +29,7 @@ from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.console_urls import training_run_console_url
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 from tinker.types.optimizer import OptimParamsBase
@@ -93,6 +107,9 @@ _LOAD_STATE_DEPRECATION_MESSAGE = (
     "ServiceClient.create_training_client_from_state_with_optimizer()."
 )
 
+_custom_loss_loop: asyncio.AbstractEventLoop | None = None
+_custom_loss_loop_lock = threading.Lock()
+
 _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS = frozenset({"cross_entropy"})
 
 _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE: dict[Literal["logprobs"], types.LossFnType] = {
@@ -117,6 +134,25 @@ def _check_loss_type_input(loss_type_input: str | None, method: str) -> None:
         )
 
 
+class _RequestChunk(NamedTuple):
+    data: List[types.Datum]
+    estimated_bytes_count: int
+
+
+class _ReservedRequestChunk(NamedTuple):
+    request_id: int
+    data: List[types.Datum]
+    estimated_bytes_count: int
+
+
+@dataclass(frozen=True)
+class _CustomLossResult:
+    data: List[types.Datum]
+    metrics: Dict[str, float]
+    loss_sum: float
+
+
+@with_sdk_method_telemetry
 class TrainingClient(TelemetryProvider):
     """Client for training ML models with forward/backward passes and optimization.
 
@@ -151,6 +187,7 @@ class TrainingClient(TelemetryProvider):
         self._request_id_lock: threading.Lock = threading.Lock()
         self._request_id_counter: int = 0
 
+        self._request_error: BaseException | None = None
         self._turn_counter: int = 0
         # Maps turn id → list of events to wake when _turn_counter reaches that id.
         self._turn_waiters: dict[int, list[asyncio.Event]] = {}
@@ -159,10 +196,13 @@ class TrainingClient(TelemetryProvider):
 
     # Reserves a request id for a request. Requests are to be executed in the order of request ids.
     def _get_request_id(self) -> int:
+        return self._reserve_request_ids(1).start
+
+    def _reserve_request_ids(self, count: int) -> range:
         with self._request_id_lock:
-            request_id = self._request_id_counter
-            self._request_id_counter += 1
-            return request_id
+            start = self._request_id_counter
+            self._request_id_counter += count
+            return range(start, self._request_id_counter)
 
     # Waits for the turn to be executed.
     # Counter is advanced on entry (before yield), not on exit.
@@ -186,10 +226,16 @@ class TrainingClient(TelemetryProvider):
         assert min_turn <= max_turn
 
         # Wait until _turn_counter reaches at least min_turn
-        if self._turn_counter < min_turn:
+        if self._request_error is None and self._turn_counter < min_turn:
             event = asyncio.Event()
             self._turn_waiters.setdefault(min_turn, []).append(event)
             await event.wait()
+
+        if self._request_error is not None:
+            raise RuntimeError(
+                "A previous request failed; this TrainingClient is poisoned "
+                "and cannot accept further requests."
+            ) from self._request_error
 
         assert self._turn_counter >= min_turn
         assert self._turn_counter <= max_turn, (
@@ -213,7 +259,7 @@ class TrainingClient(TelemetryProvider):
 
     def _chunked_requests_generator(
         self, data: List[types.Datum]
-    ) -> Generator[tuple[List[types.Datum], int], None, None]:
+    ) -> Generator[_RequestChunk, None, None]:
         cfg = self.holder._client_config
         current_chunk: List[types.Datum] = []
         current_chunk_bytes_count = 0
@@ -225,7 +271,7 @@ class TrainingClient(TelemetryProvider):
                 and current_chunk_bytes_count + estimated_bytes_count
                 > cfg.fwdbwd_max_chunk_bytes_count
             ) or (len(current_chunk) == cfg.fwdbwd_max_chunk_len):
-                yield current_chunk, current_chunk_bytes_count
+                yield _RequestChunk(current_chunk, current_chunk_bytes_count)
                 current_chunk = []
                 current_chunk_bytes_count = 0
 
@@ -233,14 +279,12 @@ class TrainingClient(TelemetryProvider):
             current_chunk_bytes_count += estimated_bytes_count
 
         if len(current_chunk) > 0:
-            yield current_chunk, current_chunk_bytes_count
+            yield _RequestChunk(current_chunk, current_chunk_bytes_count)
 
-    def _chunked_requests(
-        self, data: List[types.Datum]
-    ) -> List[tuple[int, List[types.Datum], int]]:
+    def _chunked_requests(self, data: List[types.Datum]) -> List[_ReservedRequestChunk]:
         return [
-            (self._get_request_id(), chunk, chunk_bytes_count)
-            for chunk, chunk_bytes_count in self._chunked_requests_generator(data)
+            _ReservedRequestChunk(self._get_request_id(), chunk.data, chunk.estimated_bytes_count)
+            for chunk in self._chunked_requests_generator(data)
         ]
 
     def forward(
@@ -270,7 +314,9 @@ class TrainingClient(TelemetryProvider):
         print(f"Loss: {result.loss}")
         ```
         """
-        return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=True)
+        return self._run_fwd_bwd(
+            self._chunked_requests(data), loss_fn, loss_fn_config, forward_only=True
+        )
 
     async def forward_async(
         self,
@@ -316,29 +362,27 @@ class TrainingClient(TelemetryProvider):
         print(f"Loss: {fwdbwd_result.loss}")
         ```
         """
-        return self._run_fwd_bwd(data, loss_fn, loss_fn_config, forward_only=False)
+        return self._run_fwd_bwd(
+            self._chunked_requests(data), loss_fn, loss_fn_config, forward_only=False
+        )
 
     def _run_fwd_bwd(
         self,
-        data: List[types.Datum],
+        requests: List[_ReservedRequestChunk],
         loss_fn: types.LossFnType,
         loss_fn_config: Mapping[str, float | str] | None,
         *,
         forward_only: bool,
     ) -> APIFuture[types.ForwardBackwardOutput]:
-        """Shared implementation for /forward_backward submissions.
-
-        Drives chunking and optional parallel submit.
-        """
-        requests = self._chunked_requests(data)
+        """Submit preallocated /forward_backward chunks, optionally in parallel."""
         if not requests:
             raise ValueError("No data provided")
 
         parallel = self.holder._client_config.parallel_fwdbwd_chunks
         # When parallel, all chunks share [min, max] range and fire concurrently.
         # When serial, each chunk takes its own turn sequentially.
-        min_rid = requests[0][0]
-        max_rid = requests[-1][0] if parallel else None
+        min_rid = requests[0].request_id
+        max_rid = requests[-1].request_id if parallel else None
         request_type = "Forward" if forward_only else "ForwardBackward"
 
         @capture_exceptions(fatal=True)
@@ -359,14 +403,14 @@ class TrainingClient(TelemetryProvider):
                     )
 
             async def _submit_chunk(
-                request_id: int, data: List[types.Datum], estimated_bytes_count: int
+                chunk: _ReservedRequestChunk,
             ) -> APIFuture[types.ForwardBackwardOutput]:
-                turn_min = min_rid if parallel else request_id
+                turn_min = min_rid if parallel else chunk.request_id
                 turn_max = max_rid if parallel else None
                 async with self._take_turn(turn_min, turn_max):
-                    async with self.holder.fwdbwd_dispatch_rate_limit(estimated_bytes_count):
+                    async with self.holder.fwdbwd_dispatch_rate_limit(chunk.estimated_bytes_count):
                         untyped_future = await self.holder.execute_with_retries(
-                            _send_request, request_id, data
+                            _send_request, chunk.request_id, chunk.data
                         )
                     return _APIFuture(
                         types.ForwardBackwardOutput,
@@ -384,21 +428,13 @@ class TrainingClient(TelemetryProvider):
                 # 1 lands the rest are already queued and the server can
                 # pick the whole batch together.
                 rest_futures = list(
-                    await asyncio.gather(*[_submit_chunk(rid, d, b) for rid, d, b in requests[1:]])
+                    await asyncio.gather(*[_submit_chunk(chunk) for chunk in requests[1:]])
                 )
-                first_rid, first_data, first_bytes = requests[0]
-                first_future = await _submit_chunk(first_rid, first_data, first_bytes)
+                first_future = await _submit_chunk(requests[0])
                 futures = [first_future] + rest_futures
             else:
                 # gather is safe even when serial — _take_turn orders execution.
-                futures = list(
-                    await asyncio.gather(
-                        *[
-                            _submit_chunk(request_id, data, estimated_bytes_count)
-                            for request_id, data, estimated_bytes_count in requests
-                        ]
-                    )
-                )
+                futures = list(await asyncio.gather(*[_submit_chunk(chunk) for chunk in requests]))
 
             return await _CombinedAPIFuture(futures, combine_fwd_bwd_output_results, self.holder)
 
@@ -413,7 +449,6 @@ class TrainingClient(TelemetryProvider):
         """Async version of forward_backward."""
         return self.forward_backward(data, loss_fn, loss_fn_config)
 
-    @sync_only
     def forward_backward_custom(
         self,
         data: List[types.Datum],
@@ -428,6 +463,11 @@ class TrainingClient(TelemetryProvider):
         `loss_fn_inputs` field, but only `target_tokens` and `weights` are sent to the
         server. A `LossHandle` the server runs (one with a `loss_id`) is sent with its
         data unchanged and runs in a single server-side forward/backward.
+
+        Returns a future without waiting for server submission or processing. Requests on
+        this client execute in submission order, so you can submit an optimizer step before
+        waiting for this future. If a client-side custom loss operation fails or is cancelled,
+        this client rejects queued and subsequent training requests.
 
         Args:
         - `data`: List of training data samples
@@ -476,22 +516,9 @@ class TrainingClient(TelemetryProvider):
         ```
         """
         _check_loss_type_input(loss_type_input, "forward_backward_custom")
-        return self.holder.run_coroutine_threadsafe(
-            self.forward_backward_custom_async(data, loss_fn)
-        ).result()
-
-    async def forward_backward_custom_async(
-        self,
-        data: List[types.Datum],
-        loss_fn: CustomLossFnV1 | LossHandle,
-        *,
-        loss_type_input: Literal["logprobs"] | None = None,
-    ) -> APIFuture[types.ForwardBackwardOutput]:
-        """Async version of forward_backward_custom."""
         if torch is None:
             raise ImportError("PyTorch is not installed. Cannot run custom forward_backward.")
 
-        _check_loss_type_input(loss_type_input, "forward_backward_custom_async")
         if isinstance(loss_fn, LossHandle) and loss_fn.session_id != self.holder.get_session_id():
             raise ValueError(
                 f"LossHandle {loss_fn.name!r} was created in session {loss_fn.session_id}; it can "
@@ -503,19 +530,70 @@ class TrainingClient(TelemetryProvider):
         if isinstance(loss_fn, LossHandle) and loss_fn.loss_id is not None:
             # An uploaded loss runs on the server in one forward_backward, with no
             # client-side forward pass or surrogate.
-            return await self.forward_backward_async(data, "custom", {"loss_id": loss_fn.loss_id})
+            return self.forward_backward(data, "custom", {"loss_id": loss_fn.loss_id})
 
         surrogate_loss_fn = _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE["logprobs"]
 
         forward_data = self._get_custom_loss_forward_data(data, surrogate_loss_fn)
+        forward_chunks = list(self._chunked_requests_generator(forward_data))
+        if not forward_chunks:
+            raise ValueError("No data provided")
 
-        # First do a forward pass and get logprobs
-        forward_future = await self.forward_async(
-            forward_data,
-            surrogate_loss_fn,
-            None,
+        # Both phases must precede later requests, even while forward is pending.
+        num_chunks = len(forward_chunks)
+        reserved_ids = self._reserve_request_ids(2 * num_chunks)
+        forward_ids = reserved_ids[:num_chunks]
+        forward_requests = [
+            _ReservedRequestChunk(request_id, chunk.data, chunk.estimated_bytes_count)
+            for request_id, chunk in zip(forward_ids, forward_chunks, strict=True)
+        ]
+
+        async def run_reserved_operation() -> types.ForwardBackwardOutput:
+            try:
+                forward_result = await self._run_fwd_bwd(
+                    forward_requests, surrogate_loss_fn, None, forward_only=True
+                ).result_async()
+                custom_loss = self._compute_custom_loss(data, loss_fn, forward_result)
+                return await self._run_custom_backward(forward_requests, custom_loss)
+            except BaseException as exc:
+                # Missing reserved IDs cannot be skipped by the server.
+                # Turn waiters belong to the holder loop.
+                await self.holder.run_coroutine_threadsafe(
+                    self._fail_custom_requests(exc)
+                ).result_async()
+                raise
+
+        future = AwaitableConcurrentFuture(
+            asyncio.run_coroutine_threadsafe(run_reserved_operation(), _get_custom_loss_loop())
         )
-        forward_result = await forward_future.result_async()
+
+        def on_done(result: Future[types.ForwardBackwardOutput]) -> None:
+            # A task cancelled before it starts never enters the coroutine's try/except.
+            if result.cancelled():
+                self.holder.run_coroutine_threadsafe(
+                    self._fail_custom_requests(asyncio.CancelledError())
+                )
+
+        future.future().add_done_callback(on_done)
+        return future
+
+    async def forward_backward_custom_async(
+        self,
+        data: List[types.Datum],
+        loss_fn: CustomLossFnV1 | LossHandle,
+        *,
+        loss_type_input: Literal["logprobs"] | None = None,
+    ) -> APIFuture[types.ForwardBackwardOutput]:
+        """Async version of forward_backward_custom."""
+        return self.forward_backward_custom(data, loss_fn, loss_type_input=loss_type_input)
+
+    @staticmethod
+    def _compute_custom_loss(
+        data: List[types.Datum],
+        loss_fn: CustomLossFnV1 | LossHandle,
+        forward_result: types.ForwardBackwardOutput,
+    ) -> _CustomLossResult:
+        assert torch is not None
         logprobs_list = []
         for out in forward_result.loss_fn_outputs:
             logprob = torch.tensor(out["logprobs"].data)
@@ -524,7 +602,7 @@ class TrainingClient(TelemetryProvider):
             logprob = logprob.clone().detach().requires_grad_(True)
             logprobs_list.append(logprob)
 
-        # Now apply user-provided function
+        # Differentiate the local loss to produce weights for the server's backward pass.
         if isinstance(loss_fn, LossHandle):
             loss, metrics = run_loss_handle(loss_fn, data, logprobs_list)
         else:
@@ -554,26 +632,50 @@ class TrainingClient(TelemetryProvider):
                 )
             )
 
-        # Do the backward pass with the gradients
-        backward_future = await self.forward_backward_async(
-            linear_loss_data,
-            surrogate_loss_fn,
+        return _CustomLossResult(linear_loss_data, metrics, custom_loss_sum)
+
+    async def _run_custom_backward(
+        self,
+        forward_requests: List[_ReservedRequestChunk],
+        custom_loss: _CustomLossResult,
+    ) -> types.ForwardBackwardOutput:
+        # Reuse the planned boundaries: gradient weights may change the byte estimates,
+        # but rechunking here would leave gaps in the reserved sequence IDs.
+        num_chunks = len(forward_requests)
+        backward_requests = []
+        offset = 0
+        for chunk in forward_requests:
+            backward_request_id = chunk.request_id + num_chunks
+            backward_chunk = custom_loss.data[offset : offset + len(chunk.data)]
+            offset += len(chunk.data)
+            backward_requests.append(
+                _ReservedRequestChunk(
+                    backward_request_id,
+                    backward_chunk,
+                    sum(_estimate_datum_bytes_count_proto(datum) for datum in backward_chunk),
+                )
+            )
+
+        backward_future = self._run_fwd_bwd(
+            backward_requests,
+            _CUSTOM_BACKEND_LOSS_FN_BY_INPUT_TYPE["logprobs"],
             None,
+            forward_only=False,
         )
+        backward_result = await backward_future.result_async()
+        surrogate_loss_sum = backward_result.metrics.pop("loss:sum")
+        backward_result.metrics.update(custom_loss.metrics)
+        backward_result.metrics["loss:sum"] = custom_loss.loss_sum
+        backward_result.metrics["surrogate_loss:sum"] = surrogate_loss_sum
+        return backward_result
 
-        # We need to slightly modify the future to add the custom metrics, so we use _CombinedAPIFuture
-        # to transform the future.
-        def add_custom_metrics(
-            results: List[types.ForwardBackwardOutput],
-        ) -> types.ForwardBackwardOutput:
-            result = results[0]  # Single result
-            surrogate_loss_sum = result.metrics.pop("loss:sum")
-            result.metrics.update(metrics)
-            result.metrics["loss:sum"] = custom_loss_sum
-            result.metrics["surrogate_loss:sum"] = surrogate_loss_sum
-            return result
-
-        return _CombinedAPIFuture([backward_future], add_custom_metrics, self.holder)
+    async def _fail_custom_requests(self, error: BaseException) -> None:
+        if self._request_error is None:
+            self._request_error = error
+        for waiters in self._turn_waiters.values():
+            for event in waiters:
+                event.set()
+        self._turn_waiters.clear()
 
     def _get_custom_loss_forward_data(
         self,
@@ -581,7 +683,7 @@ class TrainingClient(TelemetryProvider):
         surrogate_loss_fn: types.LossFnType,
     ) -> List[types.Datum]:
         assert surrogate_loss_fn in _SUPPORTED_CUSTOM_BACKEND_LOSS_FNS, (
-            "forward_backward_custom_async should validate surrogate_loss_fn before "
+            "forward_backward_custom should validate surrogate_loss_fn before "
             "_get_custom_loss_forward_data is called"
         )
 
@@ -897,6 +999,7 @@ class TrainingClient(TelemetryProvider):
         name: str | None,
         ttl_seconds: int | None,
         user_metadata: dict[str, str] | None,
+        kind: types.SamplingClientKind,
     ) -> APIFuture[types.SaveWeightsForSamplerResponse | str]:
         request_id = self._get_request_id()
 
@@ -922,6 +1025,7 @@ class TrainingClient(TelemetryProvider):
                         model_id=self._guaranteed_model_id(),
                         seq_id=request_id + 1,
                         sampling_session_seq_id=sampling_session_seq_id,
+                        kind=kind,
                         ttl_seconds=ttl_seconds,
                         user_metadata=user_metadata,
                     )
@@ -983,7 +1087,9 @@ class TrainingClient(TelemetryProvider):
         """
 
         async def _save_weights_for_sampler_async() -> types.SaveWeightsForSamplerResponse:
-            result = await self._save_weights_for_sampler_impl(name, ttl_seconds, user_metadata)
+            result = await self._save_weights_for_sampler_impl(
+                name, ttl_seconds, user_metadata, "snapshot"
+            )
             assert isinstance(result, types.SaveWeightsForSamplerResponse)
             return result
 
@@ -1172,6 +1278,7 @@ class TrainingClient(TelemetryProvider):
         name: str | None = None,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
+        kind: types.SamplingClientKind = "snapshot",
     ) -> SamplingClient:
         """Save current weights and create a SamplingClient for inference.
 
@@ -1182,9 +1289,13 @@ class TrainingClient(TelemetryProvider):
             records stability information for its sequences (StableReinforce
             training); recorded data is referenced from training requests by
             `sequence_id`, is session-scoped, and expires after inactivity.
+        - `kind`: `snapshot` (default) captures fixed weights. `inflight` publishes
+          mutable weights shared by this training model's inflight sampling clients.
+
+        See `types.SamplingClientKind` for the snapshot and inflight sampling contracts.
 
         Returns:
-        - `SamplingClient` configured with the current model weights
+        - `SamplingClient` using the saved snapshot or shared inflight weights
 
         Example:
         ```python
@@ -1195,6 +1306,21 @@ class TrainingClient(TelemetryProvider):
         prompt = types.ModelInput.from_ints(tokenizer.encode("Hello"))
         params = types.SamplingParams(max_tokens=20)
         result = sampling_client.sample(prompt, 1, params).result()
+        ```
+
+        Inflight example:
+        ```python
+        # Publish W1 and use sampler_a for the rollouts starting now.
+        sampler_a = training_client.save_weights_and_get_sampling_client(kind="inflight")
+
+        # ... train further ...
+
+        # Publish W2 and give sampler_b to newly starting rollouts.
+        sampler_b = training_client.save_weights_and_get_sampling_client(kind="inflight")
+
+        # sampler_b requires W2 or newer and has a fresh KV namespace.
+        # sampler_a keeps its namespace and can adopt W2 as it propagates.
+        # Until then, sampler_a can still use a replica serving W1.
         ```
         """
         if name is not None:
@@ -1208,7 +1334,7 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None).result()
+        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None, kind).result()
         assert isinstance(sampling_session_id, str)
         return SamplingClient.create(
             self.holder,
@@ -1222,6 +1348,7 @@ class TrainingClient(TelemetryProvider):
         name: str | None = None,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
+        kind: types.SamplingClientKind = "snapshot",
     ) -> SamplingClient:
         """Async version of save_weights_and_get_sampling_client."""
         if name is not None:
@@ -1235,7 +1362,7 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None).result()
+        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None, kind).result()
         assert isinstance(sampling_session_id, str)
         return await SamplingClient.create(
             self.holder,
@@ -1246,6 +1373,18 @@ class TrainingClient(TelemetryProvider):
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
+
+
+def _get_custom_loss_loop() -> asyncio.AbstractEventLoop:
+    global _custom_loss_loop
+    with _custom_loss_loop_lock:
+        if _custom_loss_loop is None:
+            loop = asyncio.new_event_loop()
+            threading.Thread(
+                target=loop.run_forever, name="tinker-custom-loss", daemon=True
+            ).start()
+            _custom_loss_loop = loop
+        return _custom_loss_loop
 
 
 def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:

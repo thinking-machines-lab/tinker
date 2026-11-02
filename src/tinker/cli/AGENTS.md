@@ -228,7 +228,7 @@ cli/
 │   ├── checkpoint.py     # Checkpoint commands and output classes
 │   ├── model.py          # Model commands and output classes
 │   └── session.py        # Session commands and output classes
-└── CLAUDE.md             # This documentation
+└── AGENTS.md             # This documentation
 ```
 
 ## Command Examples

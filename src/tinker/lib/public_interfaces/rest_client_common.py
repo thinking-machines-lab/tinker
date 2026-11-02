@@ -2,19 +2,7 @@
 
 from __future__ import annotations
 
-from tinker._version import __version__ as tinker_sdk_version
-
 from ..internal_client_holder import InternalClientHolder, sessionless_holder_cache
-
-
-def sdk_headers(sdk_method: str) -> dict[str, str]:
-    """Headers attributing a REST request to the SDK version and public method that sent it.
-
-    The server uses these to see who still calls an endpoint, and through which method,
-    before deprecating it. `sdk_method` is the public method name without its `_async`
-    suffix, since both variants are the same API.
-    """
-    return {"x-sdk-version": tinker_sdk_version, "x-sdk-method": sdk_method}
 
 
 def rest_client_holder(

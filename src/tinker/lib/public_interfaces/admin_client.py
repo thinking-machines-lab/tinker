@@ -10,7 +10,8 @@ from typing import Literal
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
-from tinker.lib.public_interfaces.rest_client_common import rest_client_holder, sdk_headers
+from tinker.lib.public_interfaces.rest_client_common import rest_client_holder
+from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
@@ -22,6 +23,7 @@ from ..sync_only import sync_only
 logger = logging.getLogger(__name__)
 
 
+@with_sdk_method_telemetry
 class AdminClient(TelemetryProvider):
     """Client for REST API operations that need an organization admin role.
 
@@ -119,7 +121,7 @@ class AdminClient(TelemetryProvider):
             with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
                 return await client.get(
                     "/api/v1/audit",
-                    options={"params": params, "headers": sdk_headers("get_audit_log")},
+                    options={"params": params},
                     cast_to=types.AuditLogResponse,
                 )
 
@@ -146,10 +148,7 @@ class AdminClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         "/api/v1/billing/usage/events",
-                        options={
-                            "params": request.model_dump(mode="json", exclude_none=True),
-                            "headers": sdk_headers("get_billing_usage"),
-                        },
+                        options={"params": request.model_dump(mode="json", exclude_none=True)},
                         cast_to=types.BillingUsageResponse,
                     )
 
@@ -172,7 +171,10 @@ class AdminClient(TelemetryProvider):
         is `event_info` — a union discriminated on `.type` (training /
         sampling_prefill / sampling_sample / checkpoint / storage). Each
         variant carries exactly the fields that apply (token_count, gigabyte_hours,
-        count, the prefill cached flag). Session user_metadata comes once
+        count, the prefill cached flag, the storage free flag). Free and paid
+        storage are returned as separate events. Free storage has zero cost
+        and rate once its completed-day invoice quantities reconcile, or as
+        an estimate for the current day. Session user_metadata comes once
         per session in `response.sessions`, keyed by session_id. Token and
         storage events include `estimated_cost_usd`, an estimated gross usage
         cost before credits and commits, plus the applicable effective rate
@@ -245,10 +247,7 @@ class AdminClient(TelemetryProvider):
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
                     return await client.get(
                         "/api/v1/billing/usage/checkpoints/current",
-                        options={
-                            "params": request.model_dump(mode="json", exclude_none=True),
-                            "headers": sdk_headers("get_current_checkpoint_storage_usage"),
-                        },
+                        options={"params": request.model_dump(mode="json", exclude_none=True)},
                         cast_to=types.CurrentCheckpointStorageUsageResponse,
                     )
 

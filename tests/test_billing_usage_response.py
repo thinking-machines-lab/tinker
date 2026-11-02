@@ -13,6 +13,8 @@ from tinker.types import BillingUsageResponse
         {"type": "sampling_sample", "token_count": 100},
         {"type": "checkpoint", "count": 1},
         {"type": "storage", "gigabyte_hours": 1.5},
+        {"type": "storage", "free": False, "gigabyte_hours": 1.5},
+        {"type": "storage", "free": True, "gigabyte_hours": 1.5},
     ],
 )
 def test_billing_usage_response_ignores_future_fields(event_info: dict[str, object]) -> None:
@@ -45,3 +47,5 @@ def test_billing_usage_response_ignores_future_fields(event_info: dict[str, obje
     assert "new_event_field" not in serialized["data"][0]
     assert "new_quantity" not in serialized["data"][0]["event_info"]
     assert "new_session_field" not in serialized["sessions"]["session-1"]
+    if event_info["type"] == "storage":
+        assert serialized["data"][0]["event_info"]["free"] is event_info.get("free", False)

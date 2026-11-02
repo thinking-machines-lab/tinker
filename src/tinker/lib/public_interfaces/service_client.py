@@ -20,6 +20,7 @@ from tinker._types import NoneType
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.console_urls import session_console_url, sessions_console_url
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@with_sdk_method_telemetry
 class ServiceClient(TelemetryProvider):
     """The ServiceClient is the main entry point for the Tinker API. It provides methods to:
     - Query server capabilities and health status

@@ -27,6 +27,7 @@ from ._utils import get_async_library, is_given
 from ._version import __version__
 from .lib._auth_token_provider import AuthTokenProvider, resolve_auth_provider
 from .lib.base_url import resolve_base_url
+from .lib.sdk_method import current_sdk_method_headers
 from .types.client_config_response import ClientConfigResponse
 
 if TYPE_CHECKING:
@@ -163,6 +164,7 @@ class AsyncTinker(AsyncAPIClient):
         return {
             **super().default_headers,
             "X-Stainless-Async": f"async:{get_async_library()}",
+            **current_sdk_method_headers(),
             **self._custom_headers,
         }
 

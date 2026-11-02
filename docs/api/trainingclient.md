@@ -558,7 +558,8 @@ Async version of create_sampling_client.
 def save_weights_and_get_sampling_client(
         name: str | None = None,
         retry_config: RetryConfig | None = None,
-        record_stability_info: bool = False) -> SamplingClient
+        record_stability_info: bool = False,
+        kind: types.SamplingClientKind = "snapshot") -> SamplingClient
 ```
 
 Save current weights and create a SamplingClient for inference.
@@ -566,9 +567,13 @@ Save current weights and create a SamplingClient for inference.
 Args:
 - `name`: Deprecated, has no effect. Will be removed in a future release.
 - `retry_config`: Optional configuration for retrying failed requests
+- `kind`: `snapshot` (default) captures fixed weights. `inflight` publishes
+  mutable weights shared by this training model's inflight sampling clients.
+
+See `types.SamplingClientKind` for the snapshot and inflight sampling contracts.
 
 Returns:
-- `SamplingClient` configured with the current model weights
+- `SamplingClient` using the saved snapshot or shared inflight weights
 
 Example:
 ```python
@@ -581,13 +586,29 @@ params = types.SamplingParams(max_tokens=20)
 result = sampling_client.sample(prompt, 1, params).result()
 ```
 
+Inflight example:
+```python
+# Publish W1 and use sampler_a for the rollouts starting now.
+sampler_a = training_client.save_weights_and_get_sampling_client(kind="inflight")
+
+# ... train further ...
+
+# Publish W2 and give sampler_b to newly starting rollouts.
+sampler_b = training_client.save_weights_and_get_sampling_client(kind="inflight")
+
+# sampler_b requires W2 or newer and has a fresh KV namespace.
+# sampler_a keeps its namespace and can adopt W2 as it propagates.
+# Until then, sampler_a can still use a replica serving W1.
+```
+
 #### `save_weights_and_get_sampling_client_async`
 
 ```python
 async def save_weights_and_get_sampling_client_async(
         name: str | None = None,
         retry_config: RetryConfig | None = None,
-        record_stability_info: bool = False) -> SamplingClient
+        record_stability_info: bool = False,
+        kind: types.SamplingClientKind = "snapshot") -> SamplingClient
 ```
 
 Async version of save_weights_and_get_sampling_client.

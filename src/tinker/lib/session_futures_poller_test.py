@@ -29,12 +29,14 @@ class _FakeFutures:
         self._responses = list(responses)
         self.seen_cursors: list[int] = []
         self.seen_retrieved: list[list[str]] = []
+        self.seen_timeouts: list[float | None] = []
 
     async def retrieve_multi(
         self, *, request: FuturesRetrieveRequest, timeout: float, max_retries: int
     ) -> FuturesRetrieveResponse:
         self.seen_cursors.append(request.prev_cursor)
         self.seen_retrieved.append(request.retrieved_request_ids)
+        self.seen_timeouts.append(request.timeout)
         if self._responses:
             item = self._responses.pop(0)
             if isinstance(item, Exception):
@@ -111,6 +113,7 @@ async def test_wait_for_blocks_until_a_later_poll_completes_it() -> None:
         [
             FuturesRetrieveResponse(completions=[], cursor=0),
             _resp("s:sample:0:2", cursor=5),
+            FuturesRetrieveResponse(completions=[], cursor=5),
         ]
     )
     holder = _FakeHolder(_FakeClient(futures))
@@ -122,10 +125,18 @@ async def test_wait_for_blocks_until_a_later_poll_completes_it() -> None:
     try:
         completion = await asyncio.wait_for(poller.wait_for("s:sample:0:2"), timeout=5)
         assert completion.request_id == "s:sample:0:2"
-        # Two polls, both at cursor 0; the loop then idles (no waiter left)
-        # rather than issuing a third poll at the advanced cursor.
-        assert futures.seen_cursors == [0, 0]
         assert poller._cursor == 5
+        # Two long polls at cursor 0, then — with no waiter left — one
+        # immediate-return poll reporting the advanced cursor, then idle.
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if poller._acked_cursor == 5:
+                break
+        assert futures.seen_cursors == [0, 0, 5]
+        assert futures.seen_timeouts == [None, None, 0]
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert len(futures.seen_cursors) == 3  # idle after the ack
     finally:
         poller.close()
 
@@ -335,10 +346,16 @@ async def test_idles_until_a_waiter_registers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_further_poll_after_last_request_completes() -> None:
-    # Once the only waiter is served, the loop must idle rather than issue
-    # another long poll — even with a second response queued and ready.
-    futures = _FakeFutures([_resp("s:sample:0:1", cursor=1), _resp("s:sample:0:2", cursor=2)])
+async def test_single_ack_only_poll_after_last_request_completes() -> None:
+    # Once the only waiter is served, the loop sends exactly one
+    # immediate-return poll reporting the new cursor, then idles — no long
+    # poll for completions that cannot arrive.
+    futures = _FakeFutures(
+        [
+            _resp("s:sample:0:1", cursor=1),
+            FuturesRetrieveResponse(completions=[], cursor=1),
+        ]
+    )
     holder = _FakeHolder(_FakeClient(futures))
     poller = SessionFuturesPoller(
         holder,  # type: ignore[arg-type]
@@ -348,17 +365,31 @@ async def test_no_further_poll_after_last_request_completes() -> None:
     try:
         completion = await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
         assert completion.request_id == "s:sample:0:1"
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if poller._acked_cursor == 1:
+                break
+        assert futures.seen_cursors == [0, 1]
+        assert futures.seen_timeouts == [None, 0]
         # Give the loop ample chances to (wrongly) poll again.
         for _ in range(20):
             await asyncio.sleep(0)
-        assert futures.seen_cursors == [0]  # exactly one poll, then idle
+        assert len(futures.seen_cursors) == 2  # idle after the ack
     finally:
         poller.close()
 
 
 @pytest.mark.asyncio
 async def test_retrieved_ids_sent_once_after_success() -> None:
-    futures = _FakeFutures([_resp("s:sample:0:1", cursor=1), _resp("s:sample:0:2", cursor=2)])
+    # The cursor ack rides its own immediate poll before mark_retrieved lands;
+    # the retrieved id then rides the next poll, once.
+    futures = _FakeFutures(
+        [
+            _resp("s:sample:0:1", cursor=1),
+            FuturesRetrieveResponse(completions=[], cursor=1),
+            FuturesRetrieveResponse(completions=[], cursor=1),
+        ]
+    )
     holder = _FakeHolder(_FakeClient(futures))
     poller = SessionFuturesPoller(
         holder,  # type: ignore[arg-type]
@@ -367,20 +398,36 @@ async def test_retrieved_ids_sent_once_after_success() -> None:
     )
     try:
         await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if poller._acked_cursor == 1:
+                break
         poller.mark_retrieved("s:sample:0:1")
-        await asyncio.wait_for(poller.wait_for("s:sample:0:2"), timeout=5)
-        poller.mark_retrieved("s:sample:0:2")
-        # The ack alone wakes the idle loop; it blocks in the third (empty) poll.
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if not poller._retrieved:
+                break
+        assert futures.seen_retrieved == [[], [], ["s:sample:0:1"]]
+        # Reported and cleared: the loop idles rather than re-sending.
         for _ in range(20):
             await asyncio.sleep(0)
-        assert futures.seen_retrieved == [[], ["s:sample:0:1"], ["s:sample:0:2"]]
+        assert len(futures.seen_retrieved) == 3
     finally:
         poller.close()
 
 
 @pytest.mark.asyncio
 async def test_retrieved_ids_resent_after_failed_poll() -> None:
-    futures = _FakeFutures([_resp("s:sample:0:1", cursor=1), _status_error(500)])
+    # The trailing cursor ack fails retryably; by the retry the retrieved id
+    # is queued and rides every attempt until one succeeds.
+    futures = _FakeFutures(
+        [
+            _resp("s:sample:0:1", cursor=1),
+            _status_error(500),
+            _status_error(500),
+            FuturesRetrieveResponse(completions=[], cursor=1),
+        ]
+    )
     holder = _FakeHolder(_FakeClient(futures))
     poller = SessionFuturesPoller(
         holder,  # type: ignore[arg-type]
@@ -390,11 +437,164 @@ async def test_retrieved_ids_resent_after_failed_poll() -> None:
     try:
         await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
         poller.mark_retrieved("s:sample:0:1")
-        # The retryable failure backs off ~1s before resending.
+        # Each retryable failure backs off ~1s before resending.
         for _ in range(100):
-            if len(futures.seen_retrieved) >= 3:
+            if len(futures.seen_retrieved) >= 4:
                 break
             await asyncio.sleep(0.05)
-        assert futures.seen_retrieved == [[], ["s:sample:0:1"], ["s:sample:0:1"]]
+        assert futures.seen_retrieved == [[], [], ["s:sample:0:1"], ["s:sample:0:1"]]
+    finally:
+        poller.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_sends_final_ack() -> None:
+    # The loop normally delivers the trailing ack itself; the cancellation
+    # handler covers a poller cancelled before its loop got to run (set up
+    # here by advancing the cursor directly while the loop idles).
+    futures = _FakeFutures([FuturesRetrieveResponse(completions=[], cursor=1)])
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    # Let the task start and park on its idle wait; a task cancelled before
+    # its first step never runs its cancellation handler at all.
+    await asyncio.sleep(0)
+    poller._cursor = 1
+    poller.close()
+    with pytest.raises(asyncio.CancelledError):
+        await poller._task
+    assert futures.seen_cursors == [1]
+    assert futures.seen_timeouts == [0]
+
+
+@pytest.mark.asyncio
+async def test_cancel_skips_ack_when_nothing_unreported() -> None:
+    futures = _FakeFutures([])
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    await asyncio.sleep(0)
+    poller.close()
+    with pytest.raises(asyncio.CancelledError):
+        await poller._task
+    assert futures.seen_cursors == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_ack_carries_retrieved_ids_and_swallows_errors() -> None:
+    # The final ack is one best-effort shot: a failure is swallowed (the task
+    # still ends cancelled) and the TTLs remain the backstop.
+    futures = _FakeFutures([_status_error(500)])
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    await asyncio.sleep(0)
+    poller._cursor = 1
+    poller._retrieved.add("s:sample:0:1")
+    poller.close()
+    with pytest.raises(asyncio.CancelledError):
+        await poller._task
+    assert futures.seen_cursors == [1]
+    assert futures.seen_retrieved == [["s:sample:0:1"]]
+    assert futures.seen_timeouts == [0]
+
+
+@pytest.mark.asyncio
+async def test_cancel_ack_fires_for_late_retrieved_id_at_acked_cursor() -> None:
+    # Two completions share one poll, so retrieving the second does not move
+    # the cursor. If it is marked retrieved and the poller is cancelled before
+    # the loop runs again, the cancellation ack must still report it rather
+    # than skip on the acked cursor.
+    futures = _FakeFutures(
+        [
+            FuturesRetrieveResponse(
+                completions=[
+                    FutureFinished(request_id="s:sample:0:1", response_payload_uncompressed_size=1),
+                    FutureFinished(request_id="s:sample:0:2", response_payload_uncompressed_size=1),
+                ],
+                cursor=2,
+            ),
+            FuturesRetrieveResponse(completions=[], cursor=2),
+            FuturesRetrieveResponse(completions=[], cursor=2),
+            FuturesRetrieveResponse(completions=[], cursor=2),
+        ]
+    )
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    try:
+        await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
+        await asyncio.wait_for(poller.wait_for("s:sample:0:2"), timeout=5)
+        # The cursor ack and the first result's retrieved ack ride the loop's
+        # own immediate polls.
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if poller._acked_cursor == 2:
+                break
+        poller.mark_retrieved("s:sample:0:1")
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if not poller._retrieved:
+                break
+        assert futures.seen_cursors == [0, 2, 2]
+        # The second result is retrieved and the poller cancelled before the
+        # loop runs again: the cancellation ack must carry the id.
+        poller.mark_retrieved("s:sample:0:2")
+        poller.close()
+        with pytest.raises(asyncio.CancelledError):
+            await poller._task
+        assert futures.seen_cursors == [0, 2, 2, 2]
+        assert futures.seen_retrieved[-1] == ["s:sample:0:2"]
+    finally:
+        poller.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_ack_noop_when_loop_delivered_everything() -> None:
+    # The loop's own immediate polls deliver the cursor ack and then the
+    # retrieved id — the cancellation ack must then skip rather than
+    # duplicate them.
+    futures = _FakeFutures(
+        [
+            _resp("s:sample:0:1", cursor=1),
+            FuturesRetrieveResponse(completions=[], cursor=1),
+            FuturesRetrieveResponse(completions=[], cursor=1),
+        ]
+    )
+    holder = _FakeHolder(_FakeClient(futures))
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    try:
+        await asyncio.wait_for(poller.wait_for("s:sample:0:1"), timeout=5)
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if poller._acked_cursor == 1:
+                break
+        poller.mark_retrieved("s:sample:0:1")
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if not poller._retrieved:
+                break
+        assert futures.seen_cursors == [0, 1, 1]
+        assert futures.seen_retrieved == [[], [], ["s:sample:0:1"]]
+        poller.close()
+        with pytest.raises(asyncio.CancelledError):
+            await poller._task
+        assert futures.seen_cursors == [0, 1, 1]  # no extra request
     finally:
         poller.close()

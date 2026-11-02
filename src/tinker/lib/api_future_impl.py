@@ -278,6 +278,12 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                     # way its payloads are no longer needed server-side.
                     if isinstance(fetched, _Failed):
                         self._mark_retrieved()
+                        # Queue state only arrives on try-again polls, so a pause that
+                        # ends with the request finishing never reports ACTIVE on its own.
+                        if self._queue_state_observer is not None:
+                            self._queue_state_observer.on_queue_state_change(
+                                QueueState.ACTIVE, None
+                            )
                     result = await self._handle_outcome(
                         fetched, state, stack, iteration, start_time
                     )
@@ -285,6 +291,8 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
                         # Business-level retry (try_again / metadata-only peek).
                         continue
                     self._mark_retrieved()
+                    if self._queue_state_observer is not None:
+                        self._queue_state_observer.on_queue_state_change(QueueState.ACTIVE, None)
                     return result
         except asyncio.CancelledError:
             # Polling was abandoned; tell the server to stop the sampling work

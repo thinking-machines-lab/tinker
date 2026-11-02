@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from tinker._exceptions import APIStatusError, TinkerError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
+from tinker.lib.sdk_method import context_without_sdk_method
 from tinker.types.future_completion import FutureCompletion
 from tinker.types.futures_retrieve_request import (
     FuturesRetrieveRequest,
@@ -17,6 +18,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Client-side HTTP timeout for ack-only polls (timeout=0: the server returns
+# after one read).
+_ACK_POLL_HTTP_TIMEOUT_SEC = 5.0
 # Client-side timeout for one retrieve_futures poll. The server long-polls up to
 # ~30s, so this must comfortably exceed that.
 _POLL_HTTP_TIMEOUT_SEC = 45.0
@@ -49,7 +53,14 @@ class SessionFuturesPoller:
         self._holder = holder
         self._sampling_session_id = sampling_session_id
         self._cloned_sampler_id = cloned_sampler_id
+        self._target = SamplingSessionFuturesTarget(
+            sampling_session_id=sampling_session_id,
+            cloned_sampler_id=cloned_sampler_id,
+        )
         self._cursor = 0
+        # Highest cursor a completed request has reported; ack_flush covers
+        # anything newer.
+        self._acked_cursor = 0
         # request_id -> event fired once the request is known complete.
         self._events: dict[str, asyncio.Event] = {}
         # request_id -> its completion metadata, kept until a waiter consumes it.
@@ -64,7 +75,9 @@ class SessionFuturesPoller:
         # so it can idle instead of long-polling while no requests are active.
         self._has_work: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task[None] = asyncio.create_task(
-            self._poll_loop(), name="tinker_session_futures_poller"
+            self._poll_loop(),
+            name="tinker_session_futures_poller",
+            context=context_without_sdk_method(),
         )
         holder.track_futures_poller_task(self._task)
 
@@ -122,34 +135,50 @@ class SessionFuturesPoller:
             event.set()
 
     async def _poll_loop(self) -> None:
-        target = SamplingSessionFuturesTarget(
-            sampling_session_id=self._sampling_session_id,
-            cloned_sampler_id=self._cloned_sampler_id,
-        )
+        target = self._target
         bad_request_retries = 0
+        # Set once the task is cancelled: the loop runs one last ack-only
+        # poll for anything not yet reported, then re-raises it.
+        cancelled: asyncio.CancelledError | None = None
         while True:
-            # Idle while no request is waiting and nothing is left to report,
-            # rather than long-polling for completions that cannot arrive;
-            # wait_for and mark_retrieved wake us.
-            if not self._events and not self._retrieved:
-                self._has_work.clear()
-                await self._has_work.wait()
-            retrieved = set(self._retrieved)
             try:
+                # Idle while no request is waiting and nothing is left to
+                # report, rather than long-polling for completions that cannot
+                # arrive; wait_for and mark_retrieved wake us, and the cursor
+                # and acks only move inside this loop, so no wake-up is lost.
+                if (
+                    not cancelled
+                    and not self._events
+                    and not self._retrieved
+                    and self._cursor <= self._acked_cursor
+                ):
+                    self._has_work.clear()
+                    await self._has_work.wait()
+                retrieved = set(self._retrieved)
+                # With no waiter this poll only reports acks: ask for an
+                # immediate return instead of holding the long poll.
+                ack_only = cancelled or not self._events
                 request = FuturesRetrieveRequest(
                     target=target,
                     prev_cursor=self._cursor,
+                    timeout=0 if ack_only else None,
                     retrieved_request_ids=sorted(retrieved),
                 )
                 with self._holder.aclient(ClientConnectionPoolType.RETRIEVE_FUTURES) as client:
                     response = await client.futures.retrieve_multi(
                         request=request,
-                        timeout=_POLL_HTTP_TIMEOUT_SEC,
+                        timeout=_ACK_POLL_HTTP_TIMEOUT_SEC if ack_only else _POLL_HTTP_TIMEOUT_SEC,
                         max_retries=0,
                     )
-            except asyncio.CancelledError:
-                raise
+            except asyncio.CancelledError as e:
+                if cancelled or (self._cursor <= self._acked_cursor and not self._retrieved):
+                    raise
+                cancelled = e
+                continue
             except Exception as e:
+                if cancelled:
+                    # The final ack is one best-effort shot.
+                    raise cancelled from None
                 # While billing is paused, retry silently until the holder's
                 # max-pause window is exceeded, at which point
                 # _should_pause_on_billing returns False and we fall through.
@@ -183,9 +212,16 @@ class SessionFuturesPoller:
                 self._fail(message)
                 return
 
+            if cancelled:
+                # The final ack went out; finish dying.
+                raise cancelled
+
             # A completed round-trip clears the transient-400 budget.
             bad_request_retries = 0
             self._retrieved -= retrieved
+            # Only a completed send counts as reported; the loop (or the
+            # cancellation ack) retries anything less.
+            self._acked_cursor = max(self._acked_cursor, request.prev_cursor)
             self._cursor = response.cursor
             for completion in response.completions:
                 self._completions[completion.request_id] = completion
@@ -197,5 +233,5 @@ class SessionFuturesPoller:
                     event.set()
 
     def close(self) -> None:
-        """Cancel the background poll task (best effort)."""
+        """Cancel the poll task; its cancellation handler sends the final ack."""
         self._task.cancel()

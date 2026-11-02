@@ -22,6 +22,7 @@ import tinker
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 from tinker.types._pydantic_types.tensor_data import TensorData as _TensorDataModel
@@ -174,6 +175,7 @@ def _check_prompt_logprobs_last_n_honored(
         )
 
 
+@with_sdk_method_telemetry
 class SamplingClient(TelemetryProvider, QueueStateObserver):
     """Client for text generation and inference from trained or base models.
 

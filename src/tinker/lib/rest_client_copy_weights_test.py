@@ -66,7 +66,11 @@ def transport() -> Iterator[_Transport]:
             )
         assert request.method == "POST"
         assert request.url.path == "/api/v1/copy_weights"
-        assert request.headers["x-sdk-method"] == "copy_weights"
+        assert request.headers["x-sdk-method"] in {
+            "RestClient.copy_weights",
+            "RestClient.copy_weights_async",
+            "ServiceClient.copy_weights",
+        }
         assert request.headers["x-sdk-version"] == tinker_sdk_version
         assert uuid.UUID(request.headers["X-Idempotency-Key"]).version == 4
         if failures:
@@ -286,7 +290,7 @@ def test_secret_post_headers_bypass_options_logging(
     _, holder, requests, _ = transport
     caplog.set_level(logging.DEBUG, logger="tinker")
     headers = {
-        "x-sdk-method": "copy_weights",
+        "x-sdk-method": "RestClient.copy_weights",
         "x-sdk-version": tinker_sdk_version,
         "X-Idempotency-Key": str(uuid.uuid4()),
         "X-Public-Request": "public-request-value",
