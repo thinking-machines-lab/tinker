@@ -364,7 +364,7 @@ def test_sampling_client_pickle_roundtrip_without_env_var(
 
     monkeypatch.setenv("TINKER_API_KEY", "tml-key-from-env")
     holder = _make_holder(api_key=None)
-    client = SamplingClient(holder, sampling_session_id="samp-1")
+    client = SamplingClient(holder, sampling_session_id="samp-1", base_model="base")
 
     payload = pickle.dumps(client)
 
@@ -401,7 +401,9 @@ def test_sampling_client_sampler_handle_uses_restoring_process_credentials(
     monkeypatch.setenv("CLOUDFLARE_ACCESS_CLIENT_SECRET", "cf-sender-secret")
     monkeypatch.setenv("TINKER_BASE_URL", "https://sender.test")
     holder = _make_holder(default_headers_overrides={"X-Tenant-Id": "t"})
-    client = SamplingClient(holder, sampling_session_id="samp-1", record_stability_info=True)
+    client = SamplingClient(
+        holder, sampling_session_id="samp-1", base_model="base", record_stability_info=True
+    )
 
     handle = client.get_sampler_handle()
     decoded = base64.urlsafe_b64decode(handle)

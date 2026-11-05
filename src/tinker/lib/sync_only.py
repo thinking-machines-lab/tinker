@@ -1,8 +1,8 @@
 """
-Decorator to prevent synchronous methods from being called in async contexts.
+Decorator for methods that block on the SDK's event loop.
 
-This helps users avoid a common footgun where calling sync methods from async code
-can cause deadlocks and performance issues.
+Calling one from async code blocks that code's event loop; calling one on the SDK's own
+event loop waits on itself forever, so that is refused.
 """
 
 import asyncio
@@ -10,6 +10,8 @@ import logging
 import traceback
 from functools import wraps
 from typing import Any, Callable, TypeVar
+
+from .public_interfaces.api_future import APIFuture
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +36,16 @@ def is_in_async_context() -> bool:
     return True
 
 
+def _is_on_sdk_loop() -> bool:
+    from .internal_client_holder import _internal_client_holder_thread_singleton
+
+    return asyncio.get_running_loop() is _internal_client_holder_thread_singleton.loop_if_started()
+
+
 def make_error_message(  # noqa: UP047
     func: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> str:
-    # If we get here, we're in an async context - this is bad!
     method_name = func.__name__
-    async_method_name = f"{method_name}_async"
 
     # Get the class name for a better error message
     class_name = ""
@@ -48,25 +54,38 @@ def make_error_message(  # noqa: UP047
 
     return (
         f"Synchronous method '{class_name}{method_name}()' called from async context. "
-        f"Use '{class_name}{async_method_name}()' instead.\n"
-        f"Calling sync methods from async code can cause deadlocks and performance issues."
+        "It blocks the event loop until the result arrives; await the future instead "
+        "(`await future`, or `await future.result_async()`)."
     )
 
 
+def _is_finished_future(args: tuple[Any, ...]) -> bool:
+    """A finished future's result never waits, so it may be read anywhere, the SDK's own
+    loop included: done callbacks run there."""
+    future = args[0] if args else None
+    return isinstance(future, APIFuture) and future.future().done()
+
+
 def sync_only(func: Callable[..., T]) -> Callable[..., T]:  # noqa: UP047
-    """Decorator to ensure a method is only called from sync context.
+    """Decorator for a method that blocks until a result arrives from the SDK's event loop.
 
-    This helps prevent a common footgun where users accidentally call
-    sync methods from async code, which can cause deadlocks and performance issues.
-
-    Assumes (in error message) that the wrapped method has a corresponding method name
-    {method_name}_async.
+    Called from async code, the method logs a warning: it blocks that code's event loop.
+    Called on the SDK's own event loop, it raises instead, since it would wait on itself
+    forever. On a future that has already finished, the method returns at once and may be
+    called anywhere.
     """
 
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> T:
-        if is_in_async_context() and not is_jupyter():
+        if is_in_async_context() and not _is_finished_future(args):
             error_message = make_error_message(func, args, kwargs)
+            if _is_on_sdk_loop():
+                raise RuntimeError(
+                    f"{error_message} This call is on the Tinker SDK's own event loop, "
+                    "where it would wait on itself forever."
+                )
+            if is_jupyter():
+                return func(*args, **kwargs)
             logger.warning(error_message)
             logger.warning(
                 f"===== Stack for calling sync from async ===== \n{traceback.format_stack()}\n ==========="

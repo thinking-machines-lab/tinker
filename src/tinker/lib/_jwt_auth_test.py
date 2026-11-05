@@ -7,6 +7,7 @@ import base64
 import json
 import time
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,6 +16,7 @@ import pytest
 
 from tinker._client import AsyncTinker
 from tinker._exceptions import APIConnectionError, AuthenticationError, TinkerError
+from tinker.lib import _jwt_auth
 from tinker.lib._auth_token_provider import (
     ApiKeyAuthProvider,
     AuthTokenProvider,
@@ -363,6 +365,64 @@ def test_refresh_timing_scales_with_lifetime(lifetime: int):
     now = time.time()
     jwt = _jwt_with_claims({"iat": now, "exp": now + lifetime})
     assert 0.45 * lifetime <= _refresh_delay(jwt) <= 0.55 * lifetime
+
+
+# ---------------------------------------------------------------------------
+# Background refresh after failures
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "stops"),
+    [
+        (
+            AuthenticationError(
+                "revoked", response=httpx.Response(401, request=_EXCHANGE_REQUEST), body=None
+            ),
+            True,
+        ),
+        (Exception("network error"), False),
+    ],
+)
+async def test_refresh_loop_stops_before_expiry_only_when_rejected(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, stops: bool
+):
+    """A rejected credential (401) stops the loop before the token expires. Any other
+    failure, such as an outage, keeps it retrying."""
+    now = [1_000_000.0]
+    exp = now[0] + 3600
+
+    async def fake_sleep(secs: float) -> None:
+        if now[0] > exp:
+            raise asyncio.CancelledError  # stands in for close() on a loop still retrying
+        now[0] += secs
+
+    monkeypatch.setattr(_jwt_auth, "time", SimpleNamespace(time=lambda: now[0]))
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    holder = _MockHolder("unused")
+    holder._cm.__enter__.return_value.service.auth_token.side_effect = error
+    token = _make_jwt(exp)
+    provider = _provider_with_token(holder.aclient, token)
+    provider._refresh_task = asyncio.create_task(provider._refresh_loop(token))
+    await provider._refresh_task
+
+    assert (now[0] < exp) == stops
+    # A stopped loop clears its task, so the next successful get_token() starts a new one.
+    assert (provider._refresh_task is None) == stops
+
+
+@pytest.mark.asyncio
+async def test_get_token_after_close_starts_no_refresh_loop():
+    """Shutdown sends the last telemetry batch after close(). If the loop had stopped,
+    a refresh then must not start a new loop, because nothing would cancel it."""
+    refreshed_jwt = _make_jwt(time.time() + 7200)
+    holder = _MockHolder(refreshed_jwt)
+    provider = _provider_with_token(holder.aclient, _make_jwt(time.time() + 30))
+    await provider.close()
+
+    assert await provider.get_token() == refreshed_jwt
+    assert provider._refresh_task is None
 
 
 # ---------------------------------------------------------------------------

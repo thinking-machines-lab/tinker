@@ -11,7 +11,7 @@ import click
 if TYPE_CHECKING:
     from tinker.types import SupportedModel
 
-from ..client import create_rest_client, create_service_client, handle_api_errors
+from ..client import create_rest_client, handle_api_errors
 from ..context import CLIContext
 from ..exceptions import TinkerCliError
 from ..output import OutputBase, format_bool, format_optional
@@ -57,8 +57,7 @@ def list_models(cli_context: CLIContext, substring: str | None) -> None:
     SUBSTRING keeps only the models whose name contains it, ignoring case.
     Pass the name in the Model column as base_model.
     """
-    service_client = create_service_client()
-    models = service_client.get_server_capabilities().supported_models
+    models = create_rest_client().get_server_capabilities().result().supported_models
     if substring is not None:
         models = [
             model

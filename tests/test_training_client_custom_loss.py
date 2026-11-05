@@ -23,6 +23,8 @@ from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
 from tinker.lib.public_interfaces.service_client import ServiceClient
 from tinker.lib.public_interfaces.training_client import TrainingClient, _get_custom_loss_loop
 
+from .fake_holders import training_info
+
 
 class _DummyHolder:
     _client_config = types.ClientConfigResponse()
@@ -98,7 +100,7 @@ def _service_client(session_id: str = "session", server_side: bool = False) -> S
 
 class _FakeTrainingClient(TrainingClient):
     def __init__(self):
-        super().__init__(_DummyHolder(), 0, "model")
+        super().__init__(_DummyHolder(), 0, "model", info=training_info("model"))
         self.forward_calls: list[
             tuple[list[types.Datum], types.LossFnType, dict[str, float] | None]
         ] = []
@@ -154,6 +156,7 @@ class _FakeTrainingClient(TrainingClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_supports_2d_cross_entropy_targets():
     client = _FakeTrainingClient()
     datum = types.Datum(
@@ -200,6 +203,7 @@ async def test_forward_backward_custom_supports_2d_cross_entropy_targets():
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_preserves_1d_cross_entropy_targets():
     client = _FakeTrainingClient()
     datum = types.Datum(
@@ -267,6 +271,7 @@ async def test_forward_backward_custom_preserves_1d_cross_entropy_targets():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_weights", [False, True])
 @pytest.mark.parametrize("extra_key", ["target_distribution", "advantages"])
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_filters_extra_loss_fn_inputs(
     with_weights: bool, extra_key: str
 ):
@@ -316,6 +321,7 @@ async def test_forward_backward_custom_filters_extra_loss_fn_inputs(
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_rejects_unsupported_loss_type_input():
     client = _FakeTrainingClient()
     datum = types.Datum(
@@ -349,6 +355,7 @@ def test_datum_rejects_ragged_nested_target_tokens():
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_requires_target_tokens():
     client = _FakeTrainingClient()
     datum = types.Datum(
@@ -375,6 +382,7 @@ async def test_forward_backward_custom_requires_target_tokens():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_weights", [False, True])
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_preserves_provenance_spans(with_weights: bool):
     """Both rebuilds (the weights-less forward datum and the linear-loss
     backward datum) must carry the spans; dropping them silently would strip
@@ -408,6 +416,7 @@ async def test_forward_backward_custom_preserves_provenance_spans(with_weights: 
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_forward_backward_custom_runs_a_custom_loss_like_the_callable():
     """A custom loss reads its inputs by name, runs per datum, and backpropagates the
     same gradient as the equivalent callable."""
@@ -655,12 +664,13 @@ class _PipelinedTrainingHolder(_CustomLossHolder):
     ("chunk_len", "chunk_bytes", "chunks"), [(128, 10000, 1), (2, 10000, 2), (128, 64, 3)]
 )
 @pytest.mark.parametrize("sync", [False, True])
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_custom_backward_precedes_pipelined_optimizer(
     parallel: bool, chunk_len: int, chunk_bytes: int, chunks: int, sync: bool
 ) -> None:
     """Submission returns before forward finishes and reserves every chunk ahead of the optimizer."""
     holder = _PipelinedTrainingHolder(parallel, chunk_len, chunk_bytes)
-    client = TrainingClient(holder, 0, "model")
+    client = TrainingClient(holder, 0, "model", info=training_info("model"))
     datum = types.Datum(
         model_input=types.ModelInput.from_ints([1, 2]),
         # Integer forward weights are larger than the float32 gradient weights.
@@ -723,6 +733,7 @@ async def test_custom_backward_precedes_pipelined_optimizer(
         ("cancel", asyncio.CancelledError),
     ],
 )
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_failed_custom_loss_poisons_training_client(
     parallel: bool, failure: str, expected_error: type[BaseException]
 ) -> None:
@@ -730,7 +741,7 @@ async def test_failed_custom_loss_poisons_training_client(
     holder = _PipelinedTrainingHolder(parallel, 1, 10000)
     # Debug mode catches waking holder-loop waiters from the custom-loss worker.
     holder.loop.call_soon_threadsafe(holder.loop.set_debug, True)
-    client = TrainingClient(holder, 0, "model")
+    client = TrainingClient(holder, 0, "model", info=training_info("model"))
     datum = types.Datum(
         model_input=types.ModelInput.from_ints([1, 2]),
         loss_fn_inputs={"target_tokens": [101, 102]},
@@ -798,10 +809,11 @@ async def test_failed_custom_loss_poisons_training_client(
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_custom_cancelled_before_start_poisons_training_client() -> None:
     """Cancelling an immediately returned future must not strand its unused reservations."""
     holder = _PipelinedTrainingHolder(False, 128, 10000)
-    client = TrainingClient(holder, 0, "model")
+    client = TrainingClient(holder, 0, "model", info=training_info("model"))
     paused: Future[None] = Future()
     release = threading.Event()
 
@@ -841,10 +853,13 @@ async def test_custom_cancelled_before_start_poisons_training_client() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_custom_loss_shares_worker_and_keeps_holder_loops_responsive() -> None:
     """Forward waits overlap, while loss and autograd leave API/heartbeat loops responsive."""
     holders = [_PipelinedTrainingHolder(False, 128, 10000) for _ in range(2)]
-    clients = [TrainingClient(holder, 0, "model") for holder in holders]
+    clients = [
+        TrainingClient(holder, 0, "model", info=training_info("model")) for holder in holders
+    ]
     caller_loop = asyncio.get_running_loop()
     worker_loops: set[asyncio.AbstractEventLoop] = set()
     datum = types.Datum(

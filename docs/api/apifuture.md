@@ -70,6 +70,35 @@ Returns:
 Raises:
     TimeoutError: If timeout is exceeded
 
+#### `future`
+
+```python
+def future() -> ConcurrentFuture[T]
+```
+
+The `concurrent.futures.Future` for this operation.
+
+For blocking code that works with standard futures: `concurrent.futures.wait`,
+`as_completed`, `add_done_callback`, or a library that takes a `Future`. Cancelling
+it cancels the operation. In async code, await this future instead.
+
+Returns:
+- A `concurrent.futures.Future` that completes with this future's result
+
+#### `coroutine`
+
+```python
+async def coroutine() -> T
+```
+
+This future as a coroutine, for APIs that take a coroutine rather than an awaitable,
+such as `asyncio.create_task`. Awaiting the coroutine awaits the future.
+
+Example:
+```python
+task = asyncio.create_task(sampling_client.sample(prompt, 1, params).coroutine())
+```
+
 ## `AwaitableConcurrentFuture` Objects
 
 ```python

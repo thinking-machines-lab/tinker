@@ -88,6 +88,11 @@ A file/directory name for the external weights (required)
 
 TTL in seconds for this checkpoint, 1 hour (3600) to 10 years (None = never expires)
 
+#### `age_encryption_recipients`
+
+age (filippo.io/age) recipients to encrypt every exported file to: native "age1..."
+keys or SSH public keys. Files are stored with a ".age" suffix (None = unencrypted).
+
 ## `GenericEvent` Objects
 
 ```python
@@ -127,7 +132,17 @@ Fully qualified function path for the loss function
 
 #### `loss_fn_config`
 
-Optional configuration parameters for the loss function (e.g., PPO clip thresholds, DPO beta)
+Optional configuration parameters for the loss function (e.g., PPO clip thresholds, StableReinforce kl_coeff)
+
+## `JoinSamplingSessionRequest` Objects
+
+```python
+class JoinSamplingSessionRequest(StrictBase)
+```
+
+#### `sampling_session_id`
+
+The existing sampling session to join
 
 ## `GetBillingUsageRequest` Objects
 
@@ -146,22 +161,6 @@ in the future
 
 Exclusive window end, aligned to a UTC hour boundary; at most 14 days
 after `starting_on`
-
-## `GetCurrentCheckpointStorageUsageRequest` Objects
-
-```python
-class GetCurrentCheckpointStorageUsageRequest(StrictBase)
-```
-
-HTTP query parameters sent by the SDK and CLI to the API server.
-
-Used by GET /api/v1/billing/usage/checkpoints/current; no JSON request body.
-With no parameters, returns checkpoint storage usage for the entire
-authenticated organization.
-
-#### `project_id`
-
-Only return checkpoints attributed to this project; omit for the entire org.
 
 Optimizer selection and per-step hyperparameters for training models.
 
@@ -277,6 +276,16 @@ spans tile ``loss_fn_inputs["target_tokens"]``. Tiling is validated
 here, so a miscounted partition fails at the call site rather than
 as a request error.
 
+## `CreateSessionRequest` Objects
+
+```python
+class CreateSessionRequest(StrictBase)
+```
+
+#### `display_name`
+
+Optional human-readable display name for the session. Does not need to be unique. Only used for display and search purposes.
+
 ## `WeightsInfoResponse` Objects
 
 ```python
@@ -284,6 +293,67 @@ class WeightsInfoResponse(BaseModel)
 ```
 
 Minimal information for loading public checkpoints.
+
+## `CurrentCheckpointStorageUsageItem` Objects
+
+```python
+class CurrentCheckpointStorageUsageItem(BaseModel)
+```
+
+HTTP/JSON response item returned by the API server to SDK and CLI consumers.
+
+Contains current active checkpoint storage attributed through its session.
+
+#### `project_id`
+
+Project currently associated with the checkpoint's session
+
+#### `org_user_urn`
+
+Organization-user URN of the checkpoint's session owner
+
+#### `user_email`
+
+Current email of the checkpoint's session owner
+
+#### `user_name`
+
+Current display name of the checkpoint's session owner
+
+#### `checkpoint_count`
+
+Number of active checkpoints
+
+#### `size_bytes`
+
+Current stored bytes
+
+#### `size_gigabytes`
+
+Current stored bytes converted to the storage billing unit
+
+#### `estimated_monthly_cost_usd`
+
+Projected gross 720-hour cost at the current storage rate
+
+## `CurrentCheckpointStorageUsageResponse` Objects
+
+```python
+class CurrentCheckpointStorageUsageResponse(BaseModel)
+```
+
+HTTP/JSON response returned by the API server to SDK and CLI consumers.
+
+Contains current checkpoint storage usage for the authenticated organization.
+Data can lag by 1-2 hours.
+
+#### `effective_rate_usd_per_gigabyte_month`
+
+Current gross storage rate used for projected costs
+
+#### `data`
+
+Storage grouped by project and session owner
 
 ## `CreateModelRequest` Objects
 
@@ -389,6 +459,22 @@ List of available model checkpoints for the model
 
 Pagination cursor information (None for unpaginated responses)
 
+#### `CustomLossInputRank`
+
+A custom loss input's rank: 0 is a scalar, 1 is ``[T]`` and 2 is ``[T, K]``.
+
+## `CustomLossInput` Objects
+
+```python
+class CustomLossInput(StrictBase)
+```
+
+One input of a custom loss, with the rank every datum's value has.
+
+#### `name`
+
+``logprobs``, or the ``loss_fn_inputs`` key the loss reads.
+
 ## `CreateSamplingSessionRequest` Objects
 
 ```python
@@ -460,6 +546,16 @@ class EncodedTextChunk(StrictBase)
 
 Array of token IDs
 
+## `CreateCustomLossResponse` Objects
+
+```python
+class CreateCustomLossResponse(BaseModel)
+```
+
+#### `loss_id`
+
+Names the stored loss in ``forward_backward`` requests of the same session.
+
 ## `LoadWeightsRequest` Objects
 
 ```python
@@ -503,6 +599,75 @@ restored optimizer state or an existing model.
 #### `weights_access_token`
 
 Optional access token for loading checkpoints under a different account.
+
+## `CustomLossNode` Objects
+
+```python
+class CustomLossNode(StrictBase)
+```
+
+One node of a traced custom loss, as torch.fx records it.
+
+#### `name`
+
+Unique within the graph; later nodes refer to this node by it.
+
+#### `target`
+
+The parameter name (placeholder), the function's qualified name (call_function,
+e.g. ``torch.exp`` or ``operator.mul``), the method or attribute name, or ``output``.
+
+#### `args`
+
+Encoded arguments; an output node's one argument is what the loss returns.
+JSON scalars and strings stand for themselves and lists for lists. Anything else
+is a one-key object: ``{"ref": name}`` for a node, ``{"tuple": [...]}``,
+``{"dict": {...}}``, ``{"slice": [start, stop, step]}``, ``{"ellipsis": true}``,
+``{"float": "inf"}`` (also ``"-inf"`` and ``"nan"``), ``{"dtype": "float32"}``,
+``{"device": "cpu"}``, ``{"layout": "strided"}`` or
+``{"memory_format": "contiguous_format"}``.
+
+#### `kwargs`
+
+Encoded keyword arguments, in the same form as ``args``.
+
+## `CustomLossGraph` Objects
+
+```python
+class CustomLossGraph(StrictBase)
+```
+
+A traced custom loss as plain data: its nodes in execution order. Nothing in it
+is executable until the server rebuilds it from its own list of allowed
+operations.
+
+#### `SamplingClientKind`
+
+Which weights a sampling client uses, sent in sampler-save requests to the API.
+
+- `snapshot` (default) captures fixed weights. Use it when inference must stay on
+  one saved set of weights.
+- `inflight` publishes mutable weights shared by this training model's inflight
+  sampling clients.
+
+Inflight sampling contract:
+
+- All inflight sampling clients for this training model refer to the same mutable
+  weights target. Later inflight saves update that target for both existing and
+  newly returned clients. Updates propagate asynchronously across serving replicas.
+- Save completion means the checkpoint is saved and the shared target is updated.
+  It does not wait for serving replicas to finish loading weights.
+- Samples generated with the returned client are guaranteed to run on samplers
+  using the weights saved when the client was created, or newer weights.
+- Each returned client represents a sampling session with a fresh KV-cache
+  namespace. Requests using that session, including serialized copies sent to
+  worker processes, can reuse matching cached prefixes when available. Different
+  inflight sessions do not share KV entries. A new save creates a new namespace
+  even if no optimizer step occurred between saves.
+- Publishing new weights does not clear an existing session's KV or change its
+  namespace. Active generation may span updates and use KV computed under earlier
+  weights. Outputs can depend on update timing even with the same prompt and seed.
+  Responses do not identify which saved weights produced each token.
 
 ## `SampleResponse` Objects
 
@@ -693,6 +858,42 @@ def serialize_dmel(value: bytes) -> str
 
 Serialize bytes to base64 string for JSON.
 
+## `ActiveSessionStatusQuery` Objects
+
+```python
+class ActiveSessionStatusQuery(StrictBase)
+```
+
+Sessions still running.
+
+## `CancelledSessionStatusQuery` Objects
+
+```python
+class CancelledSessionStatusQuery(StrictBase)
+```
+
+Sessions cancelled from the console.
+
+## `FailedSessionStatusQuery` Objects
+
+```python
+class FailedSessionStatusQuery(StrictBase)
+```
+
+Sessions failed by a request, training run or sampling session.
+
+## `ClientFinishedSessionStatusQuery` Objects
+
+```python
+class ClientFinishedSessionStatusQuery(StrictBase)
+```
+
+Sessions whose client reported it was done.
+
+#### `reasons`
+
+Match any listed client-reported finish reason; None matches every reason
+
 ## `PromptProvenanceSpan` Objects
 
 ```python
@@ -718,7 +919,7 @@ Position of the run within that request's prompt.
 
 #### `length`
 
-Number of consecutive tokens in this run (must be >= 1).
+Number of consecutive tokens in this run (must be >= 0).
 
 ## `SampledProvenanceSpan` Objects
 
@@ -744,7 +945,11 @@ Position of the run within that sequence's sampled tokens.
 
 #### `length`
 
-Number of covered tokens (must be >= 1).
+Number of covered tokens (must be >= 0).
+
+#### `ProvenanceSpans`
+
+Consecutive runs tiling one Datum field; see ``Datum.with_provenance``.
 
 ## `ClientDynamicConfigResponse` Objects
 
@@ -975,6 +1180,34 @@ def serialize_data(value: bytes) -> str
 
 Serialize bytes to base64 string for JSON.
 
+## `OwnSearchOwner` Objects
+
+```python
+class OwnSearchOwner(StrictBase)
+```
+
+The caller's own sessions.
+
+## `AccessibleSearchOwner` Objects
+
+```python
+class AccessibleSearchOwner(StrictBase)
+```
+
+Every owner's sessions.
+
+## `UserSearchOwner` Objects
+
+```python
+class UserSearchOwner(StrictBase)
+```
+
+The listed users' sessions.
+
+#### `owner_urns`
+
+Owner URNs to match (1 to 10)
+
 ## `Cursor` Objects
 
 ```python
@@ -1032,6 +1265,18 @@ This is only advisory: the tinker backend will compute the number of tokens
 from the image, and we can fail requests quickly if the tokens does not
 match expected_tokens.
 
+## `SessionSearchResponse` Objects
+
+```python
+class SessionSearchResponse(BaseModel)
+```
+
+One page of search results, newest first.
+
+#### `next_cursor`
+
+Pass as the next request's `cursor`; None once the results are exhausted
+
 ## `FuturesRetrieveResponse` Objects
 
 ```python
@@ -1066,11 +1311,39 @@ Telemetry event type
 
 Log severity level
 
+## `SessionSummary` Objects
+
+```python
+class SessionSummary(BaseModel)
+```
+
+#### `status`
+
+None when the session neither finished nor is known to be running
+
+## `GetCurrentCheckpointStorageUsageRequest` Objects
+
+```python
+class GetCurrentCheckpointStorageUsageRequest(StrictBase)
+```
+
+HTTP query parameters sent by the SDK and CLI to the API server.
+
+Used by GET /api/v1/billing/usage/checkpoints/current; no JSON request body.
+With no parameters, returns checkpoint storage usage for the entire
+authenticated organization.
+
+#### `project_id`
+
+Only return checkpoints attributed to this project; omit for the entire org
+
 ## `CopyWeightsRequest` Objects
 
 ```python
 class CopyWeightsRequest(StrictBase)
 ```
+
+Provide a destination project, or both a session ID and its model sequence ID.
 
 #### `session_id`
 
@@ -1079,6 +1352,10 @@ Session that will own the copy; the copy inherits its project.
 #### `model_seq_id`
 
 Training run slot within the session, as CreateModelRequest and LoadWeightsRequest use.
+
+#### `destination_project_id`
+
+Project that will own the copy when no session_id is provided.
 
 #### `source_path`
 
@@ -1206,6 +1483,16 @@ def tensor_container_dim(data: bytes, dim: int) -> int
 
 Read one dimension from a TensorContainer shape.
 
+## `JoinSamplingSessionResponse` Objects
+
+```python
+class JoinSamplingSessionResponse(BaseModel)
+```
+
+#### `client_counter`
+
+Server-allocated id, unique among the sampling session's clients (the original client is 0)
+
 ## `PromptAltTokens` Objects
 
 ```python
@@ -1267,34 +1554,6 @@ Response containing the server's supported models and capabilities.
 
 List of models available on the server.
 
-#### `SamplingClientKind`
-
-Which weights a sampling client uses, sent in sampler-save requests to the API.
-
-- `snapshot` (default) captures fixed weights. Use it when inference must stay on
-  one saved set of weights.
-- `inflight` publishes mutable weights shared by this training model's inflight
-  sampling clients.
-
-Inflight sampling contract:
-
-- All inflight sampling clients for this training model refer to the same mutable
-  weights target. Later inflight saves update that target for both existing and
-  newly returned clients. Updates propagate asynchronously across serving replicas.
-- Save completion means the checkpoint is saved and the shared target is updated.
-  It does not wait for serving replicas to finish loading weights.
-- Samples generated with the returned client are guaranteed to run on samplers
-  using the weights saved when the client was created, or newer weights.
-- Each returned client represents a sampling session with a fresh KV-cache
-  namespace. Requests using that session, including serialized copies sent to
-  worker processes, can reuse matching cached prefixes when available. Different
-  inflight sessions do not share KV entries. A new save creates a new namespace
-  even if no optimizer step occurred between saves.
-- Publishing new weights does not clear an existing session's KV or change its
-  namespace. Active generation may span updates and use KV computed under earlier
-  weights. Outputs can depend on update timing even with the same prompt and seed.
-  Responses do not identify which saved weights produced each token.
-
 ## `SaveWeightsForSamplerRequest` Objects
 
 ```python
@@ -1318,6 +1577,50 @@ Inflight saves omit this field.
 #### `user_metadata`
 
 Optional user-provided metadata to attach to the checkpoint
+
+## `SessionSearchRequest` Objects
+
+```python
+class SessionSearchRequest(StrictBase)
+```
+
+A session search. Results are restricted to projects the caller may list.
+
+#### `session_id`
+
+Exact session ID to match; None searches every session. With
+`display_name`, a session matching either one matches
+
+#### `project_ids`
+
+Projects to search; None searches every listable project. Naming a
+project the caller cannot list is an error
+
+#### `user_metadata`
+
+Exact user_metadata key/value matches; every pair must hold
+
+#### `display_name`
+
+Case-insensitive substring match on the display name; with several
+words, each must appear somewhere in the name. With `session_id`, a session
+matching either one matches
+
+#### `owner`
+
+Whose sessions to search; defaults to the caller's own
+
+#### `statuses`
+
+Match any listed status; None matches every status
+
+#### `limit`
+
+Page size, 1 to 200
+
+#### `cursor`
+
+`next_cursor` of the previous page; None for the first page
 
 ## `ClientConfigResponse` Objects
 
@@ -1370,14 +1673,6 @@ When true, the SDK builds its default httpx async client on top of the
 pyqwest (reqwest/hyper-based) transport adapter. Set to false server-side
 to force every client to fall back to httpx's default transport.
 
-#### `create_model_via_load_weights`
-
-When true, create_training_client_from_state* skips the weights_info
-and create_model round-trips and sends a single LoadWeightsRequest with
-session addressing (session_id + model_seq_id) that creates the model
-server-side, configured from the checkpoint's owning model. Requires a
-server with load-weights-first support.
-
 #### `sample_use_retrieve_futures`
 
 When true, each SamplingClient runs a single background task that polls
@@ -1386,6 +1681,37 @@ result future waits for that poller to signal its request complete (and
 carries the completion metadata) before doing the normal payload fetch,
 instead of polling ``/api/v1/retrieve_future`` per request. Requires a
 server exposing the retrieve_futures endpoint.
+
+#### `custom_loss_server_side`
+
+When true, ``ServiceClient.create_custom_loss`` uploads the traced loss
+(``/api/v1/create_custom_loss``) and ``forward_backward_custom`` runs it on the
+server by its loss id. When false, custom losses run client-side. Requires a
+server that stores and runs custom losses.
+
+#### `sample_join_sampling_session`
+
+When true, an unpickled SamplingClient asks the server for its clone id
+(``/api/v1/join_sampling_session``) before its first sample, instead of
+picking a random one, so clones of a sampling session never collide on
+request seq_ids. Requires a server exposing the join_sampling_session
+endpoint.
+
+## `SessionFailed` Objects
+
+```python
+class SessionFailed(BaseModel)
+```
+
+The session was failed by one of its requests, training runs or sampling sessions.
+
+## `ClientSessionFinished` Objects
+
+```python
+class ClientSessionFinished(BaseModel)
+```
+
+The session's client reported it was done.
 
 ## `CreateSamplingSessionResponse` Objects
 
@@ -1473,6 +1799,14 @@ its prefix cache. Requires ``prompt_logprobs``, and must be between 1 and
 ``len(prompt) - 1``; also applies to ``topk_prompt_logprobs``. None scores the whole
 prompt.
 
+#### `record_stability_info`
+
+If set to `true`, the server records stability information for each
+sampled sequence, referenced from training requests by the sequence's
+``sequence_id`` (StableReinforce training).
+
+Defaults to false.
+
 ## `TrainingBillingEvent` Objects
 
 ```python
@@ -1532,7 +1866,12 @@ Number of checkpoints in the bucket
 class StorageBillingEvent(BaseModel)
 ```
 
-Checkpoint storage, billed in gigabyte-hours.
+Checkpoint storage in the public HTTP/JSON usage response.
+
+#### `free`
+
+True for free storage; False for paid storage. Defaults to False for
+compatibility with responses from before the free-storage flag was added.
 
 #### `gigabyte_hours`
 
@@ -1656,67 +1995,6 @@ rate may still be None when the data required to price that row is
 unavailable. None means the response contains no completed day with invoice
 pricing data.
 
-## `CurrentCheckpointStorageUsageItem` Objects
-
-```python
-class CurrentCheckpointStorageUsageItem(BaseModel)
-```
-
-HTTP/JSON response item returned by the API server to SDK and CLI consumers.
-
-Contains current active checkpoint storage attributed through its session.
-
-#### `project_id`
-
-Project currently associated with the checkpoint's session.
-
-#### `org_user_urn`
-
-Organization-user URN of the checkpoint's session owner.
-
-#### `user_email`
-
-Current email of the checkpoint's session owner.
-
-#### `user_name`
-
-Current display name of the checkpoint's session owner.
-
-#### `checkpoint_count`
-
-Number of active checkpoints.
-
-#### `size_bytes`
-
-Current stored bytes.
-
-#### `size_gigabytes`
-
-Current stored bytes converted to the storage billing unit.
-
-#### `estimated_monthly_cost_usd`
-
-Projected gross 720-hour cost at the current storage rate.
-
-## `CurrentCheckpointStorageUsageResponse` Objects
-
-```python
-class CurrentCheckpointStorageUsageResponse(BaseModel)
-```
-
-HTTP/JSON response returned by the API server to SDK and CLI consumers.
-
-Contains current checkpoint storage usage for the authenticated organization.
-Data can lag by 1-2 hours.
-
-#### `effective_rate_usd_per_gigabyte_month`
-
-Current gross storage rate used for projected costs.
-
-#### `data`
-
-Storage grouped by project and session owner.
-
 ## `TrainingRun` Objects
 
 ```python
@@ -1802,6 +2080,24 @@ The following metrics are recorded only during MoE (Mixture of Experts) training
 - ``e_min_violation:mean``: How much the least loaded expert is below perfect
   balance, as a fraction of perfect balance, averaged across layers. Typically
   negative; decreasing (more negative) is concerning.
+
+## `SessionSearchCursor` Objects
+
+```python
+class SessionSearchCursor(BaseModel)
+```
+
+Where the next page starts; pass a response's `next_cursor` back unchanged.
+
+## `CreateCustomLossRequest` Objects
+
+```python
+class CreateCustomLossRequest(StrictBase)
+```
+
+#### `inputs`
+
+The graph's inputs in order, ``logprobs`` first, with their declared ranks.
 
 ## `AuditLogEntry` Objects
 

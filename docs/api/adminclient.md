@@ -3,6 +3,7 @@ AdminClient for Tinker API REST operations that need an admin role.
 ## `AdminClient` Objects
 
 ```python
+@with_sdk_method_telemetry
 class AdminClient(TelemetryProvider)
 ```
 
@@ -42,7 +43,7 @@ print(f"{len(usage.data)} billing events")
 def get_audit_log(
         event_type: Literal["all", "checkpoints", "projects", "teams",
                             "organizations"] = "all",
-        day: date | None = None) -> ConcurrentFuture[types.AuditLogResponse]
+        day: date | None = None) -> APIFuture[types.AuditLogResponse]
 ```
 
 Get an audit log of events for the caller's organization.
@@ -56,14 +57,15 @@ Args:
     midnight to midnight UTC.
 
 Returns:
-- A `Future` containing the `AuditLogResponse` with audit log entries
+- An `APIFuture` containing the `AuditLogResponse` with audit log entries.
+    Await it, or call `.result()`.
 
 Example:
 ```python
 from datetime import date
 
 future = admin_client.get_audit_log()
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Found {len(response.entries)} audit entries")
 for entry in response.entries:
     print(f"  {entry.timestamp}: {entry.event} {entry.event_details}")
@@ -81,14 +83,15 @@ async def get_audit_log_async(
         day: date | None = None) -> types.AuditLogResponse
 ```
 
-Async version of get_audit_log.
+Deprecated: use `await admin_client.get_audit_log(...)`; `get_audit_log()` returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `get_billing_usage`
 
 ```python
 def get_billing_usage(
-    starting_on: datetime | str, ending_before: datetime | str
-) -> ConcurrentFuture[types.BillingUsageResponse]
+        starting_on: datetime | str, ending_before: datetime | str
+) -> APIFuture[types.BillingUsageResponse]
 ```
 
 Get detailed billing usage for your organization.
@@ -99,7 +102,10 @@ project) lives on the envelope, and the usage-kind-specific payload
 is `event_info` — a union discriminated on `.type` (training /
 sampling_prefill / sampling_sample / checkpoint / storage). Each
 variant carries exactly the fields that apply (token_count, gigabyte_hours,
-count, the prefill cached flag). Session user_metadata comes once
+count, the prefill cached flag, the storage free flag). Free and paid
+storage are returned as separate events. Free storage has zero cost
+and rate once its completed-day invoice quantities reconcile, or as
+an estimate for the current day. Session user_metadata comes once
 per session in `response.sessions`, keyed by session_id. Token and
 storage events include `estimated_cost_usd`, an estimated gross usage
 cost before credits and commits, plus the applicable effective rate
@@ -131,7 +137,7 @@ Args:
   boundary; at most 14 days after `starting_on`
 
 Returns:
-- A `Future` containing the `BillingUsageResponse`
+- An `APIFuture` containing the `BillingUsageResponse`. Await it, or call `.result()`.
 
 Example:
 ```python
@@ -156,22 +162,24 @@ async def get_billing_usage_async(
         ending_before: datetime | str) -> types.BillingUsageResponse
 ```
 
-Async version of get_billing_usage.
+Deprecated: use `await admin_client.get_billing_usage(...)`; `get_billing_usage()` returns
+an `APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `get_current_checkpoint_storage_usage`
 
 ```python
 def get_current_checkpoint_storage_usage(
     project_id: str | None = None
-) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]
+) -> APIFuture[types.CurrentCheckpointStorageUsageResponse]
 ```
 
 Get current checkpoint count, size, and projected storage cost.
 
-With no arguments, returns checkpoint storage usage for the entire authenticated
-organization, grouped by project and session owner. Pass `project_id` to limit
-results to one project within that organization. Checkpoint usage data can lag
-by 1-2 hours. Projected costs use current publicly available rates, before credits and commits,
+With no arguments, returns checkpoint storage usage for the entire
+authenticated organization, grouped by project and session owner.
+Pass `project_id` to limit results to one project within that organization.
+Checkpoint usage data can lag by 1-2 hours. Projected costs use
+current publicly available rates, before credits and commits,
 and are not invoice amounts due.
 
 #### `get_current_checkpoint_storage_usage_async`
@@ -182,4 +190,6 @@ async def get_current_checkpoint_storage_usage_async(
 ) -> types.CurrentCheckpointStorageUsageResponse
 ```
 
-Async version of `get_current_checkpoint_storage_usage`.
+Deprecated: use `await admin_client.get_current_checkpoint_storage_usage(...)`;
+`get_current_checkpoint_storage_usage()` returns an `APIFuture` that can be awaited. This
+method will be removed in a subsequent release.

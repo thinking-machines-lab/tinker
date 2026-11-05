@@ -28,6 +28,8 @@ from .lib.experimental import ExperimentalWarning
 from .lib.public_interfaces import (
     AdminClient,
     APIFuture,
+    BackcompatSamplingClientFuture,
+    BackcompatTrainingClientFuture,
     LossHandle,
     PerDatumLossFn,
     RestClient,
@@ -71,8 +73,10 @@ from .types import (
 __all__ = [
     # Core clients
     "TrainingClient",
+    "BackcompatTrainingClientFuture",
     "ServiceClient",
     "SamplingClient",
+    "BackcompatSamplingClientFuture",
     "RestClient",
     "AdminClient",
     "APIFuture",

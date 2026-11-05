@@ -111,6 +111,7 @@ class JwtAuthProvider(AuthTokenProvider):
         self._aclient_fn = aclient_fn
         self._refresh_lock = asyncio.Lock()
         self._refresh_task: asyncio.Task[None] | None = None
+        self._closed = False
 
     async def async_auth_flow(
         self, request: httpx.Request
@@ -152,18 +153,20 @@ class JwtAuthProvider(AuthTokenProvider):
                 if _seconds_until_expiry(self._token) <= 0:
                     # No live token to fall back to: the request cannot be sent.
                     raise
-                # If the refresh fails, fall back to whatever we have.
-                # The background loop keeps trying; if the server is
-                # genuinely down the request will surface the error.
+                # If the refresh fails, fall back to the cached token until it
+                # expires; if the server rejects it, the request surfaces the error.
                 logger.warning("On-demand JWT refresh failed: %s", e)
                 return self._token
-            if self._refresh_task is None:
+            if self._refresh_task is None and not self._closed:
                 self._refresh_task = asyncio.create_task(
                     self._refresh_loop(token), context=context_without_sdk_method()
                 )
             return token
 
     async def close(self) -> None:
+        # get_token() still serves tokens after close, because shutdown sends the
+        # last telemetry batch. It does not start a new refresh loop.
+        self._closed = True
         if self._refresh_task is not None:
             self._refresh_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -202,6 +205,15 @@ class JwtAuthProvider(AuthTokenProvider):
             except asyncio.CancelledError:
                 return
             except Exception as e:
+                if isinstance(e, AuthenticationError) and (
+                    _seconds_until_expiry(self._token) - _RETRY_DELAY_SECS
+                    <= _REFRESH_ON_DEMAND_SECS
+                ):
+                    # Retry a rejected credential only until get_token() takes over near
+                    # expiry; its next successful refresh starts a new loop.
+                    logger.warning("JWT refresh rejected, stopping background refresh: %s", e)
+                    self._refresh_task = None
+                    return
                 log = logger.debug if failing else logger.warning
                 log("JWT refresh failed, retrying in %ds: %s", _RETRY_DELAY_SECS, e)
                 delay = _RETRY_DELAY_SECS

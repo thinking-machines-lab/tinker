@@ -35,7 +35,7 @@ def _make_client() -> SamplingClient:
     holder._client_config = holder.get_client_config.return_value
     holder.get_telemetry.return_value = None
     holder.run_coroutine_threadsafe = lambda coro: _Future(asyncio.ensure_future(coro))
-    return SamplingClient(holder, sampling_session_id="sampling-session-test")
+    return SamplingClient(holder, sampling_session_id="sampling-session-test", base_model="base")
 
 
 class _Future:
