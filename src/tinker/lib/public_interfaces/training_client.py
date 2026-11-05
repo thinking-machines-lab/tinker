@@ -29,6 +29,9 @@ from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.console_urls import training_run_console_url
 from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.public_interfaces.backcompat_sampling_client_future import (
+    BackcompatSamplingClientFuture,
+)
 from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
@@ -41,9 +44,11 @@ from ..api_future_impl import (
 from ..chunked_fwdbwd_helpers import combine_fwd_bwd_output_results
 from ..queue_state_logger import QueueStateLogger
 from ..retry_handler import RetryConfig
-from ..sync_only import sync_only
 from .custom_loss import LossHandle, check_loss_inputs, run_loss_handle
-from .sampling_client import SamplingClient, _load_tokenizer_from_model_info
+from .sampling_client import (
+    SamplingClient,
+    _load_tokenizer_from_model_info,
+)
 
 try:
     import torch
@@ -169,18 +174,26 @@ class TrainingClient(TelemetryProvider):
 
     Example:
     ```python
-    training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
+    training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen3-8B").result()
     fwdbwd_future = training_client.forward_backward(training_data, "cross_entropy")
     optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
     fwdbwd_result = fwdbwd_future.result()  # Wait for gradients
     optim_result = optim_future.result()    # Wait for parameter update
-    sampling_client = training_client.save_weights_and_get_sampling_client("my-model")
+    sampling_client = training_client.save_weights_and_get_sampling_client().result()
     ```
     """
 
-    def __init__(self, holder: InternalClientHolder, model_seq_id: int, model_id: types.ModelID):
+    def __init__(
+        self,
+        holder: InternalClientHolder,
+        model_seq_id: int,
+        model_id: types.ModelID,
+        *,
+        info: types.GetInfoResponse,
+    ):
         self.holder = holder
         self.model_id = model_id
+        self._info = info
 
         self._training_client_id: int = model_seq_id
 
@@ -318,13 +331,22 @@ class TrainingClient(TelemetryProvider):
             self._chunked_requests(data), loss_fn, loss_fn_config, forward_only=True
         )
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.forward_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use TrainingClient.forward(...) instead: it returns an "
+        "APIFuture at once. Submit the requests that follow before waiting: "
+        "`fwd_future = client.forward(...); ...; await fwd_future` (or `fwd_future.result()`).",
+        category=FutureWarning,
+    )
     async def forward_async(
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
         loss_fn_config: Mapping[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
-        """Async version of forward."""
+        """Deprecated: use `training_client.forward(...)`, which returns an `APIFuture` at once;
+        submit the requests that follow, then await the future or call `.result()` on it.
+        This method will be removed in a subsequent release."""
         return self.forward(data, loss_fn, loss_fn_config)
 
     def forward_backward(
@@ -440,13 +462,29 @@ class TrainingClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_run_async())
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.forward_backward_async() is deprecated and will be removed "
+        "in a future tinker SDK version. Use TrainingClient.forward_backward(...) instead: it "
+        "returns an APIFuture at once. Submit the optimizer step before waiting: "
+        "`fwd_bwd_future = client.forward_backward(...); optim_future = client.optim_step(...); "
+        "await fwd_bwd_future; await optim_future` (or `.result()` on each).",
+        category=FutureWarning,
+    )
     async def forward_backward_async(
         self,
         data: List[types.Datum],
         loss_fn: types.LossFnType,
         loss_fn_config: Mapping[str, float | str] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
-        """Async version of forward_backward."""
+        """Deprecated: use `training_client.forward_backward(...)`, which returns an `APIFuture`
+        at once. Submit the optimizer step before waiting:
+        ```python
+        fwd_bwd_future = training_client.forward_backward(data, "cross_entropy")
+        optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+        await fwd_bwd_future  # or fwd_bwd_future.result()
+        await optim_future  # or optim_future.result()
+        ```
+        This method will be removed in a subsequent release."""
         return self.forward_backward(data, loss_fn, loss_fn_config)
 
     def forward_backward_custom(
@@ -577,6 +615,15 @@ class TrainingClient(TelemetryProvider):
         future.future().add_done_callback(on_done)
         return future
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.forward_backward_custom_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use "
+        "TrainingClient.forward_backward_custom(...) instead: it returns an APIFuture at once. "
+        "Submit the optimizer step before waiting: `fwd_bwd_future = "
+        "client.forward_backward_custom(...); optim_future = client.optim_step(...); "
+        "await fwd_bwd_future; await optim_future` (or `.result()` on each).",
+        category=FutureWarning,
+    )
     async def forward_backward_custom_async(
         self,
         data: List[types.Datum],
@@ -584,7 +631,15 @@ class TrainingClient(TelemetryProvider):
         *,
         loss_type_input: Literal["logprobs"] | None = None,
     ) -> APIFuture[types.ForwardBackwardOutput]:
-        """Async version of forward_backward_custom."""
+        """Deprecated: use `training_client.forward_backward_custom(...)`, which returns an
+        `APIFuture` at once. Submit the optimizer step before waiting:
+        ```python
+        fwd_bwd_future = training_client.forward_backward_custom(data, custom_loss)
+        optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+        await fwd_bwd_future  # or fwd_bwd_future.result()
+        await optim_future  # or optim_future.result()
+        ```
+        This method will be removed in a subsequent release."""
         return self.forward_backward_custom(data, loss_fn, loss_type_input=loss_type_input)
 
     @staticmethod
@@ -784,13 +839,29 @@ class TrainingClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_optim_step_async())
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.optim_step_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use TrainingClient.optim_step(...) instead: it returns an "
+        "APIFuture at once. Submit it right after forward_backward, then wait for both: "
+        "`fwd_bwd_future = client.forward_backward(...); optim_future = client.optim_step(...); "
+        "await fwd_bwd_future; await optim_future` (or `.result()` on each).",
+        category=FutureWarning,
+    )
     async def optim_step_async(
         self,
         optim_params: types.OptimParams | None = None,
         *,
         adam_params: types.AdamParams | None = None,
     ) -> APIFuture[types.OptimStepResponse]:
-        """Async version of optim_step."""
+        """Deprecated: use `training_client.optim_step(...)`, which returns an `APIFuture` at
+        once. Submit it right after `forward_backward`, then wait for both:
+        ```python
+        fwd_bwd_future = training_client.forward_backward(data, "cross_entropy")
+        optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+        await fwd_bwd_future  # or fwd_bwd_future.result()
+        await optim_future  # or optim_future.result()
+        ```
+        This method will be removed in a subsequent release."""
         return self.optim_step(optim_params, adam_params=adam_params)
 
     def save_state(
@@ -857,6 +928,12 @@ class TrainingClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_save_state_async())
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.save_state_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use TrainingClient.save_state(...) instead: it returns an "
+        "APIFuture that can be awaited (`await TrainingClient.save_state(...)`).",
+        category=FutureWarning,
+    )
     async def save_state_async(
         self,
         name: str,
@@ -864,7 +941,8 @@ class TrainingClient(TelemetryProvider):
         overwrite: bool = False,
         user_metadata: dict[str, str] | None = None,
     ) -> APIFuture[types.SaveWeightsResponse]:
-        """Async version of save_state."""
+        """Deprecated: use `training_client.save_state(...)`, which returns an `APIFuture` that can
+        be awaited. This method will be removed in a subsequent release."""
         return self.save_state(
             name,
             ttl_seconds=ttl_seconds,
@@ -1095,13 +1173,22 @@ class TrainingClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_save_weights_for_sampler_async())
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.save_weights_for_sampler_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use "
+        "TrainingClient.save_weights_for_sampler(...) instead: it returns an APIFuture that can "
+        "be awaited (`await TrainingClient.save_weights_for_sampler(...)`).",
+        category=FutureWarning,
+    )
     async def save_weights_for_sampler_async(
         self,
         name: str,
         ttl_seconds: int | None = None,
         user_metadata: dict[str, str] | None = None,
     ) -> APIFuture[types.SaveWeightsForSamplerResponse]:
-        """Async version of save_weights_for_sampler."""
+        """Deprecated: use `training_client.save_weights_for_sampler(...)`, which returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent
+        release."""
         return self.save_weights_for_sampler(
             name,
             ttl_seconds=ttl_seconds,
@@ -1164,51 +1251,51 @@ class TrainingClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_save_weights_external_async())
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.save_weights_external_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use TrainingClient.save_weights_external(...) "
+        "instead: it returns an APIFuture that can be awaited (`await "
+        "TrainingClient.save_weights_external(...)`).",
+        category=FutureWarning,
+    )
     async def save_weights_external_async(
         self,
         name: str,
         ttl_seconds: int | None = None,
         age_encryption_recipients: list[str] | None = None,
     ) -> APIFuture[types.SaveWeightsExternalResponse]:
-        """Async version of save_weights_external."""
+        """Deprecated: use `training_client.save_weights_external(...)`, which returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent
+        release."""
         return self.save_weights_external(
             name, ttl_seconds=ttl_seconds, age_encryption_recipients=age_encryption_recipients
         )
 
-    def _get_info_submit(self) -> AwaitableConcurrentFuture[types.GetInfoResponse]:
-        @capture_exceptions(fatal=True)
-        async def _get_info_async():
-            async def _send_request():
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    request = types.GetInfoRequest(model_id=self._guaranteed_model_id())
-                    return await client.models.get_info(
-                        request=request,
-                    )
-
-            return await self.holder.execute_with_retries(_send_request)
-
-        return self.holder.run_coroutine_threadsafe(_get_info_async())
-
-    @sync_only
     def get_info(self) -> types.GetInfoResponse:
-        """Get information about the current model.
+        """Information about the model: its base model, LoRA configuration and optimizer.
 
-        Returns:
-        - `GetInfoResponse` with model configuration and metadata
+        Fetched once when the client was created, so this never waits on the server.
 
         Example:
         ```python
         info = training_client.get_info()
-        print(f"Model ID: {info.model_data.model_id}")
+        print(f"Model ID: {info.model_id}")
         print(f"Base model: {info.model_data.model_name}")
-        print(f"LoRA rank: {info.model_data.lora_rank}")
+        print(f"LoRA rank: {info.lora_rank}")
         ```
         """
-        return self._get_info_submit().result()
+        return self._info
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.get_info_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use TrainingClient.get_info() instead; it answers from the "
+        "client without a request.",
+        category=FutureWarning,
+    )
     async def get_info_async(self) -> types.GetInfoResponse:
-        """Async version of get_info."""
-        return await self._get_info_submit()
+        """Deprecated: use `training_client.get_info()`, which no longer waits on the server.
+        This method will be removed in a subsequent release."""
+        return self._info
 
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Get the tokenizer for the current model.
@@ -1223,14 +1310,16 @@ class TrainingClient(TelemetryProvider):
         text = tokenizer.decode(tokens)
         ```
         """
-        return _get_tokenizer(self._guaranteed_model_id(), self.holder)
+        model_name = self._info.model_data.model_name
+        assert model_name is not None, "This shouldn't happen: model_name is None"
+        return _load_tokenizer_from_model_info(model_name, self._info.model_data.tokenizer_id)
 
     def create_sampling_client(
         self,
         model_path: str,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
-    ) -> SamplingClient:
+    ) -> BackcompatSamplingClientFuture:
         """Create a SamplingClient from saved weights.
 
         Args:
@@ -1242,35 +1331,44 @@ class TrainingClient(TelemetryProvider):
             `sequence_id`, is session-scoped, and expires after inactivity.
 
         Returns:
-        - `SamplingClient` configured with the specified weights
+        - A future of the `SamplingClient` configured with the specified weights.
+            Await it, or call `.result()`.
 
         Example:
         ```python
         sampling_client = training_client.create_sampling_client(
             "tinker://run-id/weights/checkpoint-001"
-        )
+        ).result()
         # Use sampling_client for inference
         ```
         """
-        return SamplingClient.create(
-            self.holder,
-            model_path=model_path,
-            retry_config=retry_config,
-            record_stability_info=record_stability_info,
-        ).result()
+        return BackcompatSamplingClientFuture(
+            SamplingClient.create(
+                self.holder,
+                model_path=model_path,
+                retry_config=retry_config,
+                record_stability_info=record_stability_info,
+            )
+        )
 
+    @deprecated(
+        "DEPRECATED: TrainingClient.create_sampling_client_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use `await "
+        "TrainingClient.create_sampling_client(...)` instead; it returns a future of the client "
+        "that can be awaited.",
+        category=FutureWarning,
+    )
     async def create_sampling_client_async(
         self,
         model_path: str,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
     ) -> SamplingClient:
-        """Async version of create_sampling_client."""
-        return await SamplingClient.create(
-            self.holder,
-            model_path=model_path,
-            retry_config=retry_config,
-            record_stability_info=record_stability_info,
+        """Deprecated: use `await training_client.create_sampling_client(...)`, which returns a
+        future of the client that can be awaited. This method will be removed in a
+        subsequent release."""
+        return await self.create_sampling_client(
+            model_path, retry_config=retry_config, record_stability_info=record_stability_info
         )
 
     def save_weights_and_get_sampling_client(
@@ -1279,7 +1377,7 @@ class TrainingClient(TelemetryProvider):
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
         kind: types.SamplingClientKind = "snapshot",
-    ) -> SamplingClient:
+    ) -> BackcompatSamplingClientFuture:
         """Save current weights and create a SamplingClient for inference.
 
         Args:
@@ -1295,12 +1393,13 @@ class TrainingClient(TelemetryProvider):
         See `types.SamplingClientKind` for the snapshot and inflight sampling contracts.
 
         Returns:
-        - `SamplingClient` using the saved snapshot or shared inflight weights
+        - A future of the `SamplingClient` using the saved snapshot or shared inflight
+            weights. Await it, or call `.result()`.
 
         Example:
         ```python
         # After training, create a sampling client directly
-        sampling_client = training_client.save_weights_and_get_sampling_client()
+        sampling_client = training_client.save_weights_and_get_sampling_client().result()
 
         # Now use it for inference
         prompt = types.ModelInput.from_ints(tokenizer.encode("Hello"))
@@ -1334,15 +1433,28 @@ class TrainingClient(TelemetryProvider):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None, kind).result()
-        assert isinstance(sampling_session_id, str)
-        return SamplingClient.create(
-            self.holder,
-            sampling_session_id=sampling_session_id,
-            retry_config=retry_config,
-            record_stability_info=record_stability_info,
-        ).result()
+        save_future = self._save_weights_for_sampler_impl(None, None, None, kind)
 
+        async def _create_async() -> SamplingClient:
+            sampling_session_id = await save_future
+            assert isinstance(sampling_session_id, str)
+            return await SamplingClient.create(
+                self.holder,
+                sampling_session_id=sampling_session_id,
+                base_model=self._info.model_data.model_name,
+                retry_config=retry_config,
+                record_stability_info=record_stability_info,
+            )
+
+        return BackcompatSamplingClientFuture(self.holder.run_coroutine_threadsafe(_create_async()))
+
+    @deprecated(
+        "DEPRECATED: TrainingClient.save_weights_and_get_sampling_client_async() is deprecated "
+        "and will be removed in a future tinker SDK version. Use `await "
+        "TrainingClient.save_weights_and_get_sampling_client(...)` instead; it returns a future "
+        "of the client that can be awaited.",
+        category=FutureWarning,
+    )
     async def save_weights_and_get_sampling_client_async(
         self,
         name: str | None = None,
@@ -1350,25 +1462,11 @@ class TrainingClient(TelemetryProvider):
         record_stability_info: bool = False,
         kind: types.SamplingClientKind = "snapshot",
     ) -> SamplingClient:
-        """Async version of save_weights_and_get_sampling_client."""
-        if name is not None:
-            warnings.warn(
-                "The 'name' parameter of save_weights_and_get_sampling_client_async() is deprecated "
-                "and has no effect — checkpoints are always ephemeral. "
-                "This parameter will be removed in a future release. "
-                "Remove the 'name' argument from your call. "
-                "If you need a persistent checkpoint, use "
-                "save_weights_for_sampler(name=...) + create_sampling_client(model_path=...) instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        sampling_session_id = self._save_weights_for_sampler_impl(None, None, None, kind).result()
-        assert isinstance(sampling_session_id, str)
-        return await SamplingClient.create(
-            self.holder,
-            sampling_session_id=sampling_session_id,
-            retry_config=retry_config,
-            record_stability_info=record_stability_info,
+        """Deprecated: use `await training_client.save_weights_and_get_sampling_client(...)`, which
+        returns a future of the client that can be awaited. This method will be removed
+        in a subsequent release."""
+        return await self.save_weights_and_get_sampling_client(
+            name, retry_config=retry_config, record_stability_info=record_stability_info, kind=kind
         )
 
     def get_telemetry(self) -> Telemetry | None:
@@ -1387,16 +1485,13 @@ def _get_custom_loss_loop() -> asyncio.AbstractEventLoop:
         return _custom_loss_loop
 
 
-def _get_tokenizer(model_id: types.ModelID, holder: InternalClientHolder) -> PreTrainedTokenizer:
-    """Get tokenizer for a training model by fetching model info first."""
+async def fetch_training_info(
+    holder: InternalClientHolder, model_id: types.ModelID
+) -> types.GetInfoResponse:
+    """The model's `GetInfoResponse`, fetched once by the paths that create a `TrainingClient`."""
 
-    async def _get_info_async():
+    async def _send_request() -> types.GetInfoResponse:
         with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-            request = types.GetInfoRequest(model_id=model_id)
-            return await client.models.get_info(request=request)
+            return await client.models.get_info(request=types.GetInfoRequest(model_id=model_id))
 
-    info = holder.run_coroutine_threadsafe(_get_info_async()).result()
-    model_name = info.model_data.model_name
-    assert model_name is not None, "This shouldn't happen: model_name is None"
-
-    return _load_tokenizer_from_model_info(model_name, info.model_data.tokenizer_id)
+    return await holder.execute_with_retries(_send_request)

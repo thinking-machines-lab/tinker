@@ -711,18 +711,14 @@ class TestTelemetryFlush:
 
     def test_flush_empty_queue(self):
         self.telemetry._queue.clear()
-        with patch.object(
-            self.telemetry, "_send_batch_with_retry", new_callable=AsyncMock
-        ) as mock_send:
+        with patch.object(self.telemetry, "_send_batch", new_callable=AsyncMock) as mock_send:
             asyncio.run(self.telemetry._flush())
         mock_send.assert_not_called()
 
     def test_flush_small_batch(self):
         for _ in range(5):
             _ = self.telemetry._log(self.telemetry._session_end_event())
-        with patch.object(
-            self.telemetry, "_send_batch_with_retry", new_callable=AsyncMock
-        ) as mock_send:
+        with patch.object(self.telemetry, "_send_batch", new_callable=AsyncMock) as mock_send:
             asyncio.run(self.telemetry._flush())
         assert len(self.telemetry._queue) == 0
         assert mock_send.call_count == 1
@@ -730,12 +726,25 @@ class TestTelemetryFlush:
     def test_flush_large_batch(self):
         for _ in range(MAX_BATCH_SIZE + 10):
             _ = self.telemetry._log(self.telemetry._session_end_event())
-        with patch.object(
-            self.telemetry, "_send_batch_with_retry", new_callable=AsyncMock
-        ) as mock_send:
+        with patch.object(self.telemetry, "_send_batch", new_callable=AsyncMock) as mock_send:
             asyncio.run(self.telemetry._flush())
         assert len(self.telemetry._queue) == 0
         assert mock_send.call_count == 2
+
+    def test_flush_drops_batch_that_fails_to_send(self):
+        _ = self.telemetry._log(self.telemetry._session_end_event())
+        rejected = APIStatusError(
+            "Unauthorized",
+            response=httpx.Response(401, request=httpx.Request("POST", "https://example.com")),
+            body=None,
+        )
+        with patch.object(
+            self.telemetry, "_send_batch", new_callable=AsyncMock, side_effect=rejected
+        ) as mock_send:
+            asyncio.run(self.telemetry._flush())
+        assert len(self.telemetry._queue) == 0
+        assert mock_send.call_count == 1
+        assert self.telemetry._flush_counter == self.telemetry._push_counter
 
     def test_counters_and_wait(self):
         initial_push = self.telemetry._push_counter
@@ -744,7 +753,7 @@ class TestTelemetryFlush:
         assert self.telemetry._push_counter == initial_push + 3
         with patch.object(
             self.telemetry,
-            "_send_batch_with_retry",
+            "_send_batch",
             new_callable=AsyncMock,
             return_value=TelemetryResponse(status="accepted"),
         ):

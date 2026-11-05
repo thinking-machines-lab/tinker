@@ -576,7 +576,7 @@ def _download_checkpoint(
     try:
         training_client = service_client.create_training_client_from_state(
             tinker_path, user_metadata={"created_by": "tinker checkpoint download"}
-        )
+        ).result()
         export_path = (
             training_client.save_weights_external(
                 "download", ttl_seconds=_TEMPORARY_EXPORT_TTL_SECONDS

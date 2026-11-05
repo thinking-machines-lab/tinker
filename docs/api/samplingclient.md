@@ -3,7 +3,8 @@ SamplingClient for Tinker API.
 ## `SamplingClient` Objects
 
 ```python
-class SamplingClient(TelemetryProvider, QueueStateObserver)
+@with_sdk_method_telemetry
+class SamplingClient(QueueStateObserver, TelemetryProvider)
 ```
 
 Client for text generation and inference from trained or base models.
@@ -23,7 +24,7 @@ Create method parameters:
 
 Example:
 ```python
-sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen3-8B")
+sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen3-8B").result()
 prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
 params = types.SamplingParams(max_tokens=20, temperature=0.7)
 future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
@@ -43,16 +44,16 @@ ServiceClient and TrainingClient should always be managed from the main process.
 
 ```python
 def sample(
-        prompt: types.ModelInput,
-        num_samples: int,
-        sampling_params: types.SamplingParams,
-        include_prompt_logprobs: bool = False,
-        topk_prompt_logprobs: int = 0,
-        topk_sample_logprobs: int = 0,
-        target_prompt_logprobs: types.TensorData | None = None,
-        prompt_alt_tokens_k: int = 0,
-        prompt_logprobs_last_n: int | None = None
-) -> ConcurrentFuture[types.SampleResponse]
+    prompt: types.ModelInput,
+    num_samples: int,
+    sampling_params: types.SamplingParams,
+    include_prompt_logprobs: bool = False,
+    topk_prompt_logprobs: int = 0,
+    topk_sample_logprobs: int = 0,
+    target_prompt_logprobs: types.TensorData | None = None,
+    prompt_alt_tokens_k: int = 0,
+    prompt_logprobs_last_n: int | None = None
+) -> APIFuture[types.SampleResponse]
 ```
 
 Generate text completions from the model.
@@ -89,14 +90,15 @@ Args:
     `prompt_alt_tokens_k`. None (the default) scores the whole prompt.
 
 Returns:
-- A `Future` containing the `SampleResponse` with generated text and other logprob information.
+- An `APIFuture` containing the `SampleResponse` with generated text and other logprob
+    information. Await it, or call `.result()`.
 
 Example:
 ```python
 prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
 params = types.SamplingParams(max_tokens=20, temperature=0.7)
 future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
-result = future.result()
+result = future.result()  # or `await future`
 for sequence in result.sequences:
     print(tokenizer.decode(sequence.tokens))
 ```
@@ -143,25 +145,28 @@ alternatives_to_last_token = alt_tokens[-1]  # row i covers prompt position i + 
 #### `sample_async`
 
 ```python
-async def sample_async(prompt: types.ModelInput,
-                       num_samples: int,
-                       sampling_params: types.SamplingParams,
-                       include_prompt_logprobs: bool = False,
-                       topk_prompt_logprobs: int = 0,
-                       topk_sample_logprobs: int = 0,
-                       target_prompt_logprobs: types.TensorData | None = None,
-                       prompt_alt_tokens_k: int = 0,
-                       prompt_logprobs_last_n: int | None = None) -> types.SampleResponse
+async def sample_async(
+        prompt: types.ModelInput,
+        num_samples: int,
+        sampling_params: types.SamplingParams,
+        include_prompt_logprobs: bool = False,
+        topk_prompt_logprobs: int = 0,
+        topk_sample_logprobs: int = 0,
+        target_prompt_logprobs: types.TensorData | None = None,
+        prompt_alt_tokens_k: int = 0,
+        prompt_logprobs_last_n: int | None = None) -> types.SampleResponse
 ```
 
-Async version of sample.
+Deprecated: use `await sampling_client.sample(...)`; `sample()` returns an `APIFuture`
+that can be awaited. This method will be removed in a subsequent release.
 
 #### `compute_logprobs`
 
 ```python
 def compute_logprobs(
-        prompt: types.ModelInput,
-        prompt_logprobs_last_n: int | None = None) -> ConcurrentFuture[list[float | None]]
+    prompt: types.ModelInput,
+    prompt_logprobs_last_n: int | None = None
+) -> APIFuture[list[float | None]]
 ```
 
 Compute log probabilities for prompt tokens.
@@ -174,15 +179,15 @@ Args:
     the whole prompt.
 
 Returns:
-- A `Future` containing a list of log probabilities for each token in the prompt.
+- An `APIFuture` containing a list of log probabilities for each token in the prompt.
     None values indicate tokens where log probabilities couldn't be computed or
-    were not requested.
+    were not requested. Await it, or call `.result()`.
 
 Example:
 ```python
 prompt = types.ModelInput.from_ints(tokenizer.encode("Hello world"))
 future = sampling_client.compute_logprobs(prompt)
-logprobs = future.result()
+logprobs = future.result()  # or `await future`
 for i, logprob in enumerate(logprobs):
     if logprob is not None:
         print(f"Token {i}: logprob = {logprob:.4f}")
@@ -209,7 +214,9 @@ async def compute_logprobs_async(
         prompt_logprobs_last_n: int | None = None) -> list[float | None]
 ```
 
-Async version of compute_logprobs.
+Deprecated: use `await sampling_client.compute_logprobs(...)`; `compute_logprobs()`
+returns an `APIFuture` that can be awaited. This method will be removed in a
+subsequent release.
 
 #### `get_tokenizer`
 
@@ -228,7 +235,9 @@ Returns:
 def get_base_model() -> str
 ```
 
-Get the base model name for the current sampling session.
+The base model name of this sampler, e.g. "Qwen/Qwen3-8B".
+
+Known since the client was created, so this never waits on the server.
 
 #### `get_base_model_async`
 
@@ -236,7 +245,8 @@ Get the base model name for the current sampling session.
 async def get_base_model_async() -> str
 ```
 
-Async version of get_base_model.
+Deprecated: use `sampling_client.get_base_model()`, which no longer waits on the
+server. This method will be removed in a subsequent release.
 
 #### `__reduce__`
 
@@ -264,7 +274,6 @@ The handle carries no credentials.
 #### `from_sampler_handle`
 
 ```python
-@staticmethod
 def from_sampler_handle(handle: str,
                         *,
                         api_key: str | None = None) -> SamplingClient

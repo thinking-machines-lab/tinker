@@ -17,6 +17,8 @@ import inspect
 from collections.abc import Callable, Iterator
 from typing import Any, ParamSpec, TypeVar
 
+from typing_extensions import deprecated
+
 from tinker._version import __version__ as tinker_sdk_version
 
 SDK_VERSION_HEADER = "x-sdk-version"
@@ -70,6 +72,8 @@ def with_sdk_method_telemetry(cls: C) -> C:
     Covers the methods `tracked_sdk_method_names` lists, each under its own name, so
     `sample` and `sample_async` are distinct. Only the outermost call counts: a public
     method that calls another one, on the same client or another, keeps its own name.
+
+    A public method marked `@deprecated` or `@experimental` warns at its caller's line.
     """
     for name in _public_function_names(cls):
         setattr(cls, name, _tracked(vars(cls)[name], f"{cls.__name__}.{name}"))
@@ -91,8 +95,27 @@ def _public_function_names(cls: type) -> list[str]:
     )
 
 
+# The code shared by every wrapper `deprecated` (and so `experimental`) puts around a function.
+_DEPRECATED_WRAPPER_CODE = deprecated("")(lambda: None).__code__
+
+
+def _is_deprecated_wrapper(func: Callable[..., Any]) -> bool:
+    return getattr(func, "__code__", None) is _DEPRECATED_WRAPPER_CODE
+
+
 def _tracked(func: Callable[..., Any], sdk_method: str) -> Callable[..., Any]:
-    # Decorators such as `deprecated` wrap an `async def` in a plain function; the
+    if _is_deprecated_wrapper(func):
+        # The wrapper `deprecated` adds warns a fixed number of frames up, so it stays
+        # outermost and calls the tracked method in place of the method.
+        deprecated_wrapper: Any = func
+        method = deprecated_wrapper.__wrapped__
+        tracked = _tracked(method, sdk_method)
+        for cell in deprecated_wrapper.__closure__:
+            if cell.cell_contents is method:
+                cell.cell_contents = tracked
+        return func
+
+    # Decorators such as `sync_only` wrap an `async def` in a plain function; the
     # innermost function says whether the method is async.
     if inspect.iscoroutinefunction(inspect.unwrap(func)):
 

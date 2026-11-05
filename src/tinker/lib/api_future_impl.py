@@ -6,6 +6,7 @@ import logging
 import time
 import traceback
 from abc import ABC, abstractmethod
+from concurrent.futures import Future as ConcurrentFuture
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, List, Type, TypeVar, cast
@@ -636,6 +637,9 @@ class _APIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
             self._future.future().cancel()
             raise
 
+    def future(self) -> ConcurrentFuture[T]:
+        return self._future.future()
+
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
@@ -650,11 +654,26 @@ class _CombinedAPIFuture(APIFuture[T]):  # pyright: ignore[reportUnusedClass]
         self.futures = futures
         self.transform = transform
         self.holder = holder
+        self._future = holder.run_coroutine_threadsafe(self._combine())
+        # A cancellation before the combination starts running never reaches `gather`,
+        # so pass it on from here.
+        self._future.future().add_done_callback(self._cancel_inputs_if_cancelled)
+
+    def _cancel_inputs_if_cancelled(self, future: ConcurrentFuture[T]) -> None:
+        if future.cancelled():
+            for api_future in self.futures:
+                api_future.future().cancel()
+
+    async def _combine(self) -> T:
+        results = await asyncio.gather(*[future.result_async() for future in self.futures])
+        return self.transform(results)
 
     @sync_only
     def result(self, timeout: float | None = None) -> T:
-        return self.holder.run_coroutine_threadsafe(self.result_async(timeout)).result()
+        return self._future.result(timeout)
 
     async def result_async(self, timeout: float | None = None) -> T:
-        results = await asyncio.gather(*[future.result_async(timeout) for future in self.futures])
-        return self.transform(results)
+        return await self._future.result_async(timeout)
+
+    def future(self) -> ConcurrentFuture[T]:
+        return self._future.future()

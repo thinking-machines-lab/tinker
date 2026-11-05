@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 import uuid
-from concurrent.futures import Future as ConcurrentFuture
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -26,7 +25,6 @@ from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..internal_client_holder import InternalClientHolder
-from ..sync_only import sync_only
 
 if TYPE_CHECKING:
     from .admin_client import AdminClient
@@ -69,6 +67,7 @@ class RestClient(TelemetryProvider):
     with `RestClient()`; no ServiceClient or training session is needed.
 
     Key methods:
+    - get_server_capabilities() - get the models the caller can use and the server's features
     - list_checkpoints() - list available model checkpoints (both training and sampler)
     - list_user_checkpoints() - list all checkpoints across all user's training runs
     - get_training_run() - get model information and metadata as ModelEntry
@@ -136,6 +135,34 @@ class RestClient(TelemetryProvider):
 
         return AdminClient(self.holder)
 
+    def get_server_capabilities(self) -> APIFuture[types.GetServerCapabilitiesResponse]:
+        """Query the server's supported features and capabilities.
+
+        Returns:
+        - An `APIFuture` containing the `GetServerCapabilitiesResponse` with the models
+            the caller can use, features, and limits. Await it, or call `.result()`.
+
+        Example:
+        ```python
+        capabilities = rest_client.get_server_capabilities().result()
+        for model in capabilities.supported_models:
+            print(model.model_name)
+        ```
+        """
+
+        @capture_exceptions(fatal=True)
+        async def _get_server_capabilities_async() -> types.GetServerCapabilitiesResponse:
+            async def _send_request() -> types.GetServerCapabilitiesResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.get(
+                        "/api/v1/get_server_capabilities",
+                        cast_to=types.GetServerCapabilitiesResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_get_server_capabilities_async())
+
     def _get_training_run_submit(
         self,
         training_run_id: types.ModelID,
@@ -143,6 +170,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.TrainingRun]:
         """Internal method to submit get model request."""
 
+        @capture_exceptions(fatal=True)
         async def _get_training_run_async() -> types.TrainingRun:
             async def _send_request() -> types.TrainingRun:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -156,54 +184,60 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_training_run_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_training_run(
         self,
         training_run_id: types.ModelID,
         access_scope: Literal["owned", "accessible"] = "owned",
-    ) -> ConcurrentFuture[types.TrainingRun]:
+    ) -> APIFuture[types.TrainingRun]:
         """Get training run info.
 
         Args:
         - `training_run_id`: The training run ID to get information for
 
         Returns:
-        - A `Future` containing the training run information
+        - An `APIFuture` containing the training run information. Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.get_training_run("run-id")
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         ```
         """
-        return self._get_training_run_submit(training_run_id, access_scope=access_scope).future()
+        return self._get_training_run_submit(training_run_id, access_scope=access_scope)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_training_run_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await RestClient.get_training_run(...)` instead; "
+        "get_training_run() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_training_run_async(
         self, training_run_id: types.ModelID, access_scope: Literal["owned", "accessible"] = "owned"
     ) -> types.TrainingRun:
-        """Async version of get_training_run."""
-        return await self._get_training_run_submit(training_run_id, access_scope=access_scope)
+        """Deprecated: use `await rest_client.get_training_run(...)`; `get_training_run()` returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
+        return await self.get_training_run(
+            training_run_id=training_run_id, access_scope=access_scope
+        )
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_training_run_by_tinker_path(
         self, tinker_path: str, access_scope: Literal["owned", "accessible"] = "owned"
-    ) -> ConcurrentFuture[types.TrainingRun]:
+    ) -> APIFuture[types.TrainingRun]:
         """Get training run info.
 
         Args:
         - `tinker_path`: The tinker path to the checkpoint
 
         Returns:
-        - A `Future` containing the training run information
+        - An `APIFuture` containing the training run information. Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.get_training_run_by_tinker_path("tinker://run-id/weights/checkpoint-001")
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
         ```
         """
@@ -212,18 +246,23 @@ class RestClient(TelemetryProvider):
         )
         return self._get_training_run_submit(
             parsed_checkpoint_tinker_path.training_run_id, access_scope=access_scope
-        ).future()
+        )
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_training_run_by_tinker_path_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use `await "
+        "RestClient.get_training_run_by_tinker_path(...)` instead; "
+        "get_training_run_by_tinker_path() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_training_run_by_tinker_path_async(
         self, tinker_path: str, access_scope: Literal["owned", "accessible"] = "owned"
     ) -> types.TrainingRun:
-        """Async version of get_training_run_by_tinker_path."""
-        parsed_checkpoint_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(
-            tinker_path
-        )
-        return await self._get_training_run_submit(
-            parsed_checkpoint_tinker_path.training_run_id, access_scope=access_scope
+        """Deprecated: use `await rest_client.get_training_run_by_tinker_path(...)`;
+        `get_training_run_by_tinker_path()` returns an `APIFuture` that can be awaited. This method
+        will be removed in a subsequent release."""
+        return await self.get_training_run_by_tinker_path(
+            tinker_path=tinker_path, access_scope=access_scope
         )
 
     @capture_exceptions(fatal=True)
@@ -268,6 +307,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.TrainingRunsResponse]:
         """Internal method to submit list training runs request."""
 
+        @capture_exceptions(fatal=True)
         async def _list_training_runs_async() -> types.TrainingRunsResponse:
             async def _send_request() -> types.TrainingRunsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -289,7 +329,6 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_list_training_runs_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def list_training_runs(
         self,
@@ -297,7 +336,7 @@ class RestClient(TelemetryProvider):
         offset: int = 0,
         access_scope: Literal["owned", "accessible"] = "owned",
         project_id: str | None = None,
-    ) -> ConcurrentFuture[types.TrainingRunsResponse]:
+    ) -> APIFuture[types.TrainingRunsResponse]:
         """List training runs with pagination support.
 
         Args:
@@ -306,12 +345,13 @@ class RestClient(TelemetryProvider):
         - `project_id`: If provided, only return training runs in this project
 
         Returns:
-        - A `Future` containing the `TrainingRunsResponse` with training runs and cursor info
+        - An `APIFuture` containing the `TrainingRunsResponse` with training runs and cursor info.
+            Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.list_training_runs(limit=50)
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Found {len(response.training_runs)} training runs")
         print(f"Total: {response.cursor.total_count}")
         # Get next page
@@ -325,9 +365,14 @@ class RestClient(TelemetryProvider):
             offset,
             access_scope=access_scope,
             project_id=project_id,
-        ).future()
+        )
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.list_training_runs_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await RestClient.list_training_runs(...)` instead; "
+        "list_training_runs() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def list_training_runs_async(
         self,
         limit: int = 20,
@@ -335,12 +380,10 @@ class RestClient(TelemetryProvider):
         access_scope: Literal["owned", "accessible"] = "owned",
         project_id: str | None = None,
     ) -> types.TrainingRunsResponse:
-        """Async version of list_training_runs."""
-        return await self._list_training_runs_submit(
-            limit,
-            offset,
-            access_scope=access_scope,
-            project_id=project_id,
+        """Deprecated: use `await rest_client.list_training_runs(...)`; `list_training_runs()` returns
+        an `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
+        return await self.list_training_runs(
+            limit=limit, offset=offset, access_scope=access_scope, project_id=project_id
         )
 
     def _list_checkpoints_submit(
@@ -348,6 +391,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.CheckpointsListResponse]:
         """Internal method to submit list model checkpoints request."""
 
+        @capture_exceptions(fatal=True)
         async def _list_checkpoints_async():
             async def _send_request():
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -357,23 +401,23 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_list_checkpoints_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def list_checkpoints(
         self, training_run_id: types.ModelID
-    ) -> ConcurrentFuture[types.CheckpointsListResponse]:
+    ) -> APIFuture[types.CheckpointsListResponse]:
         """List available checkpoints (both training and sampler).
 
         Args:
         - `training_run_id`: The training run ID to list checkpoints for
 
         Returns:
-        - A `Future` containing the `CheckpointsListResponse` with available checkpoints
+        - An `APIFuture` containing the `CheckpointsListResponse` with available checkpoints.
+            Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.list_checkpoints("run-id")
-        response = future.result()
+        response = future.result()  # or `await future`
         for checkpoint in response.checkpoints:
             if checkpoint.checkpoint_type == "training":
                 print(f"Training checkpoint: {checkpoint.checkpoint_id}")
@@ -381,14 +425,20 @@ class RestClient(TelemetryProvider):
                 print(f"Sampler checkpoint: {checkpoint.checkpoint_id}")
         ```
         """
-        return self._list_checkpoints_submit(training_run_id).future()
+        return self._list_checkpoints_submit(training_run_id)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.list_checkpoints_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await RestClient.list_checkpoints(...)` instead; "
+        "list_checkpoints() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def list_checkpoints_async(
         self, training_run_id: types.ModelID
     ) -> types.CheckpointsListResponse:
-        """Async version of list_checkpoints."""
-        return await self._list_checkpoints_submit(training_run_id)
+        """Deprecated: use `await rest_client.list_checkpoints(...)`; `list_checkpoints()` returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
+        return await self.list_checkpoints(training_run_id=training_run_id)
 
     def _get_external_weights_urls_submit(
         self, tinker_path: str
@@ -400,6 +450,7 @@ class RestClient(TelemetryProvider):
                 f"(tinker://<training_run_id>/external_weights/<name>), got {tinker_path!r}"
             )
 
+        @capture_exceptions(fatal=True)
         async def _get_external_weights_urls_async() -> types.ExternalWeightsUrlsResponse:
             async def _send_request() -> types.ExternalWeightsUrlsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -412,11 +463,10 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_external_weights_urls_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_external_weights_urls(
         self, tinker_path: str
-    ) -> ConcurrentFuture[types.ExternalWeightsUrlsResponse]:
+    ) -> APIFuture[types.ExternalWeightsUrlsResponse]:
         """Get signed download URLs, one per file, for an external weights checkpoint.
 
         Args:
@@ -424,23 +474,33 @@ class RestClient(TelemetryProvider):
           (`tinker://<training_run_id>/external_weights/<name>`)
 
         Returns:
-        - A `Future` containing the `ExternalWeightsUrlsResponse`: `urls` maps each file path
-          (relative to the checkpoint root) to a signed URL, valid until `expires`
+        - An `APIFuture` containing the `ExternalWeightsUrlsResponse`: `urls` maps each file path
+          (relative to the checkpoint root) to a signed URL, valid until `expires`.
+          Await it, or call `.result()`.
         """
-        return self._get_external_weights_urls_submit(tinker_path).future()
+        return self._get_external_weights_urls_submit(tinker_path)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_external_weights_urls_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use `await "
+        "RestClient.get_external_weights_urls(...)` instead; get_external_weights_urls() returns "
+        "an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_external_weights_urls_async(
         self, tinker_path: str
     ) -> types.ExternalWeightsUrlsResponse:
-        """Async version of get_external_weights_urls."""
-        return await self._get_external_weights_urls_submit(tinker_path)
+        """Deprecated: use `await rest_client.get_external_weights_urls(...)`;
+        `get_external_weights_urls()` returns an `APIFuture` that can be awaited. This method will
+        be removed in a subsequent release."""
+        return await self.get_external_weights_urls(tinker_path=tinker_path)
 
     def _delete_checkpoint_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> AwaitableConcurrentFuture[None]:
         """Internal method to submit delete checkpoint request."""
 
+        @capture_exceptions(fatal=True)
         async def _delete_checkpoint_async() -> None:
             async def _send_request() -> None:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -453,41 +513,52 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_delete_checkpoint_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def delete_checkpoint(
         self, training_run_id: types.ModelID, checkpoint_id: str
-    ) -> ConcurrentFuture[None]:
+    ) -> APIFuture[None]:
         """Delete a checkpoint for a training run."""
 
-        return self._delete_checkpoint_submit(training_run_id, checkpoint_id).future()
+        return self._delete_checkpoint_submit(training_run_id, checkpoint_id)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.delete_checkpoint_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await RestClient.delete_checkpoint(...)` instead; "
+        "delete_checkpoint() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def delete_checkpoint_async(
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> None:
-        """Async version of delete_checkpoint."""
+        """Deprecated: use `await rest_client.delete_checkpoint(...)`; `delete_checkpoint()` returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
 
-        await self._delete_checkpoint_submit(training_run_id, checkpoint_id)
+        return await self.delete_checkpoint(
+            training_run_id=training_run_id, checkpoint_id=checkpoint_id
+        )
 
-    @sync_only
     @capture_exceptions(fatal=True)
-    def delete_checkpoint_from_tinker_path(self, tinker_path: str) -> ConcurrentFuture[None]:
+    def delete_checkpoint_from_tinker_path(self, tinker_path: str) -> APIFuture[None]:
         """Delete a checkpoint referenced by a tinker path."""
 
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._delete_checkpoint_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
-        ).future()
-
-    @capture_exceptions(fatal=True)
-    async def delete_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
-        """Async version of delete_checkpoint_from_tinker_path."""
-
-        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        await self._delete_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
         )
+
+    @deprecated(
+        "DEPRECATED: RestClient.delete_checkpoint_from_tinker_path_async() is deprecated and will "
+        "be removed in a future tinker SDK version. Use `await "
+        "RestClient.delete_checkpoint_from_tinker_path(...)` instead; "
+        "delete_checkpoint_from_tinker_path() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
+    async def delete_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
+        """Deprecated: use `await rest_client.delete_checkpoint_from_tinker_path(...)`;
+        `delete_checkpoint_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+        method will be removed in a subsequent release."""
+
+        return await self.delete_checkpoint_from_tinker_path(tinker_path=tinker_path)
 
     @deprecated(
         "DEPRECATED: RestClient.get_audit_log() is deprecated and will be removed in a future "
@@ -499,15 +570,16 @@ class RestClient(TelemetryProvider):
         self,
         event_type: Literal["all", "checkpoints", "projects", "teams", "organizations"] = "all",
         day: date | None = None,
-    ) -> ConcurrentFuture[types.AuditLogResponse]:
+    ) -> APIFuture[types.AuditLogResponse]:
         """Deprecated: use `AdminClient.get_audit_log()` instead. This method will be removed in a
         subsequent release."""
         return self._admin_client().get_audit_log(event_type, day)
 
     @deprecated(
         "DEPRECATED: RestClient.get_audit_log_async() is deprecated and will be removed in a "
-        "future tinker SDK version. Use AdminClient.get_audit_log_async() instead; AdminClient is "
-        "constructed the same way as RestClient.",
+        "future tinker SDK version. Use `await AdminClient.get_audit_log(...)` instead; "
+        "AdminClient is constructed the same way as RestClient, and get_audit_log() returns an "
+        "APIFuture that can be awaited.",
         category=FutureWarning,
     )
     async def get_audit_log_async(
@@ -515,9 +587,9 @@ class RestClient(TelemetryProvider):
         event_type: Literal["all", "checkpoints", "projects", "teams", "organizations"] = "all",
         day: date | None = None,
     ) -> types.AuditLogResponse:
-        """Deprecated: use `AdminClient.get_audit_log_async()` instead. This method will be removed
-        in a subsequent release."""
-        return await self._admin_client().get_audit_log_async(event_type, day)
+        """Deprecated: use `await AdminClient.get_audit_log(...)` instead. This method will be
+        removed in a subsequent release."""
+        return await self._admin_client().get_audit_log(event_type, day)
 
     def _copy_weights_submit(
         self,
@@ -532,6 +604,7 @@ class RestClient(TelemetryProvider):
             else None
         )
 
+        @capture_exceptions(fatal=True)
         async def _copy_weights_async() -> str:
             async def _send_request() -> types.CopyWeightsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -554,7 +627,7 @@ class RestClient(TelemetryProvider):
         *,
         ttl_seconds: int | None = None,
         weights_access_token: str | None = None,
-    ) -> AwaitableConcurrentFuture[str]:
+    ) -> APIFuture[str]:
         """Copy a checkpoint into a selected project.
 
         Storage is shared with the source, so no bytes are duplicated. The copy
@@ -595,7 +668,12 @@ class RestClient(TelemetryProvider):
         )
         return self._copy_weights_submit(request, weights_access_token)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.copy_weights_async() is deprecated and will be removed in a future "
+        "tinker SDK version. Use `await RestClient.copy_weights(...)` instead; copy_weights() "
+        "returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def copy_weights_async(
         self,
         path: str,
@@ -604,7 +682,8 @@ class RestClient(TelemetryProvider):
         ttl_seconds: int | None = None,
         weights_access_token: str | None = None,
     ) -> str:
-        """Async version of copy_weights."""
+        """Deprecated: use `await rest_client.copy_weights(...)`; `copy_weights()` returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
         return await self.copy_weights(
             path,
             destination_project_id,
@@ -617,6 +696,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[None]:
         """Internal method to submit publish checkpoint request."""
 
+        @capture_exceptions(fatal=True)
         async def _publish_checkpoint_async() -> None:
             async def _send_request() -> None:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -629,9 +709,8 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_publish_checkpoint_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
-    def publish_checkpoint_from_tinker_path(self, tinker_path: str) -> ConcurrentFuture[None]:
+    def publish_checkpoint_from_tinker_path(self, tinker_path: str) -> APIFuture[None]:
         """Publish a checkpoint referenced by a tinker path to make it publicly accessible.
 
         Only the exact owner of the training run can publish checkpoints.
@@ -641,7 +720,8 @@ class RestClient(TelemetryProvider):
         - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 
         Returns:
-        - A `Future` that completes when the checkpoint is published
+        - An `APIFuture` that completes when the checkpoint is published.
+            Await it, or call `.result()`.
 
         Raises:
             HTTPException: 400 if checkpoint identifier is invalid
@@ -652,28 +732,34 @@ class RestClient(TelemetryProvider):
         Example:
         ```python
         future = rest_client.publish_checkpoint_from_tinker_path("tinker://run-id/weights/0001")
-        future.result()  # Wait for completion
+        future.result()  # or `await future`
         print("Checkpoint published successfully")
         ```
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._publish_checkpoint_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
-        ).future()
-
-    @capture_exceptions(fatal=True)
-    async def publish_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
-        """Async version of publish_checkpoint_from_tinker_path."""
-        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        await self._publish_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
         )
+
+    @deprecated(
+        "DEPRECATED: RestClient.publish_checkpoint_from_tinker_path_async() is deprecated and will "
+        "be removed in a future tinker SDK version. Use `await "
+        "RestClient.publish_checkpoint_from_tinker_path(...)` instead; "
+        "publish_checkpoint_from_tinker_path() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
+    async def publish_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
+        """Deprecated: use `await rest_client.publish_checkpoint_from_tinker_path(...)`;
+        `publish_checkpoint_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+        method will be removed in a subsequent release."""
+        return await self.publish_checkpoint_from_tinker_path(tinker_path=tinker_path)
 
     def _unpublish_checkpoint_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str
     ) -> AwaitableConcurrentFuture[None]:
         """Internal method to submit unpublish checkpoint request."""
 
+        @capture_exceptions(fatal=True)
         async def _unpublish_checkpoint_async() -> None:
             async def _send_request() -> None:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -686,9 +772,8 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_unpublish_checkpoint_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
-    def unpublish_checkpoint_from_tinker_path(self, tinker_path: str) -> ConcurrentFuture[None]:
+    def unpublish_checkpoint_from_tinker_path(self, tinker_path: str) -> APIFuture[None]:
         """Unpublish a checkpoint referenced by a tinker path to make it private again.
 
         Only the exact owner of the training run can unpublish checkpoints.
@@ -698,7 +783,8 @@ class RestClient(TelemetryProvider):
         - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 
         Returns:
-        - A `Future` that completes when the checkpoint is unpublished
+        - An `APIFuture` that completes when the checkpoint is unpublished.
+            Await it, or call `.result()`.
 
         Raises:
             HTTPException: 400 if checkpoint identifier is invalid
@@ -709,28 +795,34 @@ class RestClient(TelemetryProvider):
         Example:
         ```python
         future = rest_client.unpublish_checkpoint_from_tinker_path("tinker://run-id/weights/0001")
-        future.result()  # Wait for completion
+        future.result()  # or `await future`
         print("Checkpoint unpublished successfully")
         ```
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._unpublish_checkpoint_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
-        ).future()
-
-    @capture_exceptions(fatal=True)
-    async def unpublish_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
-        """Async version of unpublish_checkpoint_from_tinker_path."""
-        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        await self._unpublish_checkpoint_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id
         )
+
+    @deprecated(
+        "DEPRECATED: RestClient.unpublish_checkpoint_from_tinker_path_async() is deprecated and "
+        "will be removed in a future tinker SDK version. Use `await "
+        "RestClient.unpublish_checkpoint_from_tinker_path(...)` instead; "
+        "unpublish_checkpoint_from_tinker_path() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
+    async def unpublish_checkpoint_from_tinker_path_async(self, tinker_path: str) -> None:
+        """Deprecated: use `await rest_client.unpublish_checkpoint_from_tinker_path(...)`;
+        `unpublish_checkpoint_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+        method will be removed in a subsequent release."""
+        return await self.unpublish_checkpoint_from_tinker_path(tinker_path=tinker_path)
 
     def _set_checkpoint_ttl_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str, ttl_seconds: int | None
     ) -> AwaitableConcurrentFuture[None]:
         """Internal method to submit set checkpoint TTL request."""
 
+        @capture_exceptions(fatal=True)
         async def _set_checkpoint_ttl_async() -> None:
             async def _send_request() -> None:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -744,11 +836,10 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_set_checkpoint_ttl_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def set_checkpoint_ttl_from_tinker_path(
         self, tinker_path: str, ttl_seconds: int | None
-    ) -> ConcurrentFuture[None]:
+    ) -> APIFuture[None]:
         """Set or remove the TTL on a checkpoint referenced by a tinker path.
 
         If ttl_seconds is provided, the checkpoint will expire after that many seconds from now.
@@ -760,7 +851,7 @@ class RestClient(TelemetryProvider):
         - `ttl_seconds`: Seconds until expiration (1 hour to 10 years), or None to remove TTL
 
         Returns:
-        - A `Future` that completes when the TTL is set
+        - An `APIFuture` that completes when the TTL is set. Await it, or call `.result()`.
 
         Raises:
             HTTPException: 400 if checkpoint identifier is invalid or ttl_seconds is out of range
@@ -770,23 +861,30 @@ class RestClient(TelemetryProvider):
         Example:
         ```python
         future = rest_client.set_checkpoint_ttl_from_tinker_path("tinker://run-id/weights/0001", 86400)
-        future.result()  # Wait for completion
+        future.result()  # or `await future`
         print("Checkpoint TTL set successfully")
         ```
         """
         parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
         return self._set_checkpoint_ttl_submit(
             parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id, ttl_seconds
-        ).future()
+        )
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.set_checkpoint_ttl_from_tinker_path_async() is deprecated and will "
+        "be removed in a future tinker SDK version. Use `await "
+        "RestClient.set_checkpoint_ttl_from_tinker_path(...)` instead; "
+        "set_checkpoint_ttl_from_tinker_path() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def set_checkpoint_ttl_from_tinker_path_async(
         self, tinker_path: str, ttl_seconds: int | None
     ) -> None:
-        """Async version of set_checkpoint_ttl_from_tinker_path."""
-        parsed_tinker_path = types.ParsedCheckpointTinkerPath.from_tinker_path(tinker_path)
-        await self._set_checkpoint_ttl_submit(
-            parsed_tinker_path.training_run_id, parsed_tinker_path.checkpoint_id, ttl_seconds
+        """Deprecated: use `await rest_client.set_checkpoint_ttl_from_tinker_path(...)`;
+        `set_checkpoint_ttl_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+        method will be removed in a subsequent release."""
+        return await self.set_checkpoint_ttl_from_tinker_path(
+            tinker_path=tinker_path, ttl_seconds=ttl_seconds
         )
 
     def _list_user_checkpoints_submit(
@@ -794,6 +892,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.CheckpointsListResponse]:
         """Internal method to submit list user checkpoints request."""
 
+        @capture_exceptions(fatal=True)
         async def _list_user_checkpoints_async() -> types.CheckpointsListResponse:
             async def _send_request() -> types.CheckpointsListResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -809,11 +908,10 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_list_user_checkpoints_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def list_user_checkpoints(
         self, limit: int = 100, offset: int = 0
-    ) -> ConcurrentFuture[types.CheckpointsListResponse]:
+    ) -> APIFuture[types.CheckpointsListResponse]:
         """List all checkpoints for the current user across all their training runs.
 
         This method retrieves checkpoints from all training runs owned by the authenticated user,
@@ -825,12 +923,13 @@ class RestClient(TelemetryProvider):
         - `offset`: Offset for pagination (default 0)
 
         Returns:
-        - A `Future` containing the `CheckpointsListResponse` with checkpoints and cursor info
+        - An `APIFuture` containing the `CheckpointsListResponse` with checkpoints and cursor info.
+            Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.list_user_checkpoints(limit=50)
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Found {len(response.checkpoints)} checkpoints")
         print(f"Total: {response.cursor.total_count if response.cursor else 'Unknown'}")
         for checkpoint in response.checkpoints:
@@ -840,14 +939,21 @@ class RestClient(TelemetryProvider):
             next_page = rest_client.list_user_checkpoints(limit=50, offset=50)
         ```
         """
-        return self._list_user_checkpoints_submit(limit, offset).future()
+        return self._list_user_checkpoints_submit(limit, offset)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.list_user_checkpoints_async() is deprecated and will be removed in "
+        "a future tinker SDK version. Use `await RestClient.list_user_checkpoints(...)` instead; "
+        "list_user_checkpoints() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def list_user_checkpoints_async(
         self, limit: int = 100, offset: int = 0
     ) -> types.CheckpointsListResponse:
-        """Async version of list_user_checkpoints."""
-        return await self._list_user_checkpoints_submit(limit, offset)
+        """Deprecated: use `await rest_client.list_user_checkpoints(...)`; `list_user_checkpoints()`
+        returns an `APIFuture` that can be awaited. This method will be removed in a subsequent
+        release."""
+        return await self.list_user_checkpoints(limit=limit, offset=offset)
 
     def _get_session_submit(
         self,
@@ -856,6 +962,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.GetSessionResponse]:
         """Internal method to submit get session request."""
 
+        @capture_exceptions(fatal=True)
         async def _get_session_async() -> types.GetSessionResponse:
             async def _send_request() -> types.GetSessionResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -869,37 +976,42 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_session_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_session(
         self, session_id: str, access_scope: Literal["owned", "accessible"] = "owned"
-    ) -> ConcurrentFuture[types.GetSessionResponse]:
+    ) -> APIFuture[types.GetSessionResponse]:
         """Get session information including all training runs and samplers.
 
         Args:
         - `session_id`: The session ID to get information for
 
         Returns:
-        - A `Future` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
-          and user_metadata
+        - An `APIFuture` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
+          and user_metadata. Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.get_session("session-id")
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Training runs: {len(response.training_run_ids)}")
         print(f"Samplers: {len(response.sampler_ids)}")
         print(f"User metadata: {response.user_metadata}")
         ```
         """
-        return self._get_session_submit(session_id, access_scope=access_scope).future()
+        return self._get_session_submit(session_id, access_scope=access_scope)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_session_async() is deprecated and will be removed in a future "
+        "tinker SDK version. Use `await RestClient.get_session(...)` instead; get_session() "
+        "returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_session_async(
         self, session_id: str, access_scope: Literal["owned", "accessible"] = "owned"
     ) -> types.GetSessionResponse:
-        """Async version of get_session."""
-        return await self._get_session_submit(session_id, access_scope=access_scope)
+        """Deprecated: use `await rest_client.get_session(...)`; `get_session()` returns an `APIFuture`
+        that can be awaited. This method will be removed in a subsequent release."""
+        return await self.get_session(session_id=session_id, access_scope=access_scope)
 
     def _list_sessions_submit(
         self,
@@ -909,6 +1021,7 @@ class RestClient(TelemetryProvider):
     ) -> AwaitableConcurrentFuture[types.ListSessionsResponse]:
         """Internal method to submit list sessions request."""
 
+        @capture_exceptions(fatal=True)
         async def _list_sessions_async() -> types.ListSessionsResponse:
             async def _send_request() -> types.ListSessionsResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -928,14 +1041,13 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_list_sessions_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def list_sessions(
         self,
         limit: int = 20,
         offset: int = 0,
         access_scope: Literal["owned", "accessible"] = "owned",
-    ) -> ConcurrentFuture[types.ListSessionsResponse]:
+    ) -> APIFuture[types.ListSessionsResponse]:
         """List sessions with pagination support.
 
         Args:
@@ -943,12 +1055,13 @@ class RestClient(TelemetryProvider):
         - `offset`: Offset for pagination (default 0)
 
         Returns:
-        - A `Future` containing the `ListSessionsResponse` with list of session IDs
+        - An `APIFuture` containing the `ListSessionsResponse` with list of session IDs.
+            Await it, or call `.result()`.
 
         Example:
         ```python
         future = rest_client.list_sessions(limit=50)
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Found {len(response.sessions)} sessions")
         # Get next page
         next_page = rest_client.list_sessions(limit=50, offset=50)
@@ -958,27 +1071,30 @@ class RestClient(TelemetryProvider):
             limit,
             offset,
             access_scope=access_scope,
-        ).future()
+        )
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.list_sessions_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await RestClient.list_sessions(...)` instead; "
+        "list_sessions() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def list_sessions_async(
         self,
         limit: int = 20,
         offset: int = 0,
         access_scope: Literal["owned", "accessible"] = "owned",
     ) -> types.ListSessionsResponse:
-        """Async version of list_sessions."""
-        return await self._list_sessions_submit(
-            limit,
-            offset,
-            access_scope=access_scope,
-        )
+        """Deprecated: use `await rest_client.list_sessions(...)`; `list_sessions()` returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
+        return await self.list_sessions(limit=limit, offset=offset, access_scope=access_scope)
 
     def _assign_session_project_submit(
         self, session_id: str, project_id: str
     ) -> AwaitableConcurrentFuture[None]:
         """Internal method to submit assign session project request."""
 
+        @capture_exceptions(fatal=True)
         async def _assign_session_project_async() -> None:
             async def _send_request() -> None:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -992,9 +1108,8 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_assign_session_project_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
-    def assign_session_project(self, session_id: str, project_id: str) -> ConcurrentFuture[None]:
+    def assign_session_project(self, session_id: str, project_id: str) -> APIFuture[None]:
         """Move a session (and all of its training runs/samplers) into a project.
 
         Use this to attach a previously-created session to a project, or to move
@@ -1006,7 +1121,8 @@ class RestClient(TelemetryProvider):
         - `project_id`: The destination project ID
 
         Returns:
-        - A `Future` that completes when the session has been moved
+        - An `APIFuture` that completes when the session has been moved.
+            Await it, or call `.result()`.
 
         Raises:
             HTTPException: 400 if `project_id` is missing
@@ -1019,16 +1135,24 @@ class RestClient(TelemetryProvider):
         future.result()
         ```
         """
-        return self._assign_session_project_submit(session_id, project_id).future()
+        return self._assign_session_project_submit(session_id, project_id)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.assign_session_project_async() is deprecated and will be removed "
+        "in a future tinker SDK version. Use `await RestClient.assign_session_project(...)` "
+        "instead; assign_session_project() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def assign_session_project_async(self, session_id: str, project_id: str) -> None:
-        """Async version of assign_session_project."""
-        await self._assign_session_project_submit(session_id, project_id)
+        """Deprecated: use `await rest_client.assign_session_project(...)`; `assign_session_project()`
+        returns an `APIFuture` that can be awaited. This method will be removed in a subsequent
+        release."""
+        return await self.assign_session_project(session_id=session_id, project_id=project_id)
 
     def _export_session_trace_submit(self, session_id: str) -> AwaitableConcurrentFuture[str]:
         """Internal method to poll the trace export job until it completes."""
 
+        @capture_exceptions(fatal=True)
         async def _export_session_trace_async() -> str:
             async def _send_request() -> _SessionTraceExportPollResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -1056,9 +1180,8 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_export_session_trace_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
-    def export_session_trace(self, session_id: str) -> ConcurrentFuture[str]:
+    def export_session_trace(self, session_id: str) -> APIFuture[str]:
         """Export a session's timeline as a Perfetto trace and get a signed download URL.
 
         Kicks off (or reuses) an async export job on the server that builds a
@@ -1085,7 +1208,8 @@ class RestClient(TelemetryProvider):
         - `session_id`: The session ID to export a trace for
 
         Returns:
-        - A `Future` containing the signed download URL for the `.pftrace` file
+        - An `APIFuture` containing the signed download URL for the `.pftrace` file.
+            Await it, or call `.result()`.
 
         Raises:
             RuntimeError: if the export job fails
@@ -1096,12 +1220,19 @@ class RestClient(TelemetryProvider):
         print(f"Download URL: {url}")
         ```
         """
-        return self._export_session_trace_submit(session_id).future()
+        return self._export_session_trace_submit(session_id)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.export_session_trace_async() is deprecated and will be removed in "
+        "a future tinker SDK version. Use `await RestClient.export_session_trace(...)` instead; "
+        "export_session_trace() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def export_session_trace_async(self, session_id: str) -> str:
-        """Async version of export_session_trace."""
-        return await self._export_session_trace_submit(session_id)
+        """Deprecated: use `await rest_client.export_session_trace(...)`; `export_session_trace()`
+        returns an `APIFuture` that can be awaited. This method will be removed in a subsequent
+        release."""
+        return await self.export_session_trace(session_id=session_id)
 
     @capture_exceptions(fatal=True)
     def whoami(self) -> APIFuture[types.WhoamiResponse]:
@@ -1154,7 +1285,7 @@ class RestClient(TelemetryProvider):
         ```python
         # Sync usage
         future = rest_client.get_sampler("session-id:sample:0")
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Base model: {response.base_model}")
         print(f"Model path: {response.model_path}")
 
@@ -1164,6 +1295,7 @@ class RestClient(TelemetryProvider):
         ```
         """
 
+        @capture_exceptions(fatal=True)
         async def _get_sampler_async() -> types.GetSamplerResponse:
             async def _send_request() -> types.GetSamplerResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -1176,9 +1308,15 @@ class RestClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_sampler_async())
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: RestClient.get_sampler_async() is deprecated and will be removed in a future "
+        "tinker SDK version. Use `await RestClient.get_sampler(...)` instead; get_sampler() "
+        "returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_sampler_async(self, sampler_id: str) -> types.GetSamplerResponse:
-        """Async version of get_sampler."""
+        """Deprecated: use `await rest_client.get_sampler(...)`; `get_sampler()` returns an `APIFuture`
+        that can be awaited. This method will be removed in a subsequent release."""
         return await self.get_sampler(sampler_id)
 
     @deprecated(
@@ -1191,15 +1329,16 @@ class RestClient(TelemetryProvider):
         self,
         starting_on: datetime | str,
         ending_before: datetime | str,
-    ) -> ConcurrentFuture[types.BillingUsageResponse]:
+    ) -> APIFuture[types.BillingUsageResponse]:
         """Deprecated: use `AdminClient.get_billing_usage()` instead. This method will be removed in
         a subsequent release."""
         return self._admin_client().get_billing_usage(starting_on, ending_before)
 
     @deprecated(
         "DEPRECATED: RestClient.get_billing_usage_async() is deprecated and will be removed in a "
-        "future tinker SDK version. Use AdminClient.get_billing_usage_async() instead; AdminClient "
-        "is constructed the same way as RestClient.",
+        "future tinker SDK version. Use `await AdminClient.get_billing_usage(...)` instead; "
+        "AdminClient is constructed the same way as RestClient, and get_billing_usage() returns "
+        "an APIFuture that can be awaited.",
         category=FutureWarning,
     )
     async def get_billing_usage_async(
@@ -1207,9 +1346,9 @@ class RestClient(TelemetryProvider):
         starting_on: datetime | str,
         ending_before: datetime | str,
     ) -> types.BillingUsageResponse:
-        """Deprecated: use `AdminClient.get_billing_usage_async()` instead. This method will be
+        """Deprecated: use `await AdminClient.get_billing_usage(...)` instead. This method will be
         removed in a subsequent release."""
-        return await self._admin_client().get_billing_usage_async(starting_on, ending_before)
+        return await self._admin_client().get_billing_usage(starting_on, ending_before)
 
     @deprecated(
         "DEPRECATED: RestClient.get_current_checkpoint_storage_usage() is deprecated and will be "
@@ -1221,7 +1360,7 @@ class RestClient(TelemetryProvider):
     def get_current_checkpoint_storage_usage(
         self,
         project_id: str | None = None,
-    ) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]:
+    ) -> APIFuture[types.CurrentCheckpointStorageUsageResponse]:
         """Deprecated: use `AdminClient.get_current_checkpoint_storage_usage()` instead. This method
         will be removed in a subsequent release."""
         return self._admin_client().get_current_checkpoint_storage_usage(project_id)
@@ -1229,23 +1368,25 @@ class RestClient(TelemetryProvider):
     @deprecated(
         "DEPRECATED: RestClient.get_current_checkpoint_storage_usage_async() is deprecated and "
         "will be removed in a future tinker SDK version. Use "
-        "AdminClient.get_current_checkpoint_storage_usage_async() instead; AdminClient is "
-        "constructed the same way as RestClient.",
+        "`await AdminClient.get_current_checkpoint_storage_usage(...)` instead; AdminClient is "
+        "constructed the same way as RestClient, and get_current_checkpoint_storage_usage() "
+        "returns an APIFuture that can be awaited.",
         category=FutureWarning,
     )
     async def get_current_checkpoint_storage_usage_async(
         self,
         project_id: str | None = None,
     ) -> types.CurrentCheckpointStorageUsageResponse:
-        """Deprecated: use `AdminClient.get_current_checkpoint_storage_usage_async()` instead. This
-        method will be removed in a subsequent release."""
-        return await self._admin_client().get_current_checkpoint_storage_usage_async(project_id)
+        """Deprecated: use `await AdminClient.get_current_checkpoint_storage_usage(...)` instead.
+        This method will be removed in a subsequent release."""
+        return await self._admin_client().get_current_checkpoint_storage_usage(project_id)
 
     def _search_sessions_submit(
         self, request: types.SessionSearchRequest
     ) -> AwaitableConcurrentFuture[types.SessionSearchResponse]:
         """Internal method to submit the session search request."""
 
+        @capture_exceptions(fatal=True)
         async def _search_sessions_async() -> types.SessionSearchResponse:
             async def _send_request() -> types.SessionSearchResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -1264,11 +1405,10 @@ class RestClient(TelemetryProvider):
         "any release without a deprecation period.",
         category=ExperimentalWarning,
     )
-    @sync_only
     @capture_exceptions(fatal=True)
     def search_sessions(
         self, request: types.SessionSearchRequest
-    ) -> ConcurrentFuture[types.SessionSearchResponse]:
+    ) -> APIFuture[types.SessionSearchResponse]:
         """Search your organization's sessions, newest first.
 
         Experimental: this API may change or be removed in any release.
@@ -1280,7 +1420,7 @@ class RestClient(TelemetryProvider):
         - `request`: The search filters, page size and cursor
 
         Returns:
-        - A `Future` containing one `SessionSearchResponse` page
+        - An `APIFuture` containing one `SessionSearchResponse` page. Await it, or call `.result()`.
 
         Example:
         ```python
@@ -1297,16 +1437,4 @@ class RestClient(TelemetryProvider):
             page = rest_client.search_sessions(request).result()
         ```
         """
-        return self._search_sessions_submit(request).future()
-
-    @experimental(
-        "RestClient.search_sessions_async is experimental: it may change or be removed in "
-        "any release without a deprecation period.",
-        category=ExperimentalWarning,
-    )
-    @capture_exceptions(fatal=True)
-    async def search_sessions_async(
-        self, request: types.SessionSearchRequest
-    ) -> types.SessionSearchResponse:
-        """Async version of search_sessions."""
-        return await self._search_sessions_submit(request)
+        return self._search_sessions_submit(request)

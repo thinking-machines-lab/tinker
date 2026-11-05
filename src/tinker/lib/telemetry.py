@@ -34,7 +34,6 @@ from tinker.types.unhandled_exception_event import UnhandledExceptionEvent
 
 from .async_tinker_provider import AsyncTinkerProvider
 from .client_connection_pool_type import ClientConnectionPoolType
-from .sync_only import sync_only
 from .telemetry_provider import TelemetryProvider
 
 logger = logging.getLogger(__name__)
@@ -139,7 +138,11 @@ class Telemetry:
                 events = [self._queue.popleft() for _ in range(batch_size)]
                 batch = self._batch(events)
             try:
-                _ = await self._send_batch_with_retry(batch)
+                _ = await self._send_batch(batch)
+            except APIError as e:
+                # The HTTP client already retries transient errors with backoff.
+                # Resending a rejected batch (e.g. a revoked credential) cannot succeed.
+                logger.warning("Dropping telemetry batch that failed to send", exc_info=e)
             finally:
                 # increment counter even if we fail to send the batch so we're not blocking
                 # on a flush for non-APIErrors (e.g. missing API key)
@@ -168,15 +171,6 @@ class Telemetry:
             ).result(timeout=FLUSH_TIMEOUT)
         except (TimeoutError, asyncio.CancelledError):
             return False
-
-    async def _send_batch_with_retry(self, batch: TelemetryBatch) -> TelemetryResponse:
-        while True:
-            try:
-                return await self._send_batch(batch)
-            except APIError as e:
-                logger.warning("Failed to send telemetry batch", exc_info=e)
-                await asyncio.sleep(1)
-                continue
 
     async def _send_batch(self, batch: TelemetryBatch) -> TelemetryResponse:
         with self._tinker_provider.aclient(ClientConnectionPoolType.TELEMETRY) as client:
@@ -224,14 +218,12 @@ class Telemetry:
             self._notify_exception_logged()
         return logged
 
-    @sync_only
     def log_exception_sync(self, exception: BaseException, severity: Severity = "ERROR") -> bool:
         logged = self._log(self._exception_or_user_error_event(exception, severity))
         # trigger flush but don't block on it
         self._trigger_flush()
         return logged
 
-    @sync_only
     def log_fatal_exception_sync(
         self, exception: BaseException, severity: Severity = "ERROR"
     ) -> bool:

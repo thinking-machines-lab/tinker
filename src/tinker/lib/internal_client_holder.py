@@ -141,6 +141,10 @@ class InternalClientHolderThreadSingleton:
         assert self._loop is not None, "Loop must not be None"
         return self._loop
 
+    def loop_if_started(self) -> asyncio.AbstractEventLoop | None:
+        # Read without the lock: a loop that is still starting reads as None.
+        return self._loop
+
 
 _internal_client_holder_thread_singleton = InternalClientHolderThreadSingleton()
 

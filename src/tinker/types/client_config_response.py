@@ -45,12 +45,6 @@ class ClientConfigResponse(BaseModel):
     """When true, the SDK builds its default httpx async client on top of the
     pyqwest (reqwest/hyper-based) transport adapter. Set to false server-side
     to force every client to fall back to httpx's default transport."""
-    create_model_via_load_weights: bool = False
-    """When true, create_training_client_from_state* skips the weights_info
-    and create_model round-trips and sends a single LoadWeightsRequest with
-    session addressing (session_id + model_seq_id) that creates the model
-    server-side, configured from the checkpoint's owning model. Requires a
-    server with load-weights-first support."""
     sample_use_retrieve_futures: bool = False
     """When true, each SamplingClient runs a single background task that polls
     ``/api/v1/retrieve_futures`` for its whole sampling session; a sample's

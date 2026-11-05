@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -64,6 +66,7 @@ def test_service_client_explicit_project_id_overrides_env(
 
 
 @pytest.mark.respx(base_url=base_url)
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_create_training_client_from_state_async(respx_mock: MockRouter) -> None:
     """Test create_training_client_from_state_async uses public endpoint."""
     tinker_path = "tinker://test-model-123/weights/checkpoint-001"
@@ -92,6 +95,7 @@ async def test_create_training_client_from_state_async(respx_mock: MockRouter) -
 
 
 @pytest.mark.respx(base_url=base_url)
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_create_training_client_from_state_async_with_user_metadata(
     respx_mock: MockRouter,
 ) -> None:
@@ -125,6 +129,7 @@ async def test_create_training_client_from_state_async_with_user_metadata(
 
 
 @pytest.mark.respx(base_url=base_url)
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_create_training_client_from_state_async_not_lora(respx_mock: MockRouter) -> None:
     """Test create_training_client_from_state_async raises assertion for non-LoRA model."""
     tinker_path = "tinker://test-model-123/weights/checkpoint-001"
@@ -147,6 +152,7 @@ async def test_create_training_client_from_state_async_not_lora(respx_mock: Mock
 
 
 @pytest.mark.respx(base_url=base_url)
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 async def test_create_training_client_from_state_async_uses_public_endpoint(
     respx_mock: MockRouter,
 ) -> None:
@@ -179,7 +185,9 @@ async def test_create_training_client_from_state_async_uses_public_endpoint(
 
 
 @pytest.mark.respx(base_url=base_url)
-def test_create_training_client_from_state_sync(respx_mock: MockRouter) -> None:
+def test_create_training_client_from_state_sync(
+    respx_mock: MockRouter, resolve_created_client: Callable[[Any], Any]
+) -> None:
     """Test create_training_client_from_state (sync) uses public endpoint."""
     tinker_path = "tinker://test-model-123/weights/checkpoint-001"
     weights_info_response = types.WeightsInfoResponse(
@@ -200,15 +208,16 @@ def test_create_training_client_from_state_sync(respx_mock: MockRouter) -> None:
     respx_mock.post("/api/v1/load_weights").mock(return_value=httpx.Response(200, json={}))
 
     service_client = tinker.ServiceClient(base_url=base_url)
-    training_client = service_client.create_training_client_from_state(tinker_path)
+    training_client = resolve_created_client(
+        service_client.create_training_client_from_state(tinker_path)
+    )
 
-    assert training_client is not None
     assert training_client.model_id == "new-model-id"
 
 
 @pytest.mark.respx(base_url=base_url)
 def test_create_training_client_from_state_sync_uses_public_endpoint(
-    respx_mock: MockRouter,
+    respx_mock: MockRouter, resolve_created_client: Callable[[Any], Any]
 ) -> None:
     """Test that create_training_client_from_state (sync) uses get_weights_info_by_tinker_path."""
     tinker_path = "tinker://test-model-123/weights/checkpoint-001"
@@ -232,7 +241,10 @@ def test_create_training_client_from_state_sync_uses_public_endpoint(
     respx_mock.post("/api/v1/load_weights").mock(return_value=httpx.Response(200, json={}))
 
     service_client = tinker.ServiceClient(base_url=base_url)
-    service_client.create_training_client_from_state(tinker_path)
+    training_client = resolve_created_client(
+        service_client.create_training_client_from_state(tinker_path)
+    )
+    assert training_client.model_id == "new-model-id"
 
     # Verify it uses the public endpoint (info_lite), not the full training run endpoint
     assert info_lite_route.called

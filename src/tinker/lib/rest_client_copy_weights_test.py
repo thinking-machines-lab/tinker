@@ -103,6 +103,7 @@ def transport() -> Iterator[_Transport]:
         loop.close()
 
 
+@pytest.mark.filterwarnings("ignore:DEPRECATED:FutureWarning")
 @pytest.mark.parametrize("access", ["result", "await", "result_async", "async_method"])
 def test_copy_preserves_service_client_call_and_result_contract(
     transport: _Transport,

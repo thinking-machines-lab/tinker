@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import Future as ConcurrentFuture
 from datetime import date, datetime
 from typing import Literal
 
+from typing_extensions import deprecated
+
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
-from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
 from tinker.lib.public_interfaces.rest_client_common import rest_client_holder
 from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 
 from ..internal_client_holder import InternalClientHolder
-from ..sync_only import sync_only
 
 # pyright: reportPrivateImportUsage=false
 
@@ -68,13 +68,12 @@ class AdminClient(TelemetryProvider):
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_audit_log(
         self,
         event_type: Literal["all", "checkpoints", "projects", "teams", "organizations"] = "all",
         day: date | None = None,
-    ) -> ConcurrentFuture[types.AuditLogResponse]:
+    ) -> APIFuture[types.AuditLogResponse]:
         """Get an audit log of events for the caller's organization.
 
         Requires the tinker-admin RBAC role (VIEW_AUDIT_LOG capability).
@@ -86,14 +85,15 @@ class AdminClient(TelemetryProvider):
             midnight to midnight UTC.
 
         Returns:
-        - A `Future` containing the `AuditLogResponse` with audit log entries
+        - An `APIFuture` containing the `AuditLogResponse` with audit log entries.
+            Await it, or call `.result()`.
 
         Example:
         ```python
         from datetime import date
 
         future = admin_client.get_audit_log()
-        response = future.result()
+        response = future.result()  # or `await future`
         print(f"Found {len(response.entries)} audit entries")
         for entry in response.entries:
             print(f"  {entry.timestamp}: {entry.event} {entry.event_details}")
@@ -102,30 +102,38 @@ class AdminClient(TelemetryProvider):
         future = admin_client.get_audit_log(day=date(2025, 1, 15))
         ```
         """
-        return self.holder.run_coroutine_threadsafe(
-            self.get_audit_log_async(event_type, day)
-        ).future()
 
-    @capture_exceptions(fatal=True)
+        @capture_exceptions(fatal=True)
+        async def _get_audit_log_async() -> types.AuditLogResponse:
+            async def _send_request() -> types.AuditLogResponse:
+                params: dict[str, object] = {"event_type": event_type}
+                if day is not None:
+                    params["day"] = day.isoformat()
+                with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
+                    return await client.get(
+                        "/api/v1/audit",
+                        options={"params": params},
+                        cast_to=types.AuditLogResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_get_audit_log_async())
+
+    @deprecated(
+        "DEPRECATED: AdminClient.get_audit_log_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await AdminClient.get_audit_log(...)` instead; "
+        "get_audit_log() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_audit_log_async(
         self,
         event_type: Literal["all", "checkpoints", "projects", "teams", "organizations"] = "all",
         day: date | None = None,
     ) -> types.AuditLogResponse:
-        """Async version of get_audit_log."""
-
-        async def _send_request() -> types.AuditLogResponse:
-            params: dict[str, object] = {"event_type": event_type}
-            if day is not None:
-                params["day"] = day.isoformat()
-            with self.holder.aclient(ClientConnectionPoolType.REST_SUPPORT_REDIRECT) as client:
-                return await client.get(
-                    "/api/v1/audit",
-                    options={"params": params},
-                    cast_to=types.AuditLogResponse,
-                )
-
-        return await self.holder.execute_with_retries(_send_request)
+        """Deprecated: use `await admin_client.get_audit_log(...)`; `get_audit_log()` returns an
+        `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
+        return await self.get_audit_log(event_type=event_type, day=day)
 
     def _get_billing_usage_submit(
         self,
@@ -143,6 +151,7 @@ class AdminClient(TelemetryProvider):
             }
         )
 
+        @capture_exceptions(fatal=True)
         async def _get_billing_usage_async() -> types.BillingUsageResponse:
             async def _send_request() -> types.BillingUsageResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -156,13 +165,12 @@ class AdminClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_billing_usage_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_billing_usage(
         self,
         starting_on: datetime | str,
         ending_before: datetime | str,
-    ) -> ConcurrentFuture[types.BillingUsageResponse]:
+    ) -> APIFuture[types.BillingUsageResponse]:
         """Get detailed billing usage for your organization.
 
         Returns hourly-bucketed usage as a list of `BillingUsageEvent`
@@ -206,7 +214,7 @@ class AdminClient(TelemetryProvider):
           boundary; at most 14 days after `starting_on`
 
         Returns:
-        - A `Future` containing the `BillingUsageResponse`
+        - An `APIFuture` containing the `BillingUsageResponse`. Await it, or call `.result()`.
 
         Example:
         ```python
@@ -223,16 +231,22 @@ class AdminClient(TelemetryProvider):
                     print(event.bucket_start, info.type, event.base_model, info.token_count)
         ```
         """
-        return self._get_billing_usage_submit(starting_on, ending_before).future()
+        return self._get_billing_usage_submit(starting_on, ending_before)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: AdminClient.get_billing_usage_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await AdminClient.get_billing_usage(...)` instead; "
+        "get_billing_usage() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_billing_usage_async(
         self,
         starting_on: datetime | str,
         ending_before: datetime | str,
     ) -> types.BillingUsageResponse:
-        """Async version of get_billing_usage."""
-        return await self._get_billing_usage_submit(starting_on, ending_before)
+        """Deprecated: use `await admin_client.get_billing_usage(...)`; `get_billing_usage()` returns
+        an `APIFuture` that can be awaited. This method will be removed in a subsequent release."""
+        return await self.get_billing_usage(starting_on=starting_on, ending_before=ending_before)
 
     def _get_current_checkpoint_storage_usage_submit(
         self,
@@ -242,6 +256,7 @@ class AdminClient(TelemetryProvider):
             project_id=project_id,
         )
 
+        @capture_exceptions(fatal=True)
         async def _get_usage_async() -> types.CurrentCheckpointStorageUsageResponse:
             async def _send_request() -> types.CurrentCheckpointStorageUsageResponse:
                 with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
@@ -255,12 +270,11 @@ class AdminClient(TelemetryProvider):
 
         return self.holder.run_coroutine_threadsafe(_get_usage_async())
 
-    @sync_only
     @capture_exceptions(fatal=True)
     def get_current_checkpoint_storage_usage(
         self,
         project_id: str | None = None,
-    ) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]:
+    ) -> APIFuture[types.CurrentCheckpointStorageUsageResponse]:
         """Get current checkpoint count, size, and projected storage cost.
 
         With no arguments, returns checkpoint storage usage for the entire
@@ -270,12 +284,20 @@ class AdminClient(TelemetryProvider):
         current publicly available rates, before credits and commits,
         and are not invoice amounts due.
         """
-        return self._get_current_checkpoint_storage_usage_submit(project_id).future()
+        return self._get_current_checkpoint_storage_usage_submit(project_id)
 
-    @capture_exceptions(fatal=True)
+    @deprecated(
+        "DEPRECATED: AdminClient.get_current_checkpoint_storage_usage_async() is deprecated and "
+        "will be removed in a future tinker SDK version. Use `await "
+        "AdminClient.get_current_checkpoint_storage_usage(...)` instead; "
+        "get_current_checkpoint_storage_usage() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def get_current_checkpoint_storage_usage_async(
         self,
         project_id: str | None = None,
     ) -> types.CurrentCheckpointStorageUsageResponse:
-        """Async version of get_current_checkpoint_storage_usage."""
-        return await self._get_current_checkpoint_storage_usage_submit(project_id)
+        """Deprecated: use `await admin_client.get_current_checkpoint_storage_usage(...)`;
+        `get_current_checkpoint_storage_usage()` returns an `APIFuture` that can be awaited. This
+        method will be removed in a subsequent release."""
+        return await self.get_current_checkpoint_storage_usage(project_id=project_id)

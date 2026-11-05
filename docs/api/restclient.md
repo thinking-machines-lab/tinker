@@ -3,6 +3,7 @@ RestClient for Tinker API REST operations.
 ## `RestClient` Objects
 
 ```python
+@with_sdk_method_telemetry
 class RestClient(TelemetryProvider)
 ```
 
@@ -13,10 +14,13 @@ model information, checkpoints, and other resources. Construct one directly
 with `RestClient()`; no ServiceClient or training session is needed.
 
 Key methods:
+- get_server_capabilities() - get the models the caller can use and the server's features
 - list_checkpoints() - list available model checkpoints (both training and sampler)
 - list_user_checkpoints() - list all checkpoints across all user's training runs
 - get_training_run() - get model information and metadata as ModelEntry
 - delete_checkpoint() - delete an existing checkpoint for a training run
+- get_billing_usage(), get_current_checkpoint_storage_usage(), get_audit_log() -
+  (deprecated) admin-only operations, now on `AdminClient`
 - get_external_weights_urls() - get per-file signed URLs for an external weights checkpoint
 - copy_weights() - copy a checkpoint into a selected project
 - publish_checkpoint_from_tinker_path() - publish a checkpoint to make it public
@@ -59,13 +63,33 @@ for checkpoint in checkpoints.checkpoints:
     print(f"  {checkpoint.checkpoint_type}: {checkpoint.checkpoint_id}")
 ```
 
+#### `get_server_capabilities`
+
+```python
+def get_server_capabilities(
+) -> APIFuture[types.GetServerCapabilitiesResponse]
+```
+
+Query the server's supported features and capabilities.
+
+Returns:
+- An `APIFuture` containing the `GetServerCapabilitiesResponse` with the models
+    the caller can use, features, and limits. Await it, or call `.result()`.
+
+Example:
+```python
+capabilities = rest_client.get_server_capabilities().result()
+for model in capabilities.supported_models:
+    print(model.model_name)
+```
+
 #### `get_training_run`
 
 ```python
 def get_training_run(
     training_run_id: types.ModelID,
     access_scope: Literal["owned", "accessible"] = "owned"
-) -> ConcurrentFuture[types.TrainingRun]
+) -> APIFuture[types.TrainingRun]
 ```
 
 Get training run info.
@@ -74,12 +98,12 @@ Args:
 - `training_run_id`: The training run ID to get information for
 
 Returns:
-- A `Future` containing the training run information
+- An `APIFuture` containing the training run information. Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.get_training_run("run-id")
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
 ```
 
@@ -92,7 +116,8 @@ async def get_training_run_async(
                           "accessible"] = "owned") -> types.TrainingRun
 ```
 
-Async version of get_training_run.
+Deprecated: use `await rest_client.get_training_run(...)`; `get_training_run()` returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `get_training_run_by_tinker_path`
 
@@ -100,7 +125,7 @@ Async version of get_training_run.
 def get_training_run_by_tinker_path(
     tinker_path: str,
     access_scope: Literal["owned", "accessible"] = "owned"
-) -> ConcurrentFuture[types.TrainingRun]
+) -> APIFuture[types.TrainingRun]
 ```
 
 Get training run info.
@@ -109,12 +134,12 @@ Args:
 - `tinker_path`: The tinker path to the checkpoint
 
 Returns:
-- A `Future` containing the training run information
+- An `APIFuture` containing the training run information. Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.get_training_run_by_tinker_path("tinker://run-id/weights/checkpoint-001")
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Training Run ID: {response.training_run_id}, Base: {response.base_model}")
 ```
 
@@ -127,7 +152,9 @@ async def get_training_run_by_tinker_path_async(
                           "accessible"] = "owned") -> types.TrainingRun
 ```
 
-Async version of get_training_run_by_tinker_path.
+Deprecated: use `await rest_client.get_training_run_by_tinker_path(...)`;
+`get_training_run_by_tinker_path()` returns an `APIFuture` that can be awaited. This method
+will be removed in a subsequent release.
 
 #### `get_weights_info_by_tinker_path`
 
@@ -155,11 +182,11 @@ print(f"Base Model: {response.base_model}, LoRA Rank: {response.lora_rank}")
 
 ```python
 def list_training_runs(
-    limit: int = 20,
-    offset: int = 0,
-    access_scope: Literal["owned", "accessible"] = "owned",
-    project_id: str | None = None
-) -> ConcurrentFuture[types.TrainingRunsResponse]
+        limit: int = 20,
+        offset: int = 0,
+        access_scope: Literal["owned", "accessible"] = "owned",
+        project_id: str | None = None
+) -> APIFuture[types.TrainingRunsResponse]
 ```
 
 List training runs with pagination support.
@@ -170,12 +197,13 @@ Args:
 - `project_id`: If provided, only return training runs in this project
 
 Returns:
-- A `Future` containing the `TrainingRunsResponse` with training runs and cursor info
+- An `APIFuture` containing the `TrainingRunsResponse` with training runs and cursor info.
+    Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.list_training_runs(limit=50)
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Found {len(response.training_runs)} training runs")
 print(f"Total: {response.cursor.total_count}")
 # Get next page
@@ -194,14 +222,15 @@ async def list_training_runs_async(
         project_id: str | None = None) -> types.TrainingRunsResponse
 ```
 
-Async version of list_training_runs.
+Deprecated: use `await rest_client.list_training_runs(...)`; `list_training_runs()` returns
+an `APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `list_checkpoints`
 
 ```python
 def list_checkpoints(
     training_run_id: types.ModelID
-) -> ConcurrentFuture[types.CheckpointsListResponse]
+) -> APIFuture[types.CheckpointsListResponse]
 ```
 
 List available checkpoints (both training and sampler).
@@ -210,12 +239,13 @@ Args:
 - `training_run_id`: The training run ID to list checkpoints for
 
 Returns:
-- A `Future` containing the `CheckpointsListResponse` with available checkpoints
+- An `APIFuture` containing the `CheckpointsListResponse` with available checkpoints.
+    Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.list_checkpoints("run-id")
-response = future.result()
+response = future.result()  # or `await future`
 for checkpoint in response.checkpoints:
     if checkpoint.checkpoint_type == "training":
         print(f"Training checkpoint: {checkpoint.checkpoint_id}")
@@ -230,14 +260,14 @@ async def list_checkpoints_async(
         training_run_id: types.ModelID) -> types.CheckpointsListResponse
 ```
 
-Async version of list_checkpoints.
+Deprecated: use `await rest_client.list_checkpoints(...)`; `list_checkpoints()` returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `get_external_weights_urls`
 
 ```python
 def get_external_weights_urls(
-        tinker_path: str
-) -> ConcurrentFuture[types.ExternalWeightsUrlsResponse]
+        tinker_path: str) -> APIFuture[types.ExternalWeightsUrlsResponse]
 ```
 
 Get signed download URLs, one per file, for an external weights checkpoint.
@@ -247,8 +277,9 @@ Args:
   (`tinker://<training_run_id>/external_weights/<name>`)
 
 Returns:
-- A `Future` containing the `ExternalWeightsUrlsResponse`: `urls` maps each file path
-  (relative to the checkpoint root) to a signed URL, valid until `expires`
+- An `APIFuture` containing the `ExternalWeightsUrlsResponse`: `urls` maps each file path
+  (relative to the checkpoint root) to a signed URL, valid until `expires`.
+  Await it, or call `.result()`.
 
 #### `get_external_weights_urls_async`
 
@@ -257,13 +288,15 @@ async def get_external_weights_urls_async(
         tinker_path: str) -> types.ExternalWeightsUrlsResponse
 ```
 
-Async version of get_external_weights_urls.
+Deprecated: use `await rest_client.get_external_weights_urls(...)`;
+`get_external_weights_urls()` returns an `APIFuture` that can be awaited. This method will
+be removed in a subsequent release.
 
 #### `delete_checkpoint`
 
 ```python
 def delete_checkpoint(training_run_id: types.ModelID,
-                      checkpoint_id: str) -> ConcurrentFuture[None]
+                      checkpoint_id: str) -> APIFuture[None]
 ```
 
 Delete a checkpoint for a training run.
@@ -275,13 +308,13 @@ async def delete_checkpoint_async(training_run_id: types.ModelID,
                                   checkpoint_id: str) -> None
 ```
 
-Async version of delete_checkpoint.
+Deprecated: use `await rest_client.delete_checkpoint(...)`; `delete_checkpoint()` returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `delete_checkpoint_from_tinker_path`
 
 ```python
-def delete_checkpoint_from_tinker_path(
-        tinker_path: str) -> ConcurrentFuture[None]
+def delete_checkpoint_from_tinker_path(tinker_path: str) -> APIFuture[None]
 ```
 
 Delete a checkpoint referenced by a tinker path.
@@ -292,44 +325,42 @@ Delete a checkpoint referenced by a tinker path.
 async def delete_checkpoint_from_tinker_path_async(tinker_path: str) -> None
 ```
 
-Async version of delete_checkpoint_from_tinker_path.
+Deprecated: use `await rest_client.delete_checkpoint_from_tinker_path(...)`;
+`delete_checkpoint_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+method will be removed in a subsequent release.
 
 #### `get_audit_log`
 
 ```python
 def get_audit_log(
-    event_type: Literal["all", "checkpoints", "projects", "teams",
-                        "organizations"] = "all",
-    day: date | None = None
-) -> ConcurrentFuture[types.AuditLogResponse]
+        event_type: Literal["all", "checkpoints", "projects", "teams",
+                            "organizations"] = "all",
+        day: date | None = None) -> APIFuture[types.AuditLogResponse]
 ```
 
-Deprecated: use `AdminClient.get_audit_log()` instead. This method will be removed in
-a subsequent release.
+Deprecated: use `AdminClient.get_audit_log()` instead. This method will be removed in a
+subsequent release.
 
 #### `get_audit_log_async`
 
 ```python
 async def get_audit_log_async(
-    event_type: Literal["all", "checkpoints", "projects", "teams",
-                        "organizations"] = "all",
-    day: date | None = None
-) -> types.AuditLogResponse
+        event_type: Literal["all", "checkpoints", "projects", "teams",
+                            "organizations"] = "all",
+        day: date | None = None) -> types.AuditLogResponse
 ```
 
-Deprecated: use `AdminClient.get_audit_log_async()` instead. This method will be removed in
-a subsequent release.
+Deprecated: use `await AdminClient.get_audit_log(...)` instead. This method will be
+removed in a subsequent release.
 
 #### `copy_weights`
 
 ```python
-def copy_weights(
-        path: str,
-        destination_project_id: str | None = None,
-        *,
-        ttl_seconds: int | None = None,
-        weights_access_token: str | None = None
-) -> AwaitableConcurrentFuture[str]
+def copy_weights(path: str,
+                 destination_project_id: str | None = None,
+                 *,
+                 ttl_seconds: int | None = None,
+                 weights_access_token: str | None = None) -> APIFuture[str]
 ```
 
 Copy a checkpoint into a selected project.
@@ -371,13 +402,13 @@ async def copy_weights_async(path: str,
                              weights_access_token: str | None = None) -> str
 ```
 
-Async version of copy_weights.
+Deprecated: use `await rest_client.copy_weights(...)`; `copy_weights()` returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `publish_checkpoint_from_tinker_path`
 
 ```python
-def publish_checkpoint_from_tinker_path(
-        tinker_path: str) -> ConcurrentFuture[None]
+def publish_checkpoint_from_tinker_path(tinker_path: str) -> APIFuture[None]
 ```
 
 Publish a checkpoint referenced by a tinker path to make it publicly accessible.
@@ -389,7 +420,8 @@ Args:
 - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 
 Returns:
-- A `Future` that completes when the checkpoint is published
+- An `APIFuture` that completes when the checkpoint is published.
+    Await it, or call `.result()`.
 
 Raises:
     HTTPException: 400 if checkpoint identifier is invalid
@@ -400,7 +432,7 @@ Raises:
 Example:
 ```python
 future = rest_client.publish_checkpoint_from_tinker_path("tinker://run-id/weights/0001")
-future.result()  # Wait for completion
+future.result()  # or `await future`
 print("Checkpoint published successfully")
 ```
 
@@ -410,13 +442,14 @@ print("Checkpoint published successfully")
 async def publish_checkpoint_from_tinker_path_async(tinker_path: str) -> None
 ```
 
-Async version of publish_checkpoint_from_tinker_path.
+Deprecated: use `await rest_client.publish_checkpoint_from_tinker_path(...)`;
+`publish_checkpoint_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+method will be removed in a subsequent release.
 
 #### `unpublish_checkpoint_from_tinker_path`
 
 ```python
-def unpublish_checkpoint_from_tinker_path(
-        tinker_path: str) -> ConcurrentFuture[None]
+def unpublish_checkpoint_from_tinker_path(tinker_path: str) -> APIFuture[None]
 ```
 
 Unpublish a checkpoint referenced by a tinker path to make it private again.
@@ -428,7 +461,8 @@ Args:
 - `tinker_path`: The tinker path to the checkpoint (e.g., "tinker://run-id/weights/0001")
 
 Returns:
-- A `Future` that completes when the checkpoint is unpublished
+- An `APIFuture` that completes when the checkpoint is unpublished.
+    Await it, or call `.result()`.
 
 Raises:
     HTTPException: 400 if checkpoint identifier is invalid
@@ -439,7 +473,7 @@ Raises:
 Example:
 ```python
 future = rest_client.unpublish_checkpoint_from_tinker_path("tinker://run-id/weights/0001")
-future.result()  # Wait for completion
+future.result()  # or `await future`
 print("Checkpoint unpublished successfully")
 ```
 
@@ -450,13 +484,15 @@ async def unpublish_checkpoint_from_tinker_path_async(
         tinker_path: str) -> None
 ```
 
-Async version of unpublish_checkpoint_from_tinker_path.
+Deprecated: use `await rest_client.unpublish_checkpoint_from_tinker_path(...)`;
+`unpublish_checkpoint_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+method will be removed in a subsequent release.
 
 #### `set_checkpoint_ttl_from_tinker_path`
 
 ```python
 def set_checkpoint_ttl_from_tinker_path(
-        tinker_path: str, ttl_seconds: int | None) -> ConcurrentFuture[None]
+        tinker_path: str, ttl_seconds: int | None) -> APIFuture[None]
 ```
 
 Set or remove the TTL on a checkpoint referenced by a tinker path.
@@ -470,7 +506,7 @@ Args:
 - `ttl_seconds`: Seconds until expiration (1 hour to 10 years), or None to remove TTL
 
 Returns:
-- A `Future` that completes when the TTL is set
+- An `APIFuture` that completes when the TTL is set. Await it, or call `.result()`.
 
 Raises:
     HTTPException: 400 if checkpoint identifier is invalid or ttl_seconds is out of range
@@ -480,7 +516,7 @@ Raises:
 Example:
 ```python
 future = rest_client.set_checkpoint_ttl_from_tinker_path("tinker://run-id/weights/0001", 86400)
-future.result()  # Wait for completion
+future.result()  # or `await future`
 print("Checkpoint TTL set successfully")
 ```
 
@@ -491,14 +527,16 @@ async def set_checkpoint_ttl_from_tinker_path_async(
         tinker_path: str, ttl_seconds: int | None) -> None
 ```
 
-Async version of set_checkpoint_ttl_from_tinker_path.
+Deprecated: use `await rest_client.set_checkpoint_ttl_from_tinker_path(...)`;
+`set_checkpoint_ttl_from_tinker_path()` returns an `APIFuture` that can be awaited. This
+method will be removed in a subsequent release.
 
 #### `list_user_checkpoints`
 
 ```python
 def list_user_checkpoints(
         limit: int = 100,
-        offset: int = 0) -> ConcurrentFuture[types.CheckpointsListResponse]
+        offset: int = 0) -> APIFuture[types.CheckpointsListResponse]
 ```
 
 List all checkpoints for the current user across all their training runs.
@@ -512,12 +550,13 @@ Args:
 - `offset`: Offset for pagination (default 0)
 
 Returns:
-- A `Future` containing the `CheckpointsListResponse` with checkpoints and cursor info
+- An `APIFuture` containing the `CheckpointsListResponse` with checkpoints and cursor info.
+    Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.list_user_checkpoints(limit=50)
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Found {len(response.checkpoints)} checkpoints")
 print(f"Total: {response.cursor.total_count if response.cursor else 'Unknown'}")
 for checkpoint in response.checkpoints:
@@ -535,7 +574,9 @@ async def list_user_checkpoints_async(limit: int = 100,
                                       ) -> types.CheckpointsListResponse
 ```
 
-Async version of list_user_checkpoints.
+Deprecated: use `await rest_client.list_user_checkpoints(...)`; `list_user_checkpoints()`
+returns an `APIFuture` that can be awaited. This method will be removed in a subsequent
+release.
 
 #### `get_session`
 
@@ -543,7 +584,7 @@ Async version of list_user_checkpoints.
 def get_session(
     session_id: str,
     access_scope: Literal["owned", "accessible"] = "owned"
-) -> ConcurrentFuture[types.GetSessionResponse]
+) -> APIFuture[types.GetSessionResponse]
 ```
 
 Get session information including all training runs and samplers.
@@ -552,17 +593,16 @@ Args:
 - `session_id`: The session ID to get information for
 
 Returns:
-- A `Future` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
-  user_metadata, and display_name
+- An `APIFuture` containing the `GetSessionResponse` with training_run_ids, sampler_ids,
+  and user_metadata. Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.get_session("session-id")
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Training runs: {len(response.training_run_ids)}")
 print(f"Samplers: {len(response.sampler_ids)}")
 print(f"User metadata: {response.user_metadata}")
-print(f"Display name: {response.display_name}")
 ```
 
 #### `get_session_async`
@@ -574,7 +614,8 @@ async def get_session_async(
 ) -> types.GetSessionResponse
 ```
 
-Async version of get_session.
+Deprecated: use `await rest_client.get_session(...)`; `get_session()` returns an `APIFuture`
+that can be awaited. This method will be removed in a subsequent release.
 
 #### `list_sessions`
 
@@ -583,7 +624,7 @@ def list_sessions(
     limit: int = 20,
     offset: int = 0,
     access_scope: Literal["owned", "accessible"] = "owned"
-) -> ConcurrentFuture[types.ListSessionsResponse]
+) -> APIFuture[types.ListSessionsResponse]
 ```
 
 List sessions with pagination support.
@@ -593,12 +634,13 @@ Args:
 - `offset`: Offset for pagination (default 0)
 
 Returns:
-- A `Future` containing the `ListSessionsResponse` with list of session IDs
+- An `APIFuture` containing the `ListSessionsResponse` with list of session IDs.
+    Await it, or call `.result()`.
 
 Example:
 ```python
 future = rest_client.list_sessions(limit=50)
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Found {len(response.sessions)} sessions")
 # Get next page
 next_page = rest_client.list_sessions(limit=50, offset=50)
@@ -614,13 +656,14 @@ async def list_sessions_async(
 ) -> types.ListSessionsResponse
 ```
 
-Async version of list_sessions.
+Deprecated: use `await rest_client.list_sessions(...)`; `list_sessions()` returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent release.
 
 #### `assign_session_project`
 
 ```python
 def assign_session_project(session_id: str,
-                           project_id: str) -> ConcurrentFuture[None]
+                           project_id: str) -> APIFuture[None]
 ```
 
 Move a session (and all of its training runs/samplers) into a project.
@@ -634,7 +677,8 @@ Args:
 - `project_id`: The destination project ID
 
 Returns:
-- A `Future` that completes when the session has been moved
+- An `APIFuture` that completes when the session has been moved.
+    Await it, or call `.result()`.
 
 Raises:
     HTTPException: 400 if `project_id` is missing
@@ -654,12 +698,14 @@ async def assign_session_project_async(session_id: str,
                                        project_id: str) -> None
 ```
 
-Async version of assign_session_project.
+Deprecated: use `await rest_client.assign_session_project(...)`; `assign_session_project()`
+returns an `APIFuture` that can be awaited. This method will be removed in a subsequent
+release.
 
 #### `export_session_trace`
 
 ```python
-def export_session_trace(session_id: str) -> ConcurrentFuture[str]
+def export_session_trace(session_id: str) -> APIFuture[str]
 ```
 
 Export a session's timeline as a Perfetto trace and get a signed download URL.
@@ -688,7 +734,8 @@ Args:
 - `session_id`: The session ID to export a trace for
 
 Returns:
-- A `Future` containing the signed download URL for the `.pftrace` file
+- An `APIFuture` containing the signed download URL for the `.pftrace` file.
+    Await it, or call `.result()`.
 
 Raises:
     RuntimeError: if the export job fails
@@ -705,7 +752,9 @@ print(f"Download URL: {url}")
 async def export_session_trace_async(session_id: str) -> str
 ```
 
-Async version of export_session_trace.
+Deprecated: use `await rest_client.export_session_trace(...)`; `export_session_trace()`
+returns an `APIFuture` that can be awaited. This method will be removed in a subsequent
+release.
 
 #### `whoami`
 
@@ -754,7 +803,7 @@ Example:
 ```python
 # Sync usage
 future = rest_client.get_sampler("session-id:sample:0")
-response = future.result()
+response = future.result()  # or `await future`
 print(f"Base model: {response.base_model}")
 print(f"Model path: {response.model_path}")
 
@@ -769,13 +818,15 @@ print(f"Base model: {response.base_model}")
 async def get_sampler_async(sampler_id: str) -> types.GetSamplerResponse
 ```
 
-Async version of get_sampler.
+Deprecated: use `await rest_client.get_sampler(...)`; `get_sampler()` returns an `APIFuture`
+that can be awaited. This method will be removed in a subsequent release.
 
 #### `get_billing_usage`
 
 ```python
-def get_billing_usage(starting_on: datetime | str,
-                      ending_before: datetime | str) -> ConcurrentFuture[types.BillingUsageResponse]
+def get_billing_usage(
+        starting_on: datetime | str, ending_before: datetime | str
+) -> APIFuture[types.BillingUsageResponse]
 ```
 
 Deprecated: use `AdminClient.get_billing_usage()` instead. This method will be removed in
@@ -784,23 +835,24 @@ a subsequent release.
 #### `get_billing_usage_async`
 
 ```python
-async def get_billing_usage_async(starting_on: datetime | str,
-                            ending_before: datetime | str) -> types.BillingUsageResponse
+async def get_billing_usage_async(
+        starting_on: datetime | str,
+        ending_before: datetime | str) -> types.BillingUsageResponse
 ```
 
-Deprecated: use `AdminClient.get_billing_usage_async()` instead. This method will be removed in
-a subsequent release.
+Deprecated: use `await AdminClient.get_billing_usage(...)` instead. This method will be
+removed in a subsequent release.
 
 #### `get_current_checkpoint_storage_usage`
 
 ```python
 def get_current_checkpoint_storage_usage(
     project_id: str | None = None
-) -> ConcurrentFuture[types.CurrentCheckpointStorageUsageResponse]
+) -> APIFuture[types.CurrentCheckpointStorageUsageResponse]
 ```
 
-Deprecated: use `AdminClient.get_current_checkpoint_storage_usage()` instead. This method will be removed in
-a subsequent release.
+Deprecated: use `AdminClient.get_current_checkpoint_storage_usage()` instead. This method
+will be removed in a subsequent release.
 
 #### `get_current_checkpoint_storage_usage_async`
 
@@ -810,15 +862,15 @@ async def get_current_checkpoint_storage_usage_async(
 ) -> types.CurrentCheckpointStorageUsageResponse
 ```
 
-Deprecated: use `AdminClient.get_current_checkpoint_storage_usage_async()` instead. This method will be removed in
-a subsequent release.
+Deprecated: use `await AdminClient.get_current_checkpoint_storage_usage(...)` instead.
+This method will be removed in a subsequent release.
 
 #### `search_sessions`
 
 ```python
 def search_sessions(
     request: types.SessionSearchRequest
-) -> ConcurrentFuture[types.SessionSearchResponse]
+) -> APIFuture[types.SessionSearchResponse]
 ```
 
 Search your organization's sessions, newest first.
@@ -832,7 +884,7 @@ Args:
 - `request`: The search filters, page size and cursor
 
 Returns:
-- A `Future` containing one `SessionSearchResponse` page
+- An `APIFuture` containing one `SessionSearchResponse` page. Await it, or call `.result()`.
 
 Example:
 ```python
@@ -848,13 +900,3 @@ while True:
     request = request.model_copy(update={"cursor": page.next_cursor})
     page = rest_client.search_sessions(request).result()
 ```
-
-#### `search_sessions_async`
-
-```python
-async def search_sessions_async(
-    request: types.SessionSearchRequest
-) -> types.SessionSearchResponse
-```
-
-Async version of `search_sessions`.

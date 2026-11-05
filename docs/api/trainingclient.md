@@ -3,6 +3,7 @@ TrainingClient for Tinker API.
 ## `TrainingClient` Objects
 
 ```python
+@with_sdk_method_telemetry
 class TrainingClient(TelemetryProvider)
 ```
 
@@ -21,12 +22,12 @@ Args:
 
 Example:
 ```python
-training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
+training_client = service_client.create_lora_training_client(base_model="Qwen/Qwen3-8B").result()
 fwdbwd_future = training_client.forward_backward(training_data, "cross_entropy")
 optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
 fwdbwd_result = fwdbwd_future.result()  # Wait for gradients
 optim_result = optim_future.result()    # Wait for parameter update
-sampling_client = training_client.save_weights_and_get_sampling_client("my-model")
+sampling_client = training_client.save_weights_and_get_sampling_client().result()
 ```
 
 #### `get_console_url`
@@ -78,7 +79,9 @@ async def forward_async(
 ) -> APIFuture[types.ForwardBackwardOutput]
 ```
 
-Async version of forward.
+Deprecated: use `training_client.forward(...)`, which returns an `APIFuture` at once;
+submit the requests that follow, then await the future or call `.result()` on it.
+This method will be removed in a subsequent release.
 
 #### `forward_backward`
 
@@ -129,30 +132,46 @@ async def forward_backward_async(
 ) -> APIFuture[types.ForwardBackwardOutput]
 ```
 
-Async version of forward_backward.
+Deprecated: use `training_client.forward_backward(...)`, which returns an `APIFuture`
+at once. Submit the optimizer step before waiting:
+```python
+fwd_bwd_future = training_client.forward_backward(data, "cross_entropy")
+optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+await fwd_bwd_future  # or fwd_bwd_future.result()
+await optim_future  # or optim_future.result()
+```
+This method will be removed in a subsequent release.
 
 #### `forward_backward_custom`
 
 ```python
 def forward_backward_custom(
     data: List[types.Datum],
-    loss_fn: CustomLossFnV1,
+    loss_fn: CustomLossFnV1 | LossHandle,
     *,
-    loss_type_input: Literal["logprobs"] = "logprobs"
+    loss_type_input: Literal["logprobs"] | None = None
 ) -> APIFuture[types.ForwardBackwardOutput]
 ```
 
 Compute forward/backward with a custom loss function.
 
 Allows you to define custom loss functions that operate on log probabilities.
-Only `target_tokens` and `weights` in `loss_fn_inputs` are sent to the server.
-Other fields are available to the custom loss function but are stripped off
-before being sent to the server.
+A callable, or a `LossHandle` that runs client-side, receives every
+`loss_fn_inputs` field, but only `target_tokens` and `weights` are sent to the
+server. A `LossHandle` the server runs (one with a `loss_id`) is sent with its
+data unchanged and runs in a single server-side forward/backward.
+
+Returns a future without waiting for server submission or processing. Requests on
+this client execute in submission order, so you can submit an optimizer step before
+waiting for this future. If a client-side custom loss operation fails or is cancelled,
+this client rejects queued and subsequent training requests.
 
 Args:
 - `data`: List of training data samples
-- `loss_fn`: Custom loss function that takes (data, logprobs) and returns (loss, metrics)
-- `loss_type_input`: Input space for `loss_fn`. Currently the only supported value is `"logprobs"`.
+- `loss_fn`: Custom loss function that takes (data, logprobs) and returns (loss, metrics),
+  or a `LossHandle` from `ServiceClient.create_custom_loss`
+- `loss_type_input`: Deprecated; the loss always receives logprobs. Will be removed in
+  a future release.
 
 Returns:
 - `APIFuture` containing the forward/backward outputs with custom loss
@@ -198,13 +217,21 @@ future = training_client.forward_backward_custom(data, custom_loss)
 ```python
 async def forward_backward_custom_async(
     data: List[types.Datum],
-    loss_fn: CustomLossFnV1,
+    loss_fn: CustomLossFnV1 | LossHandle,
     *,
-    loss_type_input: Literal["logprobs"] = "logprobs"
+    loss_type_input: Literal["logprobs"] | None = None
 ) -> APIFuture[types.ForwardBackwardOutput]
 ```
 
-Async version of forward_backward_custom.
+Deprecated: use `training_client.forward_backward_custom(...)`, which returns an
+`APIFuture` at once. Submit the optimizer step before waiting:
+```python
+fwd_bwd_future = training_client.forward_backward_custom(data, custom_loss)
+optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+await fwd_bwd_future  # or fwd_bwd_future.result()
+await optim_future  # or optim_future.result()
+```
+This method will be removed in a subsequent release.
 
 #### `optim_step`
 
@@ -258,7 +285,15 @@ async def optim_step_async(
 ) -> APIFuture[types.OptimStepResponse]
 ```
 
-Async version of optim_step.
+Deprecated: use `training_client.optim_step(...)`, which returns an `APIFuture` at
+once. Submit it right after `forward_backward`, then wait for both:
+```python
+fwd_bwd_future = training_client.forward_backward(data, "cross_entropy")
+optim_future = training_client.optim_step(types.AdamParams(learning_rate=1e-4))
+await fwd_bwd_future  # or fwd_bwd_future.result()
+await optim_future  # or optim_future.result()
+```
+This method will be removed in a subsequent release.
 
 #### `save_state`
 
@@ -304,7 +339,8 @@ async def save_state_async(
 ) -> APIFuture[types.SaveWeightsResponse]
 ```
 
-Async version of save_state.
+Deprecated: use `training_client.save_state(...)`, which returns an `APIFuture` that can
+be awaited. This method will be removed in a subsequent release.
 
 #### `load_state`
 
@@ -435,14 +471,17 @@ async def save_weights_for_sampler_async(
 ) -> APIFuture[types.SaveWeightsForSamplerResponse]
 ```
 
-Async version of save_weights_for_sampler.
+Deprecated: use `training_client.save_weights_for_sampler(...)`, which returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent
+release.
 
 #### `save_weights_external`
 
 ```python
 def save_weights_external(
     name: str,
-    ttl_seconds: int | None = None
+    ttl_seconds: int | None = None,
+    age_encryption_recipients: list[str] | None = None
 ) -> APIFuture[types.SaveWeightsExternalResponse]
 ```
 
@@ -455,6 +494,10 @@ Args:
 - `name`: Name for the saved external weights
 - `ttl_seconds`: Optional TTL in seconds for the checkpoint, between 1 hour (3600) and
   10 years (None = never expires)
+- `age_encryption_recipients`: Optional age (filippo.io/age) recipients (at most 10),
+  native `age1...` keys or SSH public keys. When set, every exported file is
+  encrypted to them and stored with a `.age` suffix; decrypt with
+  `age -d -i <identity>`.
 
 Returns:
 - `APIFuture` containing the save response with the external weights path
@@ -464,11 +507,14 @@ Returns:
 ```python
 async def save_weights_external_async(
     name: str,
-    ttl_seconds: int | None = None
+    ttl_seconds: int | None = None,
+    age_encryption_recipients: list[str] | None = None
 ) -> APIFuture[types.SaveWeightsExternalResponse]
 ```
 
-Async version of save_weights_external.
+Deprecated: use `training_client.save_weights_external(...)`, which returns an
+`APIFuture` that can be awaited. This method will be removed in a subsequent
+release.
 
 #### `get_info`
 
@@ -476,17 +522,16 @@ Async version of save_weights_external.
 def get_info() -> types.GetInfoResponse
 ```
 
-Get information about the current model.
+Information about the model: its base model, LoRA configuration and optimizer.
 
-Returns:
-- `GetInfoResponse` with model configuration and metadata
+Fetched once when the client was created, so this never waits on the server.
 
 Example:
 ```python
 info = training_client.get_info()
-print(f"Model ID: {info.model_data.model_id}")
+print(f"Model ID: {info.model_id}")
 print(f"Base model: {info.model_data.model_name}")
-print(f"LoRA rank: {info.model_data.lora_rank}")
+print(f"LoRA rank: {info.lora_rank}")
 ```
 
 #### `get_info_async`
@@ -495,7 +540,8 @@ print(f"LoRA rank: {info.model_data.lora_rank}")
 async def get_info_async() -> types.GetInfoResponse
 ```
 
-Async version of get_info.
+Deprecated: use `training_client.get_info()`, which no longer waits on the server.
+This method will be removed in a subsequent release.
 
 #### `get_tokenizer`
 
@@ -521,7 +567,7 @@ text = tokenizer.decode(tokens)
 def create_sampling_client(
         model_path: str,
         retry_config: RetryConfig | None = None,
-        record_stability_info: bool = False) -> SamplingClient
+        record_stability_info: bool = False) -> BackcompatSamplingClientFuture
 ```
 
 Create a SamplingClient from saved weights.
@@ -529,15 +575,20 @@ Create a SamplingClient from saved weights.
 Args:
 - `model_path`: Tinker path to saved weights
 - `retry_config`: Optional configuration for retrying failed requests
+- `record_stability_info`: When true, every sample from this client
+    records stability information for its sequences (StableReinforce
+    training); recorded data is referenced from training requests by
+    `sequence_id`, is session-scoped, and expires after inactivity.
 
 Returns:
-- `SamplingClient` configured with the specified weights
+- A future of the `SamplingClient` configured with the specified weights.
+    Await it, or call `.result()`.
 
 Example:
 ```python
 sampling_client = training_client.create_sampling_client(
     "tinker://run-id/weights/checkpoint-001"
-)
+).result()
 # Use sampling_client for inference
 ```
 
@@ -550,16 +601,19 @@ async def create_sampling_client_async(
         record_stability_info: bool = False) -> SamplingClient
 ```
 
-Async version of create_sampling_client.
+Deprecated: use `await training_client.create_sampling_client(...)`, which returns a
+future of the client that can be awaited. This method will be removed in a
+subsequent release.
 
 #### `save_weights_and_get_sampling_client`
 
 ```python
 def save_weights_and_get_sampling_client(
-        name: str | None = None,
-        retry_config: RetryConfig | None = None,
-        record_stability_info: bool = False,
-        kind: types.SamplingClientKind = "snapshot") -> SamplingClient
+    name: str | None = None,
+    retry_config: RetryConfig | None = None,
+    record_stability_info: bool = False,
+    kind: types.SamplingClientKind = "snapshot"
+) -> BackcompatSamplingClientFuture
 ```
 
 Save current weights and create a SamplingClient for inference.
@@ -567,18 +621,23 @@ Save current weights and create a SamplingClient for inference.
 Args:
 - `name`: Deprecated, has no effect. Will be removed in a future release.
 - `retry_config`: Optional configuration for retrying failed requests
+- `record_stability_info`: When true, every sample from this client
+    records stability information for its sequences (StableReinforce
+    training); recorded data is referenced from training requests by
+    `sequence_id`, is session-scoped, and expires after inactivity.
 - `kind`: `snapshot` (default) captures fixed weights. `inflight` publishes
   mutable weights shared by this training model's inflight sampling clients.
 
 See `types.SamplingClientKind` for the snapshot and inflight sampling contracts.
 
 Returns:
-- `SamplingClient` using the saved snapshot or shared inflight weights
+- A future of the `SamplingClient` using the saved snapshot or shared inflight
+    weights. Await it, or call `.result()`.
 
 Example:
 ```python
 # After training, create a sampling client directly
-sampling_client = training_client.save_weights_and_get_sampling_client()
+sampling_client = training_client.save_weights_and_get_sampling_client().result()
 
 # Now use it for inference
 prompt = types.ModelInput.from_ints(tokenizer.encode("Hello"))
@@ -611,4 +670,16 @@ async def save_weights_and_get_sampling_client_async(
         kind: types.SamplingClientKind = "snapshot") -> SamplingClient
 ```
 
-Async version of save_weights_and_get_sampling_client.
+Deprecated: use `await training_client.save_weights_and_get_sampling_client(...)`, which
+returns a future of the client that can be awaited. This method will be removed
+in a subsequent release.
+
+#### `fetch_training_info`
+
+```python
+async def fetch_training_info(
+        holder: InternalClientHolder,
+        model_id: types.ModelID) -> types.GetInfoResponse
+```
+
+The model's `GetInfoResponse`, fetched once by the paths that create a `TrainingClient`.

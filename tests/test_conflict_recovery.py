@@ -13,6 +13,8 @@ import pytest
 from tinker._exceptions import ConflictError
 from tinker.lib.public_interfaces.training_client import TrainingClient
 
+from .fake_holders import training_info
+
 
 def _make_conflict_error() -> ConflictError:
     """Create a ConflictError for testing."""
@@ -52,7 +54,9 @@ def _make_mock_holder() -> Mock:
 async def test_save_state_returns_synthetic_path_on_conflict() -> None:
     """save_state catches 409 and returns SaveWeightsResponse with synthetic path."""
     holder = _make_mock_holder()
-    client = TrainingClient(holder, model_seq_id=0, model_id="model-123")
+    client = TrainingClient(
+        holder, model_seq_id=0, model_id="model-123", info=training_info("model-123")
+    )
 
     result = await client.save_state("ckpt-001")
     assert result.path == "tinker://model-123/weights/ckpt-001"
@@ -61,7 +65,9 @@ async def test_save_state_returns_synthetic_path_on_conflict() -> None:
 @pytest.mark.asyncio
 async def test_save_state_passes_user_metadata() -> None:
     holder = _make_mock_holder()
-    client = TrainingClient(holder, model_seq_id=0, model_id="model-123")
+    client = TrainingClient(
+        holder, model_seq_id=0, model_id="model-123", info=training_info("model-123")
+    )
 
     user_metadata = {"experiment": "test"}
     with pytest.raises(ConflictError):
@@ -76,7 +82,9 @@ async def test_save_weights_for_sampler_returns_synthetic_path_on_conflict() -> 
     """save_weights_for_sampler catches 409 and returns response with synthetic path."""
     holder = _make_mock_holder()
     holder._sampling_client_counter = 0
-    client = TrainingClient(holder, model_seq_id=0, model_id="model-789")
+    client = TrainingClient(
+        holder, model_seq_id=0, model_id="model-789", info=training_info("model-789")
+    )
 
     result = await client.save_weights_for_sampler("ckpt-001")
     assert result.path == "tinker://model-789/sampler_weights/ckpt-001"
@@ -86,7 +94,9 @@ async def test_save_weights_for_sampler_returns_synthetic_path_on_conflict() -> 
 async def test_save_weights_for_sampler_passes_user_metadata() -> None:
     holder = _make_mock_holder()
     holder._sampling_client_counter = 0
-    client = TrainingClient(holder, model_seq_id=0, model_id="model-789")
+    client = TrainingClient(
+        holder, model_seq_id=0, model_id="model-789", info=training_info("model-789")
+    )
 
     user_metadata = {"experiment": "test"}
     with pytest.raises(ConflictError):
@@ -101,7 +111,9 @@ async def test_save_weights_for_sampler_unnamed_reraises_conflict() -> None:
     """409 on unnamed sampler save (name=None) should re-raise, not swallow."""
     holder = _make_mock_holder()
     holder._sampling_client_counter = 0
-    client = TrainingClient(holder, model_seq_id=0, model_id="model-000")
+    client = TrainingClient(
+        holder, model_seq_id=0, model_id="model-000", info=training_info("model-000")
+    )
 
     with pytest.raises(ConflictError):
         await client.save_weights_for_sampler(None)

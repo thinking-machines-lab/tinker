@@ -32,6 +32,8 @@ from ..sync_only import sync_only
 from .custom_loss import LossHandle, PerDatumLossFn, encode_graph, trace_loss
 
 if TYPE_CHECKING:
+    from .backcompat_sampling_client_future import BackcompatSamplingClientFuture
+    from .backcompat_training_client_future import BackcompatTrainingClientFuture
     from .rest_client import RestClient
     from .sampling_client import SamplingClient
     from .training_client import TrainingClient
@@ -44,7 +46,6 @@ logger = logging.getLogger(__name__)
 @with_sdk_method_telemetry
 class ServiceClient(TelemetryProvider):
     """The ServiceClient is the main entry point for the Tinker API. It provides methods to:
-    - Query server capabilities and health status
     - Generate TrainingClient instances for model training workflows
     - Generate SamplingClient instances for text generation and inference
     - Close the client by finishing the current session when the training script is done
@@ -70,11 +71,14 @@ class ServiceClient(TelemetryProvider):
     client = ServiceClient()
 
     # Takes a moment as we initialize the model and assign resources
-    training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B")
+    training_client = client.create_lora_training_client(base_model="Qwen/Qwen3-8B").result()
 
     # Near-instant
-    sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B")
+    sampling_client = client.create_sampling_client(base_model="Qwen/Qwen3-8B").result()
     ```
+
+    To check the server's health or fetch the models you can use, use `RestClient()` instead;
+    it needs no session.
     """
 
     def __init__(
@@ -192,43 +196,30 @@ class ServiceClient(TelemetryProvider):
             return sessions_console_url()
         return session_console_url(self._session_holder._session_id)
 
-    def _get_server_capabilities_submit(
-        self,
-    ) -> AwaitableConcurrentFuture[types.GetServerCapabilitiesResponse]:
-        # Resolve before scheduling: lazy holder creation must not run on the event loop.
-        holder = self._get_rest_holder()
-
-        @capture_exceptions(fatal=True)
-        async def _get_server_capabilities_async():
-            _ = self  # keep `self` in the closure so capture_exceptions finds telemetry
-
-            async def _send_request():
-                with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.service.get_server_capabilities()
-
-            return await holder.execute_with_retries(_send_request)
-
-        return holder.run_coroutine_threadsafe(_get_server_capabilities_async())
-
+    @deprecated(
+        "DEPRECATED: ServiceClient.get_server_capabilities() is deprecated and will be removed "
+        "in a future tinker SDK version. Use tinker.RestClient().get_server_capabilities() "
+        "instead; it returns an APIFuture: call .result() on it, or await it. RestClient needs "
+        "no ServiceClient.",
+        category=FutureWarning,
+    )
     @sync_only
     def get_server_capabilities(self) -> types.GetServerCapabilitiesResponse:
-        """Query the server's supported features and capabilities.
+        """Deprecated: use `tinker.RestClient().get_server_capabilities().result()`, which
+        needs no session. This method will be removed in a subsequent release."""
+        return self._rest_client().get_server_capabilities().result()
 
-        Returns:
-        - `GetServerCapabilitiesResponse` with available models, features, and limits
-
-        Example:
-        ```python
-        capabilities = service_client.get_server_capabilities()
-        print(f"Supported models: {capabilities.supported_models}")
-        print(f"Max batch size: {capabilities.max_batch_size}")
-        ```
-        """
-        return self._get_server_capabilities_submit().result()
-
+    @deprecated(
+        "DEPRECATED: ServiceClient.get_server_capabilities_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use `await "
+        "tinker.RestClient().get_server_capabilities()` instead; RestClient needs no "
+        "ServiceClient.",
+        category=FutureWarning,
+    )
     async def get_server_capabilities_async(self) -> types.GetServerCapabilitiesResponse:
-        """Async version of get_server_capabilities."""
-        return await self._get_server_capabilities_submit()
+        """Deprecated: use `await tinker.RestClient().get_server_capabilities()`. This method will
+        be removed in a subsequent release."""
+        return await self._rest_client().get_server_capabilities()
 
     def _check_accessible(self) -> None:
         """Make a single request to a billing-gated endpoint, raising on failure.
@@ -292,17 +283,19 @@ class ServiceClient(TelemetryProvider):
                 queue_state_observer=QueueStateLogger(base_model, "Model creation"),
             ).result_async()
             model_id = create_model_response.model_id
-            from .training_client import TrainingClient
+            from .training_client import TrainingClient, fetch_training_info
 
             training_client = TrainingClient(
-                self.holder, model_seq_id=model_seq_id, model_id=model_id
+                self.holder,
+                model_seq_id=model_seq_id,
+                model_id=model_id,
+                info=await fetch_training_info(self.holder, model_id),
             )
             logger.info(f"TrainingClient initialized for model {model_id}")
             return training_client
 
         return self.holder.run_coroutine_threadsafe(_create_lora_training_client_async())
 
-    @sync_only
     def create_lora_training_client(
         self,
         base_model: str,
@@ -313,7 +306,7 @@ class ServiceClient(TelemetryProvider):
         train_unembed: bool = True,
         user_metadata: dict[str, str] | None = None,
         optimizer: types.OptimizerConfig | None = None,
-    ) -> TrainingClient:
+    ) -> BackcompatTrainingClientFuture:
         """Create a TrainingClient for LoRA fine-tuning.
 
         Args:
@@ -327,7 +320,8 @@ class ServiceClient(TelemetryProvider):
         - `optimizer`: Fixed optimizer configuration. Defaults to AdamW.
 
         Returns:
-        - `TrainingClient` configured for LoRA training
+        - A future of the `TrainingClient` configured for LoRA training. Await it, or
+            call `.result()`.
 
         Example:
         ```python
@@ -336,21 +330,32 @@ class ServiceClient(TelemetryProvider):
             rank=16,
             train_mlp=True,
             train_attn=True
-        )
+        ).result()
         # Now use training_client.forward_backward() to train
         ```
         """
-        return self._create_lora_training_client_submit(
-            base_model,
-            rank,
-            seed,
-            train_mlp,
-            train_attn,
-            train_unembed,
-            user_metadata,
-            optimizer,
-        ).result()
+        from .backcompat_training_client_future import BackcompatTrainingClientFuture
 
+        return BackcompatTrainingClientFuture(
+            self._create_lora_training_client_submit(
+                base_model,
+                rank,
+                seed,
+                train_mlp,
+                train_attn,
+                train_unembed,
+                user_metadata,
+                optimizer,
+            ),
+        )
+
+    @deprecated(
+        "DEPRECATED: ServiceClient.create_lora_training_client_async() is deprecated and will "
+        "be removed in a future tinker SDK version. Use `await "
+        "ServiceClient.create_lora_training_client(...)` instead; it returns a future of the "
+        "client that can be awaited.",
+        category=FutureWarning,
+    )
     async def create_lora_training_client_async(
         self,
         base_model: str,
@@ -362,8 +367,10 @@ class ServiceClient(TelemetryProvider):
         user_metadata: dict[str, str] | None = None,
         optimizer: types.OptimizerConfig | None = None,
     ) -> TrainingClient:
-        """Async version of create_lora_training_client."""
-        return await self._create_lora_training_client_submit(
+        """Deprecated: use `await service_client.create_lora_training_client(...)`, which returns a
+        future of the client that can be awaited. This method will be removed in a
+        subsequent release."""
+        return await self.create_lora_training_client(
             base_model,
             rank,
             seed,
@@ -372,23 +379,7 @@ class ServiceClient(TelemetryProvider):
             train_unembed,
             user_metadata,
             optimizer,
-        ).result_async()
-
-    def _get_rest_client_for_weights(self, weights_access_token: str | None = None) -> RestClient:
-        """Get a rest client for weights info lookups.
-
-        If weights_access_token is provided, creates a separate ServiceClient
-        authenticated with that token.
-        """
-        if weights_access_token is None:
-            return self._rest_client()
-
-        token_client = ServiceClient(
-            base_url=self._base_url,
-            api_key=weights_access_token,
-            default_headers_overrides=self._default_headers_overrides,
         )
-        return token_client._rest_client()
 
     def _create_training_client_via_load_weights_submit(
         self,
@@ -399,7 +390,10 @@ class ServiceClient(TelemetryProvider):
         user_metadata: dict[str, str] | None,
         weights_access_token: str | None,
     ) -> AwaitableConcurrentFuture[TrainingClient]:
-        """Create a TrainingClient with a single LoadWeightsRequest."""
+        """Create a TrainingClient loaded from `path` with one LoadWeightsRequest: with the
+        checkpoint's optimizer state (and optimizer) when `optimizer` is set, else with
+        `optimizer_config`. The server resolves the access token, so no token exchange here.
+        """
         session_id = self.holder.get_session_id()
         model_seq_id = self.holder.get_training_client_id()
         # Same model id the server derives from (session_id, model_seq_id).
@@ -432,10 +426,13 @@ class ServiceClient(TelemetryProvider):
                 request_type="LoadWeights",
                 queue_state_observer=QueueStateLogger(model_id, "Model creation"),
             ).result_async()
-            from .training_client import TrainingClient
+            from .training_client import TrainingClient, fetch_training_info
 
             training_client = TrainingClient(
-                self.holder, model_seq_id=model_seq_id, model_id=model_id
+                self.holder,
+                model_seq_id=model_seq_id,
+                model_id=model_id,
+                info=await fetch_training_info(self.holder, model_id),
             )
             logger.info(f"TrainingClient initialized for model {model_id} via load_weights")
             return training_client
@@ -448,7 +445,7 @@ class ServiceClient(TelemetryProvider):
         *,
         ttl_seconds: int | None = None,
         weights_access_token: str | None = None,
-    ) -> AwaitableConcurrentFuture[str]:
+    ) -> APIFuture[str]:
         """Copy weights into this client's project, using a new session.
 
         Storage is shared with the source, so no bytes are duplicated. Either kind
@@ -479,7 +476,6 @@ class ServiceClient(TelemetryProvider):
             weights_access_token=weights_access_token,
         )
 
-    @sync_only
     def create_training_client_from_state(
         self,
         path: str,
@@ -487,7 +483,7 @@ class ServiceClient(TelemetryProvider):
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
         optimizer: types.OptimizerConfig | None = None,
-    ) -> TrainingClient:
+    ) -> BackcompatTrainingClientFuture:
         """Create a TrainingClient from saved model weights.
 
         This loads only the model weights, not optimizer state. To also restore
@@ -502,56 +498,38 @@ class ServiceClient(TelemetryProvider):
         - `optimizer`: Optimizer for the new training run; defaults to Adam.
 
         Returns:
-        - `TrainingClient` loaded with the specified weights
+        - A future of the `TrainingClient` loaded with the specified weights. Await it,
+            or call `.result()`.
 
         Example:
         ```python
         # Resume training from a checkpoint (weights only, optimizer resets)
         training_client = service_client.create_training_client_from_state(
             "tinker://run-id/weights/checkpoint-001"
-        )
+        ).result()
         # Continue training from the loaded state
         ```
         """
-        if self.holder._client_config.create_model_via_load_weights:
-            return self._create_training_client_via_load_weights_submit(
+        from .backcompat_training_client_future import BackcompatTrainingClientFuture
+
+        return BackcompatTrainingClientFuture(
+            self._create_training_client_via_load_weights_submit(
                 path,
                 optimizer=False,
                 optimizer_config=optimizer,
                 base_model=base_model,
                 user_metadata=user_metadata,
                 weights_access_token=weights_access_token,
-            ).result()
-
-        rest_client = self._get_rest_client_for_weights(weights_access_token)
-        # Use weights info endpoint which allows access to models with public checkpoints
-        weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
-
-        training_client = self.create_lora_training_client(
-            base_model=base_model or weights_info.base_model,
-            rank=weights_info.lora_rank,
-            train_unembed=weights_info.train_unembed
-            if weights_info.train_unembed is not None
-            else True,
-            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
-            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
-            user_metadata=user_metadata,
-            optimizer=optimizer,
+            ),
         )
 
-        auth_token = (
-            rest_client.holder.run_coroutine_threadsafe(
-                rest_client.holder._default_auth.get_token()
-            ).result()
-            if weights_access_token is not None
-            else None
-        )
-
-        training_client._load_state_impl(
-            path, optimizer=False, weights_access_token=auth_token
-        ).result()
-        return training_client
-
+    @deprecated(
+        "DEPRECATED: ServiceClient.create_training_client_from_state_async() is deprecated and "
+        "will be removed in a future tinker SDK version. Use `await "
+        "ServiceClient.create_training_client_from_state(...)` instead; it returns a future of "
+        "the client that can be awaited.",
+        category=FutureWarning,
+    )
     async def create_training_client_from_state_async(
         self,
         path: str,
@@ -560,49 +538,24 @@ class ServiceClient(TelemetryProvider):
         weights_access_token: str | None = None,
         optimizer: types.OptimizerConfig | None = None,
     ) -> TrainingClient:
-        """Async version of create_training_client_from_state."""
-        if self.holder._client_config.create_model_via_load_weights:
-            return await self._create_training_client_via_load_weights_submit(
-                path,
-                optimizer=False,
-                optimizer_config=optimizer,
-                base_model=base_model,
-                user_metadata=user_metadata,
-                weights_access_token=weights_access_token,
-            ).result_async()
-
-        rest_client = self._get_rest_client_for_weights(weights_access_token)
-        # Use weights info endpoint which allows access to models with public checkpoints
-        weights_info = await rest_client.get_weights_info_by_tinker_path(path)
-
-        # Right now all training runs are LoRa runs.
-        assert weights_info.is_lora and weights_info.lora_rank is not None
-
-        training_client = await self.create_lora_training_client_async(
-            base_model=base_model or weights_info.base_model,
-            rank=weights_info.lora_rank,
-            train_unembed=weights_info.train_unembed
-            if weights_info.train_unembed is not None
-            else True,
-            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
-            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
+        """Deprecated: use `await service_client.create_training_client_from_state(...)`, which
+        returns a future of the client that can be awaited. This method will be removed
+        in a subsequent release."""
+        return await self.create_training_client_from_state(
+            path,
+            base_model=base_model,
             user_metadata=user_metadata,
+            weights_access_token=weights_access_token,
             optimizer=optimizer,
         )
 
-        await training_client._load_state_impl(
-            path, optimizer=False, weights_access_token=weights_access_token
-        ).result_async()
-        return training_client
-
-    @sync_only
     def create_training_client_from_state_with_optimizer(
         self,
         path: str,
         base_model: str | None = None,
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
-    ) -> TrainingClient:
+    ) -> BackcompatTrainingClientFuture:
         """Create a TrainingClient from saved model weights and optimizer state.
 
         This is similar to create_training_client_from_state but also restores
@@ -617,48 +570,38 @@ class ServiceClient(TelemetryProvider):
         - `weights_access_token`: Optional access token for loading checkpoints under a different account.
 
         Returns:
-        - `TrainingClient` loaded with the specified weights and optimizer state
+        - A future of the `TrainingClient` loaded with the specified weights and
+            optimizer state. Await it, or call `.result()`.
 
         Example:
         ```python
         # Resume training from a checkpoint with optimizer state
         training_client = service_client.create_training_client_from_state_with_optimizer(
             "tinker://run-id/weights/checkpoint-001"
-        )
+        ).result()
         # Continue training with restored optimizer momentum
         ```
         """
-        if self.holder._client_config.create_model_via_load_weights:
-            return self._create_training_client_via_load_weights_submit(
+        from .backcompat_training_client_future import BackcompatTrainingClientFuture
+
+        return BackcompatTrainingClientFuture(
+            self._create_training_client_via_load_weights_submit(
                 path,
                 optimizer=True,
                 optimizer_config=None,
                 base_model=base_model,
                 user_metadata=user_metadata,
                 weights_access_token=weights_access_token,
-            ).result()
-
-        rest_client = self._get_rest_client_for_weights(weights_access_token)
-        # Use weights info endpoint which allows access to models with public checkpoints
-        weights_info = rest_client.get_weights_info_by_tinker_path(path).result()
-
-        training_client = self.create_lora_training_client(
-            base_model=base_model or weights_info.base_model,
-            rank=weights_info.lora_rank,
-            train_unembed=weights_info.train_unembed
-            if weights_info.train_unembed is not None
-            else True,
-            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
-            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
-            user_metadata=user_metadata,
-            optimizer=weights_info.optimizer_config,
+            ),
         )
 
-        training_client._load_state_impl(
-            path, optimizer=True, weights_access_token=weights_access_token
-        ).result()
-        return training_client
-
+    @deprecated(
+        "DEPRECATED: ServiceClient.create_training_client_from_state_with_optimizer_async() is "
+        "deprecated and will be removed in a future tinker SDK version. Use `await "
+        "ServiceClient.create_training_client_from_state_with_optimizer(...)` instead; it "
+        "returns a future of the client that can be awaited.",
+        category=FutureWarning,
+    )
     async def create_training_client_from_state_with_optimizer_async(
         self,
         path: str,
@@ -666,40 +609,16 @@ class ServiceClient(TelemetryProvider):
         user_metadata: dict[str, str] | None = None,
         weights_access_token: str | None = None,
     ) -> TrainingClient:
-        """Async version of create_training_client_from_state_with_optimizer."""
-        if self.holder._client_config.create_model_via_load_weights:
-            return await self._create_training_client_via_load_weights_submit(
-                path,
-                optimizer=True,
-                optimizer_config=None,
-                base_model=base_model,
-                user_metadata=user_metadata,
-                weights_access_token=weights_access_token,
-            ).result_async()
-
-        rest_client = self._get_rest_client_for_weights(weights_access_token)
-        # Use weights info endpoint which allows access to models with public checkpoints
-        weights_info = await rest_client.get_weights_info_by_tinker_path(path)
-
-        # Right now all training runs are LoRa runs.
-        assert weights_info.is_lora and weights_info.lora_rank is not None
-
-        training_client = await self.create_lora_training_client_async(
-            base_model=base_model or weights_info.base_model,
-            rank=weights_info.lora_rank,
-            train_unembed=weights_info.train_unembed
-            if weights_info.train_unembed is not None
-            else True,
-            train_mlp=weights_info.train_mlp if weights_info.train_mlp is not None else True,
-            train_attn=weights_info.train_attn if weights_info.train_attn is not None else True,
+        """Deprecated: use `await
+        service_client.create_training_client_from_state_with_optimizer(...)`, which
+        returns a future of the client that can be awaited. This method will be removed
+        in a subsequent release."""
+        return await self.create_training_client_from_state_with_optimizer(
+            path,
+            base_model=base_model,
             user_metadata=user_metadata,
-            optimizer=weights_info.optimizer_config,
+            weights_access_token=weights_access_token,
         )
-
-        await training_client._load_state_impl(
-            path, optimizer=True, weights_access_token=weights_access_token
-        ).result_async()
-        return training_client
 
     def create_sampling_client(
         self,
@@ -707,7 +626,7 @@ class ServiceClient(TelemetryProvider):
         base_model: str | None = None,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
-    ) -> SamplingClient:
+    ) -> BackcompatSamplingClientFuture:
         """Create a SamplingClient for text generation.
 
         Args:
@@ -720,7 +639,8 @@ class ServiceClient(TelemetryProvider):
             `sequence_id`, is session-scoped, and expires after inactivity.
 
         Returns:
-        - `SamplingClient` configured for text generation
+        - A future of the `SamplingClient` configured for text generation. Await it, or
+            call `.result()`.
 
         Raises:
             ValueError: If neither model_path nor base_model is provided
@@ -730,25 +650,28 @@ class ServiceClient(TelemetryProvider):
         # Use a base model
         sampling_client = service_client.create_sampling_client(
             base_model="Qwen/Qwen3-8B"
-        )
+        ).result()
 
         # Or use saved weights
         sampling_client = service_client.create_sampling_client(
             model_path="tinker://run-id/weights/checkpoint-001"
-        )
+        ).result()
         ```
         """
+        from .backcompat_sampling_client_future import BackcompatSamplingClientFuture
         from .sampling_client import SamplingClient
 
         if model_path is None and base_model is None:
             raise ValueError("Either model_path or base_model must be provided")
-        return SamplingClient.create(
-            self.holder,
-            model_path=model_path,
-            base_model=base_model,
-            retry_config=retry_config,
-            record_stability_info=record_stability_info,
-        ).result()
+        return BackcompatSamplingClientFuture(
+            SamplingClient.create(
+                self.holder,
+                model_path=model_path,
+                base_model=base_model,
+                retry_config=retry_config,
+                record_stability_info=record_stability_info,
+            ),
+        )
 
     def _create_custom_loss_submit(
         self, fn: PerDatumLossFn, input_ranks: Mapping[str, types.CustomLossInputRank]
@@ -826,6 +749,13 @@ class ServiceClient(TelemetryProvider):
         """
         return self._create_custom_loss_submit(fn, input_ranks)
 
+    @deprecated(
+        "DEPRECATED: ServiceClient.create_sampling_client_async() is deprecated and will be "
+        "removed in a future tinker SDK version. Use `await "
+        "ServiceClient.create_sampling_client(...)` instead; it returns a future of the client "
+        "that can be awaited.",
+        category=FutureWarning,
+    )
     async def create_sampling_client_async(
         self,
         model_path: str | None = None,
@@ -833,13 +763,10 @@ class ServiceClient(TelemetryProvider):
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
     ) -> SamplingClient:
-        """Async version of create_sampling_client."""
-        from .sampling_client import SamplingClient
-
-        if model_path is None and base_model is None:
-            raise ValueError("Either model_path or base_model must be provided")
-        return await SamplingClient.create(
-            self.holder,
+        """Deprecated: use `await service_client.create_sampling_client(...)`, which returns a
+        future of the client that can be awaited. This method will be removed in a
+        subsequent release."""
+        return await self.create_sampling_client(
             model_path=model_path,
             base_model=base_model,
             retry_config=retry_config,

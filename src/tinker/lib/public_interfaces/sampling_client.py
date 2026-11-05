@@ -12,22 +12,30 @@ import os
 import time
 import uuid
 import weakref
-from concurrent.futures import Future as ConcurrentFuture
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
+from typing_extensions import deprecated
 
 import tinker
 from tinker import types
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
-from tinker.lib.public_interfaces.api_future import APIFuture, AwaitableConcurrentFuture
+from tinker.lib.public_interfaces.api_future import (
+    APIFuture,
+    AwaitableConcurrentFuture,
+)
 from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
 from tinker.types._pydantic_types.tensor_data import TensorData as _TensorDataModel
 
-from ..api_future_impl import QueueState, QueueStateObserver, _APIFuture
+from ..api_future_impl import (
+    QueueState,
+    QueueStateObserver,
+    _APIFuture,
+)
+from ..backcompat_concurrent_future import _AwaitableFutureCompatWrapper
 from ..retry_handler import RetryConfig, RetryHandler
 from ..session_futures_poller import SessionFuturesPoller
 
@@ -55,6 +63,7 @@ class _SamplingClientPickleState:
     session_id: str
     sampling_session_id: str
     holder: _ShadowHolderConfig
+    base_model: str
     record_stability_info: bool = False
 
 
@@ -176,7 +185,13 @@ def _check_prompt_logprobs_last_n_honored(
 
 
 @with_sdk_method_telemetry
-class SamplingClient(TelemetryProvider, QueueStateObserver):
+# QueueStateObserver (an ABC) is listed before TelemetryProvider (a Protocol, so a
+# Generic) so that this MRO puts ABC before Generic, as APIFuture's (ABC, Generic[T])
+# does; otherwise no class can derive from both a SamplingClient and an APIFuture.
+# Listing ABC among these bases as well would not do it: C3 keeps ABC where
+# QueueStateObserver's own MRO puts it, after Generic, and listing it first is an
+# MRO error in its own right.
+class SamplingClient(QueueStateObserver, TelemetryProvider):
     """Client for text generation and inference from trained or base models.
 
     The SamplingClient lets you generate text tokens from either a base model or from weights
@@ -194,7 +209,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
     Example:
     ```python
-    sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen3-8B")
+    sampling_client = service_client.create_sampling_client(base_model="Qwen/Qwen3-8B").result()
     prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
     params = types.SamplingParams(max_tokens=20, temperature=0.7)
     future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
@@ -216,12 +231,14 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         holder: InternalClientHolder,
         *,
         sampling_session_id: str,
+        base_model: str,
         shadow: bool = False,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
     ):
         self._record_stability_info: bool = record_stability_info
         self.holder = holder
+        self._base_model: str = base_model
 
         if holder.get_client_config().sample_use_retrieve_futures:
             # With the session poller, in-flight samples no longer each hold a
@@ -282,9 +299,12 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             sampling_session_id = await holder._create_sampling_session(
                 model_path=model_path, base_model=base_model
             )
+        if base_model is None:
+            base_model = await _fetch_base_model(holder, sampling_session_id)
         return SamplingClient(
             holder,
             sampling_session_id=sampling_session_id,
+            base_model=base_model,
             retry_config=retry_config,
             record_stability_info=record_stability_info,
         )
@@ -298,7 +318,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         sampling_session_id: str | None = None,
         retry_config: RetryConfig | None = None,
         record_stability_info: bool = False,
-    ) -> APIFuture[SamplingClient]:
+    ) -> AwaitableConcurrentFuture[SamplingClient]:
         return holder.run_coroutine_threadsafe(
             SamplingClient._create_impl(
                 holder,
@@ -463,7 +483,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         target_prompt_logprobs: types.TensorData | None = None,
         prompt_alt_tokens_k: int = 0,
         prompt_logprobs_last_n: int | None = None,
-    ) -> ConcurrentFuture[types.SampleResponse]:
+    ) -> APIFuture[types.SampleResponse]:
         """Generate text completions from the model.
 
         Args:
@@ -498,14 +518,15 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             `prompt_alt_tokens_k`. None (the default) scores the whole prompt.
 
         Returns:
-        - A `Future` containing the `SampleResponse` with generated text and other logprob information.
+        - An `APIFuture` containing the `SampleResponse` with generated text and other logprob
+            information. Await it, or call `.result()`.
 
         Example:
         ```python
         prompt = types.ModelInput.from_ints(tokenizer.encode("The weather today is"))
         params = types.SamplingParams(max_tokens=20, temperature=0.7)
         future = sampling_client.sample(prompt=prompt, sampling_params=params, num_samples=1)
-        result = future.result()
+        result = future.result()  # or `await future`
         for sequence in result.sequences:
             print(tokenizer.decode(sequence.tokens))
         ```
@@ -584,10 +605,20 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
 
         # TODO make max_tokens a required field
         if self.holder._client_config.sample_no_retries:
-            return self.holder.run_coroutine_threadsafe(_sample_async_without_retries()).future()
+            return _AwaitableFutureCompatWrapper(
+                self.holder.run_coroutine_threadsafe(_sample_async_without_retries()).future()
+            )
 
-        return self.holder.run_coroutine_threadsafe(_sample_async_with_retries()).future()
+        return _AwaitableFutureCompatWrapper(
+            self.holder.run_coroutine_threadsafe(_sample_async_with_retries()).future()
+        )
 
+    @deprecated(
+        "DEPRECATED: SamplingClient.sample_async() is deprecated and will be removed in a "
+        "future tinker SDK version. Use `await SamplingClient.sample(...)` instead; sample() "
+        "returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def sample_async(
         self,
         prompt: types.ModelInput,
@@ -600,24 +631,23 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         prompt_alt_tokens_k: int = 0,
         prompt_logprobs_last_n: int | None = None,
     ) -> types.SampleResponse:
-        """Async version of sample."""
-        return await AwaitableConcurrentFuture(
-            self.sample(
-                prompt,
-                num_samples,
-                sampling_params,
-                include_prompt_logprobs,
-                topk_prompt_logprobs,
-                topk_sample_logprobs,
-                target_prompt_logprobs,
-                prompt_alt_tokens_k,
-                prompt_logprobs_last_n,
-            )
+        """Deprecated: use `await sampling_client.sample(...)`; `sample()` returns an `APIFuture`
+        that can be awaited. This method will be removed in a subsequent release."""
+        return await self.sample(
+            prompt,
+            num_samples,
+            sampling_params,
+            include_prompt_logprobs,
+            topk_prompt_logprobs,
+            topk_sample_logprobs,
+            target_prompt_logprobs,
+            prompt_alt_tokens_k,
+            prompt_logprobs_last_n,
         )
 
     def compute_logprobs(
         self, prompt: types.ModelInput, prompt_logprobs_last_n: int | None = None
-    ) -> ConcurrentFuture[list[float | None]]:
+    ) -> APIFuture[list[float | None]]:
         """Compute log probabilities for prompt tokens.
 
         Args:
@@ -628,15 +658,15 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             the whole prompt.
 
         Returns:
-        - A `Future` containing a list of log probabilities for each token in the prompt.
+        - An `APIFuture` containing a list of log probabilities for each token in the prompt.
             None values indicate tokens where log probabilities couldn't be computed or
-            were not requested.
+            were not requested. Await it, or call `.result()`.
 
         Example:
         ```python
         prompt = types.ModelInput.from_ints(tokenizer.encode("Hello world"))
         future = sampling_client.compute_logprobs(prompt)
-        logprobs = future.result()
+        logprobs = future.result()  # or `await future`
         for i, logprob in enumerate(logprobs):
             if logprob is not None:
                 print(f"Token {i}: logprob = {logprob:.4f}")
@@ -671,29 +701,23 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         async def _compute_logprobs_async_with_retries() -> list[float | None]:
             return await self.retry_handler.execute(_compute_logprobs_async)
 
-        return self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()
+        return _AwaitableFutureCompatWrapper(
+            self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()
+        )
 
+    @deprecated(
+        "DEPRECATED: SamplingClient.compute_logprobs_async() is deprecated and will be removed "
+        "in a future tinker SDK version. Use `await SamplingClient.compute_logprobs(...)` "
+        "instead; compute_logprobs() returns an APIFuture that can be awaited.",
+        category=FutureWarning,
+    )
     async def compute_logprobs_async(
         self, prompt: types.ModelInput, prompt_logprobs_last_n: int | None = None
     ) -> list[float | None]:
-        """Async version of compute_logprobs."""
-        return await AwaitableConcurrentFuture(
-            self.compute_logprobs(prompt, prompt_logprobs_last_n)
-        )
-
-    def _get_sampler_submit(self) -> AwaitableConcurrentFuture[types.GetSamplerResponse]:
-        @capture_exceptions(fatal=True)
-        async def _get_sampler_async() -> types.GetSamplerResponse:
-            async def _send_request() -> types.GetSamplerResponse:
-                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
-                    return await client.get(
-                        f"/api/v1/samplers/{self._sampling_session_id}",
-                        cast_to=types.GetSamplerResponse,
-                    )
-
-            return await self.holder.execute_with_retries(_send_request)
-
-        return self.holder.run_coroutine_threadsafe(_get_sampler_async())
+        """Deprecated: use `await sampling_client.compute_logprobs(...)`; `compute_logprobs()`
+        returns an `APIFuture` that can be awaited. This method will be removed in a
+        subsequent release."""
+        return await self.compute_logprobs(prompt, prompt_logprobs_last_n)
 
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Get the tokenizer for the current model.
@@ -701,16 +725,32 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         Returns:
         - `PreTrainedTokenizer` compatible with the model
         """
-        sampler_info = self._get_sampler_submit().result()
-        return _load_tokenizer_from_model_info(sampler_info.base_model)
+        return _load_tokenizer_from_model_info(self._base_model)
+
+    def _get_sampler_submit(self) -> AwaitableConcurrentFuture[types.GetSamplerResponse]:
+        """The server's record of this sampler, including the `model_path` it was created from,
+        which the client does not keep."""
+        return self.holder.run_coroutine_threadsafe(
+            _fetch_sampler(self.holder, self._sampling_session_id)
+        )
 
     def get_base_model(self) -> str:
-        """Get the base model name for the current sampling session."""
-        return self._get_sampler_submit().result().base_model
+        """The base model name of this sampler, e.g. "Qwen/Qwen3-8B".
 
+        Known since the client was created, so this never waits on the server.
+        """
+        return self._base_model
+
+    @deprecated(
+        "DEPRECATED: SamplingClient.get_base_model_async() is deprecated and will be removed in "
+        "a future tinker SDK version. Use SamplingClient.get_base_model() instead; it answers "
+        "from the client without a request.",
+        category=FutureWarning,
+    )
     async def get_base_model_async(self) -> str:
-        """Async version of get_base_model."""
-        return (await self._get_sampler_submit()).base_model
+        """Deprecated: use `sampling_client.get_base_model()`, which no longer waits on the
+        server. This method will be removed in a subsequent release."""
+        return self._base_model
 
     def get_telemetry(self) -> Telemetry | None:
         return self.holder.get_telemetry()
@@ -720,6 +760,7 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
             session_id=self.holder.get_session_id(),
             sampling_session_id=self._sampling_session_id,
             holder=self.holder.shadow_config,
+            base_model=self._base_model,
             record_stability_info=self._record_stability_info,
         )
 
@@ -785,6 +826,24 @@ class SamplingClient(TelemetryProvider, QueueStateObserver):
         )
 
 
+async def _fetch_sampler(
+    holder: InternalClientHolder, sampling_session_id: str
+) -> types.GetSamplerResponse:
+    async def _send_request() -> types.GetSamplerResponse:
+        with holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+            return await client.get(
+                f"/api/v1/samplers/{sampling_session_id}", cast_to=types.GetSamplerResponse
+            )
+
+    return await holder.execute_with_retries(_send_request)
+
+
+async def _fetch_base_model(holder: InternalClientHolder, sampling_session_id: str) -> str:
+    """The sampler's base model name, fetched once by the paths that create a `SamplingClient`
+    without already knowing it."""
+    return (await _fetch_sampler(holder, sampling_session_id)).base_model
+
+
 def _close_poller_threadsafe(loop: asyncio.AbstractEventLoop, poller: SessionFuturesPoller) -> None:
     # The loop is never closed, but at interpreter exit its self-pipe may be
     # gone; there is nothing left to cancel by then.
@@ -803,6 +862,7 @@ def _unpickle_sampling_client(state: _SamplingClientPickleState) -> SamplingClie
     return SamplingClient(
         holder,
         sampling_session_id=state.sampling_session_id,
+        base_model=state.base_model,
         shadow=True,
         record_stability_info=state.record_stability_info,
     )
