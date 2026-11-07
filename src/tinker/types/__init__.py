@@ -42,6 +42,9 @@ from .checkpoint import (
 from .checkpoint import (
     ParsedCheckpointTinkerPath as ParsedCheckpointTinkerPath,
 )
+from .checkpoint_search_cursor import CheckpointSearchCursor as CheckpointSearchCursor
+from .checkpoint_search_request import CheckpointSearchRequest as CheckpointSearchRequest
+from .checkpoint_search_response import CheckpointSearchResponse as CheckpointSearchResponse
 from .checkpoints_list_response import CheckpointsListResponse as CheckpointsListResponse
 from .client_config_request import ClientConfigRequest as ClientConfigRequest
 from .client_config_response import ClientConfigResponse as ClientConfigResponse
@@ -80,6 +83,12 @@ from .datum import Datum as Datum
 from .dmel_chunk import DmelChunk as DmelChunk
 from .encoded_text_chunk import EncodedTextChunk as EncodedTextChunk
 from .event_type import EventType as EventType
+from .external_weights_upload import (
+    ExternalWeightsUploadFinishResult as ExternalWeightsUploadFinishResult,
+)
+from .external_weights_upload import (
+    ExternalWeightsUploadStartResult as ExternalWeightsUploadStartResult,
+)
 from .external_weights_urls_response import (
     ExternalWeightsUrlsResponse as ExternalWeightsUrlsResponse,
 )
