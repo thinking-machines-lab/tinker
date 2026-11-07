@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.38.0"
+version = "0.39.0"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -116,7 +116,7 @@ replacement = '[\1](https://github.com/stainless-sdks/tinker-python/tree/main/\g
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short -n auto"
+addopts = "--tb=short"
 xfail_strict = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"

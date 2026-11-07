@@ -23,6 +23,12 @@ from tinker.lib.public_interfaces.rest_client_common import rest_client_holder
 from tinker.lib.sdk_method import with_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, capture_exceptions
 from tinker.lib.telemetry_provider import TelemetryProvider
+from tinker.types.external_weights_upload import (
+    ExternalWeightsUploadFinishRequest,
+    ExternalWeightsUploadFinishResponse,
+    ExternalWeightsUploadStartRequest,
+    ExternalWeightsUploadStartResponse,
+)
 
 from ..internal_client_holder import InternalClientHolder
 
@@ -83,6 +89,7 @@ class RestClient(TelemetryProvider):
     - whoami() - get the calling principal's user URN and email
     - export_session_trace() - export a session's timeline as a Perfetto trace and get a signed download URL
     - search_sessions() - (experimental) search your organization's sessions, newest first
+    - search_checkpoints() - (experimental) search your organization's checkpoints, newest first
 
     A RestClient constructed directly talks to the REST API only: no session is
     created on the server, so no project is needed and nothing shows up in the
@@ -494,6 +501,96 @@ class RestClient(TelemetryProvider):
         `get_external_weights_urls()` returns an `APIFuture` that can be awaited. This method will
         be removed in a subsequent release."""
         return await self.get_external_weights_urls(tinker_path=tinker_path)
+
+    @experimental(
+        "RestClient.external_weights_upload_start is experimental: it may change or be removed "
+        "in any release without a deprecation period.",
+        category=ExperimentalWarning,
+    )
+    def external_weights_upload_start(
+        self,
+        base_model: str,
+        lora_config: types.LoraConfig,
+        destination_project_id: str | None = None,
+    ) -> APIFuture[types.ExternalWeightsUploadStartResult]:
+        """Start uploading weights to become an external weights checkpoint of a new
+        training run, which cannot be trained on.
+
+        Experimental: this API may change or be removed in any release.
+
+        Upload each file in the result's `urls` with an HTTP PUT of its bytes, then call
+        `external_weights_upload_finish`. The files must be exactly what
+        `save_weights_external` exports for `base_model` and `lora_config`; finishing
+        rejects anything else.
+
+        Args:
+        - `base_model`: Base model the weights were trained for
+        - `lora_config`: LoRA configuration the weights were trained with
+        - `destination_project_id`: Project that will own the checkpoint. If omitted,
+          defaults to the `TINKER_PROJECT_ID` environment variable, and without it to your
+          organization's Default project.
+
+        Returns:
+        - An `APIFuture` containing the `ExternalWeightsUploadStartResult`. Await it, or call
+          `.result()`.
+        """
+        if destination_project_id is None:
+            destination_project_id = os.environ.get("TINKER_PROJECT_ID") or None
+        request = ExternalWeightsUploadStartRequest(
+            base_model=base_model,
+            lora_config=lora_config,
+            destination_project_id=destination_project_id,
+        )
+
+        @capture_exceptions(fatal=True)
+        async def _start_async() -> types.ExternalWeightsUploadStartResult:
+            async def _send_request() -> ExternalWeightsUploadStartResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.external_upload_start(request=request)
+
+            response = await self.holder.execute_with_retries(_send_request)
+            return types.ExternalWeightsUploadStartResult(
+                upload_id=response.upload_id, urls=response.urls, expires=response.expires
+            )
+
+        return self.holder.run_coroutine_threadsafe(_start_async())
+
+    @experimental(
+        "RestClient.external_weights_upload_finish is experimental: it may change or be "
+        "removed in any release without a deprecation period.",
+        category=ExperimentalWarning,
+    )
+    def external_weights_upload_finish(
+        self, upload_id: str
+    ) -> APIFuture[types.ExternalWeightsUploadFinishResult]:
+        """Validate an upload whose files were all put to their signed URLs, and register it
+        as an external weights checkpoint. Retrying returns the same checkpoint.
+
+        Experimental: this API may change or be removed in any release.
+
+        Load the checkpoint into a training client of the same base model and LoRA config
+        with `load_state` (weights only).
+
+        Args:
+        - `upload_id`: The `upload_id` of `external_weights_upload_start`'s result
+
+        Returns:
+        - An `APIFuture` containing the `ExternalWeightsUploadFinishResult`. Await it, or call
+          `.result()`.
+        """
+        request = ExternalWeightsUploadFinishRequest(upload_id=upload_id)
+
+        @capture_exceptions(fatal=True)
+        async def _finish_async() -> types.ExternalWeightsUploadFinishResult:
+            async def _send_request() -> ExternalWeightsUploadFinishResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.weights.external_upload_finish(request=request)
+
+            response = await self.holder.execute_with_retries(_send_request)
+            logger.info(f"Finished upload {upload_id} as {response.tinker_path}")
+            return types.ExternalWeightsUploadFinishResult(tinker_path=response.tinker_path)
+
+        return self.holder.run_coroutine_threadsafe(_finish_async())
 
     def _delete_checkpoint_submit(
         self, training_run_id: types.ModelID, checkpoint_id: str
@@ -1438,3 +1535,63 @@ class RestClient(TelemetryProvider):
         ```
         """
         return self._search_sessions_submit(request)
+
+    def _search_checkpoints_submit(
+        self, request: types.CheckpointSearchRequest
+    ) -> AwaitableConcurrentFuture[types.CheckpointSearchResponse]:
+        """Internal method to submit the checkpoint search request."""
+
+        @capture_exceptions(fatal=True)
+        async def _search_checkpoints_async() -> types.CheckpointSearchResponse:
+            async def _send_request() -> types.CheckpointSearchResponse:
+                with self.holder.aclient(ClientConnectionPoolType.TRAIN) as client:
+                    return await client.post(
+                        "/api/v1/checkpoints/search",
+                        body=model_dump(request, mode="json", exclude_none=True),
+                        cast_to=types.CheckpointSearchResponse,
+                    )
+
+            return await self.holder.execute_with_retries(_send_request)
+
+        return self.holder.run_coroutine_threadsafe(_search_checkpoints_async())
+
+    @experimental(
+        "RestClient.search_checkpoints is experimental: it may change or be removed in "
+        "any release without a deprecation period.",
+        category=ExperimentalWarning,
+    )
+    @capture_exceptions(fatal=True)
+    def search_checkpoints(
+        self, request: types.CheckpointSearchRequest
+    ) -> APIFuture[types.CheckpointSearchResponse]:
+        """Search your organization's checkpoints, newest first.
+
+        Experimental: this API may change or be removed in any release.
+
+        Results are restricted to projects you may list. Page through them by
+        passing each response's `next_cursor` as the next request's `cursor`.
+
+        Args:
+        - `request`: The search filters, page size and cursor
+
+        Returns:
+        - An `APIFuture` containing one `CheckpointSearchResponse` page. Await it, or call `.result()`.
+
+        Example:
+        ```python
+        from tinker.types import AccessibleSearchOwner, CheckpointSearchRequest
+
+        request = CheckpointSearchRequest(
+            checkpoint_type="sampler", owner=AccessibleSearchOwner()
+        )
+        page = rest_client.search_checkpoints(request).result()
+        while True:
+            for checkpoint in page.checkpoints:
+                print(checkpoint.tinker_path, checkpoint.time)
+            if page.next_cursor is None:
+                break
+            request = request.model_copy(update={"cursor": page.next_cursor})
+            page = rest_client.search_checkpoints(request).result()
+        ```
+        """
+        return self._search_checkpoints_submit(request)

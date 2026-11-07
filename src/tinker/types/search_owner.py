@@ -9,19 +9,19 @@ __all__ = ["OwnSearchOwner", "AccessibleSearchOwner", "UserSearchOwner", "Search
 
 
 class OwnSearchOwner(StrictBase):
-    """The caller's own sessions."""
+    """The caller's own sessions or checkpoints."""
 
     type: Literal["own"] = "own"
 
 
 class AccessibleSearchOwner(StrictBase):
-    """Every owner's sessions."""
+    """Every owner's sessions or checkpoints."""
 
     type: Literal["accessible"] = "accessible"
 
 
 class UserSearchOwner(StrictBase):
-    """The listed users' sessions."""
+    """The listed users' sessions or checkpoints."""
 
     type: Literal["user"] = "user"
 

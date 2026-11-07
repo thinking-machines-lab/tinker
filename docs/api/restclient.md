@@ -30,6 +30,7 @@ Key methods:
 - whoami() - get the calling principal's user URN and email
 - export_session_trace() - export a session's timeline as a Perfetto trace and get a signed download URL
 - search_sessions() - (experimental) search your organization's sessions, newest first
+- search_checkpoints() - (experimental) search your organization's checkpoints, newest first
 
 A RestClient constructed directly talks to the REST API only: no session is
 created on the server, so no project is needed and nothing shows up in the
@@ -291,6 +292,59 @@ async def get_external_weights_urls_async(
 Deprecated: use `await rest_client.get_external_weights_urls(...)`;
 `get_external_weights_urls()` returns an `APIFuture` that can be awaited. This method will
 be removed in a subsequent release.
+
+#### `external_weights_upload_start`
+
+```python
+def external_weights_upload_start(
+    base_model: str,
+    lora_config: types.LoraConfig,
+    destination_project_id: str | None = None
+) -> APIFuture[types.ExternalWeightsUploadStartResult]
+```
+
+Start uploading weights to become an external weights checkpoint of a new
+training run, which cannot be trained on.
+
+Experimental: this API may change or be removed in any release.
+
+Upload each file in the result's `urls` with an HTTP PUT of its bytes, then call
+`external_weights_upload_finish`. The files must be exactly what
+`save_weights_external` exports for `base_model` and `lora_config`; finishing
+rejects anything else.
+
+Args:
+- `base_model`: Base model the weights were trained for
+- `lora_config`: LoRA configuration the weights were trained with
+- `destination_project_id`: Project that will own the checkpoint. If omitted,
+  defaults to the `TINKER_PROJECT_ID` environment variable, and without it to your
+  organization's Default project.
+
+Returns:
+- An `APIFuture` containing the `ExternalWeightsUploadStartResult`. Await it, or call
+  `.result()`.
+
+#### `external_weights_upload_finish`
+
+```python
+def external_weights_upload_finish(
+        upload_id: str) -> APIFuture[types.ExternalWeightsUploadFinishResult]
+```
+
+Validate an upload whose files were all put to their signed URLs, and register it
+as an external weights checkpoint. Retrying returns the same checkpoint.
+
+Experimental: this API may change or be removed in any release.
+
+Load the checkpoint into a training client of the same base model and LoRA config
+with `load_state` (weights only).
+
+Args:
+- `upload_id`: The `upload_id` of `external_weights_upload_start`'s result
+
+Returns:
+- An `APIFuture` containing the `ExternalWeightsUploadFinishResult`. Await it, or call
+  `.result()`.
 
 #### `delete_checkpoint`
 
@@ -899,4 +953,42 @@ while True:
         break
     request = request.model_copy(update={"cursor": page.next_cursor})
     page = rest_client.search_sessions(request).result()
+```
+
+#### `search_checkpoints`
+
+```python
+def search_checkpoints(
+    request: types.CheckpointSearchRequest
+) -> APIFuture[types.CheckpointSearchResponse]
+```
+
+Search your organization's checkpoints, newest first.
+
+Experimental: this API may change or be removed in any release.
+
+Results are restricted to projects you may list. Page through them by
+passing each response's `next_cursor` as the next request's `cursor`.
+
+Args:
+- `request`: The search filters, page size and cursor
+
+Returns:
+- An `APIFuture` containing one `CheckpointSearchResponse` page. Await it, or call `.result()`.
+
+Example:
+```python
+from tinker.types import AccessibleSearchOwner, CheckpointSearchRequest
+
+request = CheckpointSearchRequest(
+    checkpoint_type="sampler", owner=AccessibleSearchOwner()
+)
+page = rest_client.search_checkpoints(request).result()
+while True:
+    for checkpoint in page.checkpoints:
+        print(checkpoint.tinker_path, checkpoint.time)
+    if page.next_cursor is None:
+        break
+    request = request.model_copy(update={"cursor": page.next_cursor})
+    page = rest_client.search_checkpoints(request).result()
 ```

@@ -33,6 +33,9 @@ class Checkpoint(BaseModel):
     expires_at: datetime | None = None
     """When this checkpoint expires (None = never expires)"""
 
+    base_model: str | None = None
+    """The base model the checkpoint was trained from"""
+
 
 class ParsedCheckpointTinkerPath(BaseModel):
     tinker_path: str

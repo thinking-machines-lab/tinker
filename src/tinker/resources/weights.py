@@ -9,6 +9,12 @@ from ..types import (
     ExternalWeightsUrlsResponse,
     ModelID,
 )
+from ..types.external_weights_upload import (
+    ExternalWeightsUploadFinishRequest,
+    ExternalWeightsUploadFinishResponse,
+    ExternalWeightsUploadStartRequest,
+    ExternalWeightsUploadStartResponse,
+)
 from ..types.load_weights_request import LoadWeightsRequest
 from ..types.save_weights_external_request import SaveWeightsExternalRequest
 from ..types.save_weights_for_sampler_request import SaveWeightsForSamplerRequest
@@ -139,4 +145,26 @@ class AsyncWeightsResource(AsyncAPIResource):
             f"/api/v1/training_runs/{model_id}/checkpoints/{checkpoint_id}/external_weights_urls",
             options=make_request_options(extra_headers=extra_headers),
             cast_to=ExternalWeightsUrlsResponse,
+        )
+
+    async def external_upload_start(
+        self, *, request: ExternalWeightsUploadStartRequest, extra_headers: Headers | None = None
+    ) -> ExternalWeightsUploadStartResponse:
+        """Signed URLs to upload weights, to finish into an external weights checkpoint."""
+        return await self._post(
+            "/api/v1/external_weights_upload_start",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            options=make_request_options(extra_headers=extra_headers),
+            cast_to=ExternalWeightsUploadStartResponse,
+        )
+
+    async def external_upload_finish(
+        self, *, request: ExternalWeightsUploadFinishRequest, extra_headers: Headers | None = None
+    ) -> ExternalWeightsUploadFinishResponse:
+        """Validates an upload and registers it as an external weights checkpoint."""
+        return await self._post(
+            "/api/v1/external_weights_upload_finish",
+            body=model_dump(request, exclude_unset=False, exclude_none=True, mode="json"),
+            options=make_request_options(extra_headers=extra_headers),
+            cast_to=ExternalWeightsUploadFinishResponse,
         )

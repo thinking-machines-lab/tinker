@@ -59,7 +59,7 @@ class ModuleAnalyzer:
         modules = {}
         tinker_path = self.src_path / "tinker"
 
-        for py_file in tinker_path.rglob("*.py"):
+        for py_file in sorted(tinker_path.rglob("*.py")):
             # Skip test files and private modules
             if any(part.startswith(("test", "_test")) for part in py_file.parts):
                 continue
