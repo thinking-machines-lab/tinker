@@ -194,6 +194,7 @@ from .session_status import SessionFailed as SessionFailed
 from .session_status import SessionFailedReason as SessionFailedReason
 from .session_status import SessionFailedRequestReason as SessionFailedRequestReason
 from .session_status import SessionFailedSamplingSessionReason as SessionFailedSamplingSessionReason
+from .session_status import SessionFailedSessionReason as SessionFailedSessionReason
 from .session_status import SessionFailedTrainingRunReason as SessionFailedTrainingRunReason
 from .session_status import SessionStatus as SessionStatus
 from .session_status_query import ActiveSessionStatusQuery as ActiveSessionStatusQuery
@@ -219,5 +220,6 @@ from .training_runs_response import TrainingRunsResponse as TrainingRunsResponse
 from .unhandled_exception_event import UnhandledExceptionEvent as UnhandledExceptionEvent
 from .unload_model_request import UnloadModelRequest as UnloadModelRequest
 from .unload_model_response import UnloadModelResponse as UnloadModelResponse
+from .unrecognized_type import UnrecognizedType as UnrecognizedType
 from .weights_info_response import WeightsInfoResponse as WeightsInfoResponse
 from .whoami_response import WhoamiResponse as WhoamiResponse

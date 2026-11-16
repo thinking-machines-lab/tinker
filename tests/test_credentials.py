@@ -3,9 +3,12 @@ stored-credential fallback in resolve_auth_provider."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import shlex
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -280,3 +283,54 @@ class TestStoredCredentialFallback:
         store.set_default(None)
         with pytest.raises(TinkerError, match="tinker auth login"):
             resolve_auth_provider(api_key=None, enforce_cmd=False)
+
+
+def test_credential_cmd_after_another_library_replaces_the_loop_policy() -> None:
+    # The client's loop exists before an import installs its own policy (uvloop's,
+    # for example), which provides no child watcher for stdlib loops.
+    class ForeignPolicy(asyncio.events.BaseDefaultEventLoopPolicy):
+        _loop_factory = asyncio.SelectorEventLoop
+
+    loop = asyncio.new_event_loop()
+    previous = asyncio.get_event_loop_policy()
+    asyncio.set_event_loop_policy(ForeignPolicy())
+    try:
+        token = loop.run_until_complete(CredentialCmdAuthProvider("echo cmd-cred").get_token())
+    finally:
+        asyncio.set_event_loop_policy(previous)
+        loop.close()
+    assert token == "cmd-cred"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Uses POSIX shell exec")
+def test_credential_cmd_cancellation_reaps_helper(tmp_path: Path) -> None:
+    marker = tmp_path / "helper.pid"
+    finished = tmp_path / "helper.finished"
+    helper = tmp_path / "helper.py"
+    helper.write_text(
+        "import os, sys, time\n"
+        "from pathlib import Path\n"
+        "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+        "time.sleep(4)\n"
+        "Path(sys.argv[2]).touch()\n"
+        "print('cmd-cred')\n"
+    )
+    provider = CredentialCmdAuthProvider(
+        "exec " + shlex.join([sys.executable, str(helper), str(marker), str(finished)])
+    )
+
+    async def cancel_running_helper() -> None:
+        task = asyncio.create_task(provider._run_in_thread_with_cancellation())
+        try:
+            async with asyncio.timeout(10):
+                while not marker.exists():
+                    await asyncio.sleep(0.01)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(cancel_running_helper())
+    assert not finished.exists(), "Cancelled helper kept running during executor shutdown"
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(marker.read_text()), 0)

@@ -3,8 +3,9 @@ from typing import Union
 
 from typing_extensions import Annotated, Literal, TypeAlias
 
-from .._models import BaseModel
+from .._models import BaseModel, unrecognized_fallback
 from .._utils import PropertyInfo
+from .unrecognized_type import UnrecognizedType
 
 __all__ = [
     "TrainingBillingEvent",
@@ -79,8 +80,10 @@ BillingEventInfo: TypeAlias = Annotated[
         SamplingSampleBillingEvent,
         CheckpointBillingEvent,
         StorageBillingEvent,
+        UnrecognizedType,
     ],
     PropertyInfo(discriminator="type"),
+    unrecognized_fallback(UnrecognizedType),
 ]
 
 

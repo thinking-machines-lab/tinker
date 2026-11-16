@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from tinker.types import BillingUsageResponse
+from tinker.types import BillingUsageResponse, CheckpointBillingEvent, UnrecognizedType
 
 
 @pytest.mark.parametrize(
@@ -49,3 +49,38 @@ def test_billing_usage_response_ignores_future_fields(event_info: dict[str, obje
     assert "new_session_field" not in serialized["sessions"]["session-1"]
     if event_info["type"] == "storage":
         assert serialized["data"][0]["event_info"]["free"] is event_info.get("free", False)
+
+
+def test_billing_usage_response_keeps_events_with_unparseable_event_info() -> None:
+    """A usage payload this SDK cannot parse comes back as unrecognized with the raw object.
+
+    The response is validated as a whole, so one event of a kind added to the
+    API after this SDK was released, or missing a field this SDK expects, would
+    otherwise make the entire usage window unreadable.
+    """
+    egress = {"type": "egress", "gigabytes": 2.5}
+    training_without_count = {"type": "training"}
+
+    response = BillingUsageResponse.model_validate(
+        {
+            "data": [
+                _event(egress),
+                _event(training_without_count),
+                _event({"type": "checkpoint", "count": 1}),
+            ]
+        }
+    )
+
+    assert [event.event_info for event in response.data] == [
+        UnrecognizedType(raw_object=egress),
+        UnrecognizedType(raw_object=training_without_count),
+        CheckpointBillingEvent(count=1),
+    ]
+
+
+def _event(event_info: dict[str, object]) -> dict[str, object]:
+    return {
+        "bucket_start": "2026-09-26T00:00:00Z",
+        "bucket_end": "2026-09-26T01:00:00Z",
+        "event_info": event_info,
+    }

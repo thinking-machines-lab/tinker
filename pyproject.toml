@@ -1,6 +1,6 @@
 [project]
 name = "tinker"
-version = "0.39.0"
+version = "0.39.1"
 description = "The official Python SDK for the tinker API"
 readme = "README.md"
 license = "Apache-2.0"
@@ -19,6 +19,7 @@ dependencies = [
     "numpy",
     "protobuf>=4.21",
     "transformers",
+    "tiktoken",
     "rich>=13.0.0",
     "click>=8.0.0",
     "orjson>=3.10.0",
@@ -50,6 +51,7 @@ tinker = "tinker.cli.__main__:cli"
 Homepage = "https://thinkingmachines.ai/tinker"
 Repository = "https://github.com/thinking-machines-lab/tinker"
 Documentation = "https://tinker-docs.thinkingmachines.ai/"
+Changelog = "https://tinker-docs.thinkingmachines.ai/changelog/sdk/"
 
 [project.optional-dependencies]
 aiohttp = ["aiohttp", "httpx_aiohttp>=0.1.8"]
@@ -77,42 +79,27 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling==1.26.3", "hatch-fancy-pypi-readme"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
 
-[tool.hatch.build]
-include = [
-  "src/*"
+[tool.maturin]
+manifest-path = "native/Cargo.toml"
+# `abi3` targets CPython's stable ABI, so one `cp311-abi3` wheel per platform
+# covers every supported GIL-enabled interpreter (free-threaded builds have no
+# stable ABI and install from the sdist).
+features = ["abi3", "python-extension"]
+python-source = "src"
+module-name = "tinker._native"
+strip = true
+exclude = [
+  "src/**/__pycache__/**",
+  "src/**/*.pyc",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/tinker"]
-
-[tool.hatch.build.targets.sdist]
-# Basically everything except hidden files/directories (such as .github, .devcontainers, .python-version, etc)
-include = [
-  "/*.toml",
-  "/*.json",
-  "/*.lock",
-  "/*.md",
-  "/mypy.ini",
-  "/noxfile.py",
-  "bin/*",
-  "examples/*",
-  "src/*",
-  "tests/*",
-]
-
-[tool.hatch.metadata.hooks.fancy-pypi-readme]
-content-type = "text/markdown"
-
-[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
-path = "README.md"
-
-[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
-# replace relative links with absolute links
-pattern = '\[(.+?)\]\(((?!https?://)\S+?)\)'
-replacement = '[\1](https://github.com/stainless-sdks/tinker-python/tree/main/\g<2>)'
+[tool.maturin.sbom]
+# Maturin's generated Rust SBOM records absolute build paths for local crates.
+rust = false
+auditwheel = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -149,6 +136,8 @@ extend_exclude = [
     "src/tinker/proto/.*",
     # Test files colocated with source — they legitimately import pytest (dev dep)
     ".*_test\\.py",
+    # Stand-in for the compiled extension module in source checkouts; not shipped
+    "src/tinker/_native\\.py",
 ]
 known_first_party = ["tinker"]
 
@@ -164,4 +153,5 @@ DEP001 = [
 DEP002 = [
     "protobuf",  # used via `google.protobuf` in generated code
     "aiohttp",   # optional [aiohttp] extra
+    "tiktoken",  # imported by the Kimi tokenizers' remote code in get_tokenizer
 ]

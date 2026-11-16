@@ -99,9 +99,7 @@ async def test_client_connection_pool_close_closes_clients(
 @pytest.mark.asyncio
 async def test_async_cleanup_closes_pools_when_telemetry_fails() -> None:
     holder = InternalClientHolder.__new__(InternalClientHolder)
-    holder._session_heartbeat_task = None
-    holder._client_dynamic_config_refresh_task = None
-    holder._cancel_drain_task = None
+    holder._background_tasks = []
     holder._futures_poller_tasks = set()
     holder._default_auth = ApiKeyAuthProvider("tml-test-key")
     holder._telemetry = MagicMock()
@@ -271,26 +269,21 @@ def _make_holder(
         ),
         patch.object(
             InternalClientHolder,
-            "_start_heartbeat",
+            "_session_heartbeat",
             new_callable=AsyncMock,
         ),
         patch.object(
             InternalClientHolder,
-            "_start_client_dynamic_config_refresh",
+            "_client_dynamic_config_refresh_loop",
             new_callable=AsyncMock,
         ),
     ):
         holder = InternalClientHolder(api_key=api_key, **holder_kwargs)
-        holder._session_heartbeat_task = MagicMock()
-        holder._client_dynamic_config_refresh_task = MagicMock()
         return holder
 
 
 def test_close_is_idempotent() -> None:
     holder = _make_holder(api_key="tml-test")
-    holder._session_heartbeat_task = None
-    holder._client_dynamic_config_refresh_task = None
-    holder._cancel_drain_task = None
     holder.close()
     holder.close()
     assert holder._closed
@@ -316,9 +309,9 @@ def test_default_headers_overrides_apply_over_env_headers(
     monkeypatch.delenv("CLOUDFLARE_ACCESS_CLIENT_ID")
     monkeypatch.delenv("CLOUDFLARE_ACCESS_CLIENT_SECRET")
     with (
-        patch.object(InternalClientHolder, "_start_heartbeat", new_callable=AsyncMock),
+        patch.object(InternalClientHolder, "_session_heartbeat", new_callable=AsyncMock),
         patch.object(
-            InternalClientHolder, "_start_client_dynamic_config_refresh", new_callable=AsyncMock
+            InternalClientHolder, "_client_dynamic_config_refresh_loop", new_callable=AsyncMock
         ),
     ):
         shadow = InternalClientHolder.get_shadow_holder(
@@ -335,9 +328,9 @@ def test_shadow_holder_construction_does_not_exchange_jwt() -> None:
     fetch = AsyncMock(return_value="unused")
     with (
         patch("tinker.lib._jwt_auth.JwtAuthProvider._fetch", fetch),
-        patch.object(InternalClientHolder, "_start_heartbeat", new_callable=AsyncMock),
+        patch.object(InternalClientHolder, "_session_heartbeat", new_callable=AsyncMock),
         patch.object(
-            InternalClientHolder, "_start_client_dynamic_config_refresh", new_callable=AsyncMock
+            InternalClientHolder, "_client_dynamic_config_refresh_loop", new_callable=AsyncMock
         ),
     ):
         holder = InternalClientHolder(
@@ -347,8 +340,6 @@ def test_shadow_holder_construction_does_not_exchange_jwt() -> None:
             _client_dynamic_config=_ClientDynamicConfigResponse().model_dump(),
         )
     fetch.assert_not_called()
-    holder._session_heartbeat_task = None
-    holder._client_dynamic_config_refresh_task = None
     holder.close()
 
 
@@ -374,12 +365,12 @@ def test_sampling_client_pickle_roundtrip_without_env_var(
     with (
         patch.object(
             InternalClientHolder,
-            "_start_heartbeat",
+            "_session_heartbeat",
             new_callable=AsyncMock,
         ),
         patch.object(
             InternalClientHolder,
-            "_start_client_dynamic_config_refresh",
+            "_client_dynamic_config_refresh_loop",
             new_callable=AsyncMock,
         ),
     ):
@@ -417,12 +408,12 @@ def test_sampling_client_sampler_handle_uses_restoring_process_credentials(
     with (
         patch.object(
             InternalClientHolder,
-            "_start_heartbeat",
+            "_session_heartbeat",
             new_callable=AsyncMock,
         ),
         patch.object(
             InternalClientHolder,
-            "_start_client_dynamic_config_refresh",
+            "_client_dynamic_config_refresh_loop",
             new_callable=AsyncMock,
         ),
     ):

@@ -13,3 +13,8 @@ dist
 .envrc
 codegen.log
 Brewfile.lock.json
+
+# Native extension build outputs (maturin / cargo); native/Cargo.lock is tracked.
+/native/target/
+/src/tinker/_native*.so
+/src/tinker/_native*.pyd

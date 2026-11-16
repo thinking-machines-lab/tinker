@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextlib
 import json
 import logging
 import random
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import AbstractContextManager
+from typing import Any
 
 import httpx
 
@@ -110,7 +110,9 @@ class JwtAuthProvider(AuthTokenProvider):
         self._token: str = ""
         self._aclient_fn = aclient_fn
         self._refresh_lock = asyncio.Lock()
-        self._refresh_task: asyncio.Task[None] | None = None
+        # Started on the event loop, cancelled by close().
+        self._background_tasks: list[asyncio.Task[Any]] = []
+        self._refresh_loop_running = False
         self._closed = False
 
     async def async_auth_flow(
@@ -157,20 +159,24 @@ class JwtAuthProvider(AuthTokenProvider):
                 # expires; if the server rejects it, the request surfaces the error.
                 logger.warning("On-demand JWT refresh failed: %s", e)
                 return self._token
-            if self._refresh_task is None and not self._closed:
-                self._refresh_task = asyncio.create_task(
-                    self._refresh_loop(token), context=context_without_sdk_method()
-                )
+            if not self._refresh_loop_running and not self._closed:
+                self._refresh_loop_running = True
+                await self._run_in_background(self._refresh_loop(token))
             return token
+
+    async def _run_in_background(self, coroutine: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
+        """A task for `coroutine` on the running loop, cancelled by `close()`."""
+        task = asyncio.create_task(coroutine, context=context_without_sdk_method())
+        self._background_tasks.append(task)
+        return task
 
     async def close(self) -> None:
         # get_token() still serves tokens after close, because shutdown sends the
         # last telemetry batch. It does not start a new refresh loop.
         self._closed = True
-        if self._refresh_task is not None:
-            self._refresh_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._refresh_task
+        for task in self._background_tasks:
+            task.cancel()
+        await asyncio.gather(*self._background_tasks, return_exceptions=True)
 
     async def _replace(self, rejected: str) -> str:
         """A token other than `rejected`. Exchanges for one only if no other request
@@ -212,7 +218,7 @@ class JwtAuthProvider(AuthTokenProvider):
                     # Retry a rejected credential only until get_token() takes over near
                     # expiry; its next successful refresh starts a new loop.
                     logger.warning("JWT refresh rejected, stopping background refresh: %s", e)
-                    self._refresh_task = None
+                    self._refresh_loop_running = False
                     return
                 log = logger.debug if failing else logger.warning
                 log("JWT refresh failed, retrying in %ds: %s", _RETRY_DELAY_SECS, e)

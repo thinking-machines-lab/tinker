@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Keep MATURIN_VERSION in step with [build-system] in pyproject.toml.
+  MATURIN_VERSION: "1.15.0"
+  RUST_TOOLCHAIN: "1.99.1"
+
 jobs:
   publish-decision:
     if: github.ref == 'refs/heads/main'
@@ -53,18 +58,75 @@ jobs:
               print(f"publish={str(publish).lower()}", file=output)
           PY
 
-  publish:
+  # The SDK ships a Rust extension module (see native/), so each platform gets its own
+  # cp311-abi3 wheel, which runs on every supported GIL-enabled interpreter. The wheels
+  # cover glibc Linux, macOS and Windows; everything else (musl Linux, free-threaded
+  # CPython, which has no stable ABI) installs from the sdist and needs a Rust toolchain.
+  # Builds use the standalone native/Cargo.lock (--locked) and pinned maturin and Rust
+  # versions.
+  # The interpreter is the abi3 floor: setup-python does not reach into the manylinux
+  # containers, where the action puts /opt/python's interpreters on PATH instead.
+  build-wheels:
     needs: publish-decision
     if: needs.publish-decision.outputs.publish == 'true'
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64, manylinux: auto, interpreter: python3.11 }
+          - { os: ubuntu-latest, target: aarch64, manylinux: auto, interpreter: python3.11 }
+          - { os: macos-latest, target: x86_64, interpreter: python3.11 }
+          - { os: macos-latest, target: aarch64, interpreter: python3.11 }
+          - { os: windows-latest, target: x64, interpreter: python }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        if: ${{ !matrix.manylinux }}
+        with:
+          python-version: "3.11"
+      - name: Build wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+          args: --release --locked --out dist --interpreter ${{ matrix.interpreter }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}
+          path: dist
+
+  build-sdist:
+    needs: publish-decision
+    if: needs.publish-decision.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build sdist
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          args: --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: dist
+
+  publish:
+    needs: [build-wheels, build-sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-      - name: Build package distributions
-        run: uv build
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist

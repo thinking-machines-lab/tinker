@@ -949,4 +949,10 @@ def _load_tokenizer_from_model_info(
             "revision": "f831ab66814297da540d832a5235f8e904f29d06",
         }
 
+    if tokenizer_id == "moonshotai/Kimi-K3.1-Pro":
+        kwargs = {
+            "trust_remote_code": True,
+            "revision": "d9e99b0792a5e93b78ea9bea62a68167e36ddd9e",
+        }
+
     return AutoTokenizer.from_pretrained(tokenizer_id, fast=True, **kwargs)

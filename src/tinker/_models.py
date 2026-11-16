@@ -60,7 +60,7 @@ from ._utils import (
 if TYPE_CHECKING:
     from pydantic_core.core_schema import LiteralSchema, ModelField, ModelFieldsSchema, ModelSchema
 
-__all__ = ["StrictBase", "BaseModel", "GenericModel"]
+__all__ = ["StrictBase", "BaseModel", "GenericModel", "unrecognized_fallback"]
 
 _T = TypeVar("_T")
 _BaseModelT = TypeVar("_BaseModelT", bound=pydantic.BaseModel)
@@ -95,6 +95,29 @@ class BaseModel(pydantic.BaseModel):
 
     def __str__(self) -> str:
         return repr(self)
+
+
+def unrecognized_fallback(unrecognized: _UnrecognizedVariant) -> pydantic.WrapValidator:
+    """Validator for a response union that parses an object no variant accepts as `unrecognized`.
+
+    `unrecognized` is the variant for such objects, one per discriminator (`UnrecognizedType`
+    for unions tagged by `type`) and listed in the union; its `raw_object` receives the object
+    as the API sent it. A value that is not an object still fails validation.
+    """
+
+    def validate(value: object, handler: pydantic.ValidatorFunctionWrapHandler) -> object:
+        try:
+            return handler(value)
+        except pydantic.ValidationError:
+            if not is_mapping(value):
+                raise
+            return unrecognized(raw_object=dict(value))
+
+    return pydantic.WrapValidator(validate)
+
+
+class _UnrecognizedVariant(Protocol):
+    def __call__(self, *, raw_object: dict[str, object]) -> pydantic.BaseModel: ...
 
 
 def _construct_field(value: object, field: FieldInfo, key: str) -> object:

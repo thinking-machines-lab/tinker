@@ -16,6 +16,9 @@ import abc
 import asyncio
 import math
 import os
+import signal
+import subprocess
+import threading
 import time
 from collections.abc import AsyncGenerator
 
@@ -105,7 +108,7 @@ class CredentialCmdAuthProvider(AuthTokenProvider):
     """Runs TINKER_CREDENTIAL_CMD on every get_token() call.
 
     Always produces a fresh credential (e.g. short-lived bearer tokens).
-    Uses async subprocess to avoid blocking the event loop.
+    Uses async subprocesses, with a worker-thread fallback for incompatible loop policies.
     """
 
     def __init__(self, cmd: str) -> None:
@@ -117,16 +120,55 @@ class CredentialCmdAuthProvider(AuthTokenProvider):
         self._cmd = cmd
 
     async def get_token(self) -> str | None:
-        proc = await asyncio.create_subprocess_shell(
-            self._cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await proc.communicate()
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                self._cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+        except NotImplementedError:
+            # A foreign loop policy may not provide a child watcher for this loop.
+            stdout = await self._run_in_thread_with_cancellation()
+        else:
+            stdout, _ = await proc.communicate()
         credential = stdout.decode().strip()
         if not credential:
             raise TinkerError("TINKER_CREDENTIAL_CMD returned an empty credential.")
         if time.time() >= _credential_expiry(credential):
             raise TinkerError("TINKER_CREDENTIAL_CMD printed an expired JWT.")
         return credential
+
+    async def _run_in_thread_with_cancellation(self) -> bytes:
+        cancelled = threading.Event()
+        try:
+            return await asyncio.to_thread(self._run_command, cancelled)
+        finally:
+            cancelled.set()
+
+    def _run_command(self, cancelled: threading.Event) -> bytes:
+        with subprocess.Popen(
+            self._cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=os.name == "posix",
+        ) as process:
+            try:
+                while not cancelled.is_set():
+                    try:
+                        stdout, _ = process.communicate(timeout=0.1)
+                        return stdout
+                    except subprocess.TimeoutExpired:
+                        continue
+                raise asyncio.CancelledError
+            finally:
+                if cancelled.is_set():
+                    try:
+                        # Kill the helper as well as its shell before reaping it.
+                        if os.name == "posix":
+                            os.killpg(process.pid, signal.SIGKILL)
+                        else:
+                            process.kill()
+                    except ProcessLookupError:
+                        pass
 
 
 def resolve_auth_provider(api_key: str | None, enforce_cmd: bool) -> AuthTokenProvider:
