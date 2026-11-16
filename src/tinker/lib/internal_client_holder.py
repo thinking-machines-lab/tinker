@@ -297,9 +297,8 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self._auth_pool: ClientConnectionPool | None = None
         self._close_lock: threading.Lock = threading.Lock()
         self._closed: bool = True
-        self._session_heartbeat_task: asyncio.Task[None] | None = None
-        self._client_dynamic_config_refresh_task: asyncio.Task[None] | None = None
-        self._cancel_drain_task: asyncio.Task[None] | None = None
+        # The session's loops (heartbeat, config refresh, cancel drain), cancelled on close.
+        self._background_tasks: list[asyncio.Task[None]] = []
         # Strong references to every live SessionFuturesPoller task; the loop
         # itself only holds them weakly. Each task removes itself on completion.
         self._futures_poller_tasks: set[asyncio.Task[None]] = set()
@@ -411,26 +410,14 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
             self._telemetry = init_telemetry(self, session_id=None)
         else:
             assert self._session_id is not None
-            if self._loop.is_running() and _current_loop() is self._loop:
-                # Already on the event loop thread — .result() would deadlock.
-                # Create the tasks directly instead of via run_coroutine_threadsafe.
-                self._session_heartbeat_task = asyncio.create_task(
-                    self._session_heartbeat(self._session_id)
+            self._background_tasks = [
+                self._run_in_background(coroutine)
+                for coroutine in (
+                    self._session_heartbeat(self._session_id),
+                    self._client_dynamic_config_refresh_loop(),
+                    self._cancel_drain_loop(),
                 )
-                self._client_dynamic_config_refresh_task = asyncio.create_task(
-                    self._client_dynamic_config_refresh_loop()
-                )
-                self._cancel_drain_task = asyncio.create_task(self._cancel_drain_loop())
-            else:
-                self._session_heartbeat_task = self.run_coroutine_threadsafe(
-                    self._start_heartbeat()
-                ).result()
-                self._client_dynamic_config_refresh_task = self.run_coroutine_threadsafe(
-                    self._start_client_dynamic_config_refresh()
-                ).result()
-                self._cancel_drain_task = self.run_coroutine_threadsafe(
-                    self._start_cancel_drain()
-                ).result()
+            ]
             self._telemetry = init_telemetry(self, session_id=self._session_id)
 
         self._first_billing_exception_time: float | None = None
@@ -639,18 +626,16 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
 
         return await self.execute_with_retries(_send_request)
 
-    async def _start_heartbeat(self) -> asyncio.Task[None]:
-        """Start the session heartbeat task."""
-        assert self._session_id is not None
-        return asyncio.create_task(self._session_heartbeat(self._session_id))
+    def _run_in_background(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
+        """A task running `coroutine` on the holder's loop, callable from any thread."""
 
-    async def _start_client_dynamic_config_refresh(self) -> asyncio.Task[None]:
-        """Start the dynamic client config refresh task."""
-        return asyncio.create_task(self._client_dynamic_config_refresh_loop())
+        async def start() -> asyncio.Task[None]:
+            return asyncio.create_task(coroutine)
 
-    async def _start_cancel_drain(self) -> asyncio.Task[None]:
-        """Start the sampling-cancel drain task."""
-        return asyncio.create_task(self._cancel_drain_loop())
+        if self._loop.is_running() and _current_loop() is self._loop:
+            # Already on the event loop thread: .result() would deadlock.
+            return asyncio.create_task(coroutine)
+        return self.run_coroutine_threadsafe(start()).result()
 
     def enqueue_cancel(self, request_id: str) -> None:
         """Schedule an explicit server-side cancel for an abandoned sampling
@@ -900,18 +885,10 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         self.close()
 
     async def _async_cleanup(self):
-        if self._session_heartbeat_task:
-            self._session_heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._session_heartbeat_task
-        if self._client_dynamic_config_refresh_task:
-            self._client_dynamic_config_refresh_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._client_dynamic_config_refresh_task
-        if self._cancel_drain_task:
-            self._cancel_drain_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._cancel_drain_task
+        for task in self._background_tasks:
+            task.cancel()
+        # A loop that died with an exception must not stop the pools below from closing.
+        await asyncio.gather(*self._background_tasks, return_exceptions=True)
         poller_tasks = list(self._futures_poller_tasks)
         for task in poller_tasks:
             task.cancel()

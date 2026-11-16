@@ -2299,13 +2299,21 @@ Telemetry event type
 
 Log severity level
 
+## `SessionFailedSessionReason` Objects
+
+```python
+class SessionFailedSessionReason(BaseModel)
+```
+
+The session failed as a whole, not through one request, training run or sampling session.
+
 ## `SessionFailed` Objects
 
 ```python
 class SessionFailed(BaseModel)
 ```
 
-The session was failed by one of its requests, training runs or sampling sessions.
+The session failed.
 
 ## `ClientSessionFinished` Objects
 
@@ -2605,6 +2613,18 @@ Log severity level
 #### `traceback`
 
 Optional Python traceback string
+
+## `UnrecognizedType` Objects
+
+```python
+class UnrecognizedType(BaseModel)
+```
+
+An object, in a union the API tags by `type`, that this SDK version cannot parse.
+
+#### `raw_object`
+
+The object as the API reported it
 
 ## `WeightsInfoResponse` Objects
 

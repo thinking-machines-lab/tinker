@@ -151,7 +151,7 @@ for event in future.result().data:
         case types.CheckpointBillingEvent() as info:
             print(event.bucket_start, "checkpoints", info.count)
         case info:
-            print(event.bucket_start, info.type, event.base_model, info.token_count)
+            print(event.bucket_start, info.type, event.base_model, info)
 ```
 
 #### `get_billing_usage_async`

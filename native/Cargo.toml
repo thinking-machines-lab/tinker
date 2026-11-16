@@ -1,0 +1,31 @@
+[package]
+name = "tinker-native"
+# Placeholder: maturin tags the wheel from pyproject.toml's [project].version.
+version = "0.0.0"
+edition = "2021"
+description = "Native extension module of the Tinker Python SDK"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Both are off by default so `cargo test` links a version-specific libpython;
+# the wheel build enables both (see ../pyproject.toml).
+# `abi3` targets CPython's stable ABI, so one `cp311-abi3` build runs on every
+# supported interpreter.
+abi3 = ["pyo3/abi3-py311"]
+python-extension = ["pyo3/extension-module"]
+
+# This crate builds on its own, so dependency versions are explicit here.
+[dependencies]
+# Only for `FutureExt::catch_unwind`, which turns a panicking future into an error.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+pyo3 = "0.29"
+tokio = { version = "1.47", default-features = false, features = ["rt-multi-thread", "sync"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+# For the fork test of the runtime.
+libc = "0.2"

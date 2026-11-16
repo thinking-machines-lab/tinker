@@ -2,13 +2,15 @@ from typing import Union
 
 from typing_extensions import Annotated, Literal, TypeAlias
 
-from .._models import BaseModel
+from .._models import BaseModel, unrecognized_fallback
 from .._utils import PropertyInfo
+from .unrecognized_type import UnrecognizedType
 
 __all__ = [
     "SessionFailedRequestReason",
     "SessionFailedTrainingRunReason",
     "SessionFailedSamplingSessionReason",
+    "SessionFailedSessionReason",
     "SessionFailedReason",
     "SessionFailed",
     "SessionCancelled",
@@ -42,18 +44,27 @@ class SessionFailedSamplingSessionReason(BaseModel):
     sampling_session_id: str
 
 
+class SessionFailedSessionReason(BaseModel):
+    """The session failed as a whole, not through one request, training run or sampling session."""
+
+    type: Literal["session"] = "session"
+
+
 SessionFailedReason: TypeAlias = Annotated[
     Union[
         SessionFailedRequestReason,
         SessionFailedTrainingRunReason,
         SessionFailedSamplingSessionReason,
+        SessionFailedSessionReason,
+        UnrecognizedType,
     ],
     PropertyInfo(discriminator="type"),
+    unrecognized_fallback(UnrecognizedType),
 ]
 
 
 class SessionFailed(BaseModel):
-    """The session was failed by one of its requests, training runs or sampling sessions."""
+    """The session failed."""
 
     type: Literal["failed"] = "failed"
 
@@ -83,8 +94,14 @@ class ClientSessionFinishInterrupted(BaseModel):
 
 
 ClientSessionFinishReason: TypeAlias = Annotated[
-    Union[ClientSessionFinishSuccess, ClientSessionFinishErrored, ClientSessionFinishInterrupted],
+    Union[
+        ClientSessionFinishSuccess,
+        ClientSessionFinishErrored,
+        ClientSessionFinishInterrupted,
+        UnrecognizedType,
+    ],
     PropertyInfo(discriminator="type"),
+    unrecognized_fallback(UnrecognizedType),
 ]
 
 
@@ -103,6 +120,7 @@ class SessionActive(BaseModel):
 
 
 SessionStatus: TypeAlias = Annotated[
-    Union[SessionFailed, SessionCancelled, ClientSessionFinished, SessionActive],
+    Union[SessionFailed, SessionCancelled, ClientSessionFinished, SessionActive, UnrecognizedType],
     PropertyInfo(discriminator="type"),
+    unrecognized_fallback(UnrecognizedType),
 ]

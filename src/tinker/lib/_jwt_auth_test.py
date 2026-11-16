@@ -158,12 +158,12 @@ async def test_first_get_token_fetches_and_starts_the_refresh_loop():
     jwt = _make_jwt(time.time() + 7200)
     holder = _MockHolder(jwt)
     provider = JwtAuthProvider(holder.aclient)
-    assert provider._refresh_task is None
+    assert provider._background_tasks == []
 
     assert await provider.get_token() == jwt
     assert await provider.get_token() == jwt
     holder._cm.__enter__.return_value.service.auth_token.assert_called_once()
-    assert provider._refresh_task is not None
+    assert len(provider._background_tasks) == 1
     await provider.close()
 
 
@@ -174,7 +174,7 @@ async def test_get_token_raises_when_first_fetch_fails():
 
     with pytest.raises(Exception, match="network error"):
         await provider.get_token()
-    assert provider._refresh_task is None
+    assert provider._background_tasks == []
 
 
 _EXCHANGE_REQUEST = httpx.Request("POST", "https://api.example.test/api/v1/auth/token")
@@ -404,12 +404,13 @@ async def test_refresh_loop_stops_before_expiry_only_when_rejected(
     holder._cm.__enter__.return_value.service.auth_token.side_effect = error
     token = _make_jwt(exp)
     provider = _provider_with_token(holder.aclient, token)
-    provider._refresh_task = asyncio.create_task(provider._refresh_loop(token))
-    await provider._refresh_task
+    provider._refresh_loop_running = True
+    task = asyncio.create_task(provider._refresh_loop(token))
+    await task
 
     assert (now[0] < exp) == stops
     # A stopped loop clears its task, so the next successful get_token() starts a new one.
-    assert (provider._refresh_task is None) == stops
+    assert (not provider._refresh_loop_running) == stops
 
 
 @pytest.mark.asyncio
@@ -422,7 +423,7 @@ async def test_get_token_after_close_starts_no_refresh_loop():
     await provider.close()
 
     assert await provider.get_token() == refreshed_jwt
-    assert provider._refresh_task is None
+    assert not provider._refresh_loop_running
 
 
 # ---------------------------------------------------------------------------

@@ -228,7 +228,7 @@ class AdminClient(TelemetryProvider):
                 case types.CheckpointBillingEvent() as info:
                     print(event.bucket_start, "checkpoints", info.count)
                 case info:
-                    print(event.bucket_start, info.type, event.base_model, info.token_count)
+                    print(event.bucket_start, info.type, event.base_model, info)
         ```
         """
         return self._get_billing_usage_submit(starting_on, ending_before)
