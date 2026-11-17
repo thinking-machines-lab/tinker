@@ -2,6 +2,16 @@ name: Publish to PyPI
 
 on:
   workflow_dispatch:
+    inputs:
+      force_publish:
+        description: "Force Publish: publish even if the SDK version has not changed"
+        type: boolean
+        default: false
+      source_sha:
+        description: "Public SDK commit SHA to publish (full or abbreviated, must be on main); defaults to the dispatched commit"
+        type: string
+        required: false
+        default: ""
   push:
     branches:
       - main
@@ -22,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.decision.outputs.publish }}
+      source_sha: ${{ steps.decision.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,20 +42,33 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
+          FORCE_PUBLISH: ${{ inputs.force_publish || false }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
           python - <<'PY'
           import os
+          import re
           import subprocess
           import tomllib
           from pathlib import Path
 
+          requested_sha = os.environ["SOURCE_SHA"]
+          if not re.fullmatch(r"[0-9a-fA-F]{7,40}", requested_sha):
+              raise ValueError("source_sha must be a full or abbreviated commit SHA (7-40 hex characters)")
+          source_sha = subprocess.check_output(
+              ["git", "rev-parse", "--verify", f"{requested_sha}^{{commit}}"], text=True
+          ).strip()
+          subprocess.run(["git", "merge-base", "--is-ancestor", source_sha, "origin/main"], check=True)
+          subprocess.run(["git", "checkout", "--detach", source_sha], check=True)
           current_version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          print(f"Publishing source: {source_sha}")
 
-          if os.environ["EVENT_NAME"] == "workflow_dispatch":
+          manual = os.environ["EVENT_NAME"] == "workflow_dispatch"
+          if manual and os.environ["FORCE_PUBLISH"] == "true":
               publish = True
-              print(f"Manual publish requested for package version {current_version}")
+              print(f"Forced publish requested for package version {current_version}")
           else:
-              before_sha = os.environ["BEFORE_SHA"]
+              before_sha = f"{source_sha}^" if manual else os.environ["BEFORE_SHA"]
               previous_pyproject = subprocess.run(
                   ["git", "show", f"{before_sha}:pyproject.toml"],
                   check=True,
@@ -56,6 +80,7 @@ jobs:
 
           with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
               print(f"publish={str(publish).lower()}", file=output)
+              print(f"source_sha={source_sha}", file=output)
           PY
 
   # The SDK ships a Rust extension module (see native/), so each platform gets its own
@@ -80,6 +105,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.publish-decision.outputs.source_sha }}
       - uses: actions/setup-python@v6
         if: ${{ !matrix.manylinux }}
         with:
@@ -103,6 +130,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.publish-decision.outputs.source_sha }}
       - name: Build sdist
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -131,5 +160,5 @@ jobs:
         with:
           packages-dir: dist
           # A release whose upload stopped partway is finished by running this workflow
-          # again: files PyPI already has are skipped, the missing ones are uploaded.
+          # again with Force Publish: existing files are skipped, missing ones are uploaded.
           skip-existing: true
