@@ -1,0 +1,11 @@
+New:
+  - >-
+    Call [`TrainingClient.save_weights_external(name)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_external)
+    to request an external-weight checkpoint. The SDK adds `RestClient.get_external_weights_urls(training_run_id,
+    checkpoint_id)` for its per-file signed download URLs; the checkpoint ID has the form `"external_weights/<name>"`.
+    External-weight downloads require server enablement for your organization.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

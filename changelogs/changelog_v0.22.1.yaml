@@ -1,0 +1,8 @@
+New: []
+Changes: []
+Fixed:
+  - Retries temporary failures when requesting a checkpoint download URL.
+Deprecations: []
+Breaking changes: []
+Dependencies:
+  - Adds zstandard `>=0.22.0`.

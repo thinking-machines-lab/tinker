@@ -1,0 +1,23 @@
+New:
+  - >-
+    Pass string values as well as numbers in `loss_fn_config` when calling `forward()` or `forward_backward()`.
+  - >-
+    Call [`ServiceClient.copy_weights()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#copy_weights)
+    to copy a checkpoint into the client’s project. Await the returned future, or call `.result()`,
+    to get the new checkpoint path.
+  - >-
+    Use `RestClient.get_audit_log(event_type="projects")`, `"teams"`, or `"organizations"` to retrieve
+    administrative audit events. Read `AuditLogEntry.event_details` for their full details.
+  - Use `Checkpoint.user_metadata` to read custom metadata returned with a checkpoint.
+Changes:
+  - Validates manually entered API keys before saving them and shows their account and organization.
+Fixed:
+  - >-
+    Clears locally stored credentials during logout even if server-side key revocation fails, and
+    reports the key for manual revocation.
+Deprecations:
+  - >-
+    `AuditLogEntry.model_id`, `.tinker_path`, and `.purpose` are deprecated. Read the corresponding
+    values from `.event_details` instead. No removal version or date is announced.
+Breaking changes: []
+Dependencies: []

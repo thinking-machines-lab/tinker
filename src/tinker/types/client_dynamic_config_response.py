@@ -28,3 +28,12 @@ class ClientDynamicConfigResponse(BaseModel):
     sample_cancel_max_batch_size: int = 64
     """Maximum number of queued sampling cancellations the client dispatches in
     parallel per drain iteration."""
+
+    retry_detector_cancelled_request_ttl_sec: int = 60
+    """How long after a caller cancels a request an identical new request still
+    counts as a resubmission of it, which the SDK warns about and reports to
+    telemetry. 0 turns the detection off."""
+
+    retry_detector_warning_interval_sec: int = 30
+    """The resubmission warning is logged at most once per this interval; every
+    resubmission is still reported to telemetry."""

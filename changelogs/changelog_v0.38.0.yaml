@@ -1,0 +1,66 @@
+New:
+  - >-
+    Use [`APIFuture.future()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/apifuture/#future)
+    when passing an operation to `concurrent.futures.wait`, `as_completed`, or callbacks. Use [`.coroutine()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/apifuture/#coroutine)
+    with APIs requiring a coroutine, for example `asyncio.create_task(client.sample(...).coroutine())`.
+  - >-
+    Call [`RestClient.get_server_capabilities()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#get_server_capabilities)
+    to list the supported models without creating a session.
+Changes:
+  - >-
+    [`SamplingClient.sample()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample)
+    and [`compute_logprobs()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#compute_logprobs)
+    return [`APIFuture`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/apifuture/)
+    objects. Use `await client.sample(...)` in async code or `client.sample(...).result()` in sync
+    code.
+  - >-
+    `ServiceClient.create_lora_training_client()`, `create_training_client_from_state()`,
+    `create_training_client_from_state_with_optimizer()`, `create_sampling_client()`,
+    `TrainingClient.create_sampling_client()`, and [`save_weights_and_get_sampling_client()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_and_get_sampling_client)
+    return futures of clients. Resolve them with `await` or `.result()` before using the clients;
+    using the compatibility wrapper directly still works with a deprecation warning.
+  - >-
+    [`TrainingClient.get_info()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#get_info)
+    and [`SamplingClient.get_base_model()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#get_base_model)
+    return information already stored on the client, without a network call.
+Fixed:
+  - >-
+    Raises `RuntimeError` when a blocking SDK call, such as `.result()` on a pending future, runs
+    on the SDK's own event loop, for example inside a done-callback. Before, the call logged a
+    warning and never returned.
+  - Points deprecation warnings at the user call site instead of SDK wrappers.
+Deprecations:
+  - >-
+    The `_async` methods on service, training, sampling, REST, and admin clients are deprecated.
+    Await the corresponding unsuffixed method instead. For training operations that previously required
+    two awaits, replace `f = await client.forward_backward_async(...); result = await f.result_async()`
+    with `result = await client.forward_backward(...)`. No removal version or date is specified.
+  - >-
+    Using a client-creation future directly as a training or sampling client is deprecated. Add
+    `.result()` in synchronous code or `await` in asynchronous code; the compatibility behavior
+    remains available in this release, with no removal version or date specified.
+  - >-
+    Calling standard `concurrent.futures.Future` methods directly on sampling futures is deprecated.
+    Use [`.future()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/apifuture/#future)
+    first, for example `client.sample(...).future().add_done_callback(callback)`. Sampling compatibility
+    remains available in this release.
+  - >-
+    [`ServiceClient.get_server_capabilities()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#get_server_capabilities)
+    and its async variant are deprecated. Use [`RestClient.get_server_capabilities()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#get_server_capabilities)
+    and resolve its future; no removal version or date is specified.
+Breaking changes:
+  - >-
+    REST and admin operations now return awaitable [`APIFuture`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/apifuture/)
+    objects instead of `concurrent.futures.Future` objects. Callers using `.done()`, `.add_done_callback()`,
+    `wait`, or `as_completed` must first call [`.future()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/apifuture/#future):
+    replace `rest_client.list_sessions().add_done_callback(cb)` with `rest_client.list_sessions().future().add_done_callback(cb)`.
+    Plain `.result()` callers continue to work.
+  - >-
+    The experimental `RestClient.search_sessions_async()` method is removed. Replace `await rest_client.search_sessions_async(request)`
+    with `await rest_client.search_sessions(request)`.
+  - >-
+    The client-creation methods return before the client exists. An error such as a bad checkpoint
+    path now raises at `.result()`, at `await`, or at the first call on the client, not inside the
+    creation call. To handle the error at creation, call `.result()` inside your `try` block:
+    `training_client = service_client.create_training_client_from_state(path).result()`.
+Dependencies: []

@@ -1,0 +1,9 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    Corrects training batch sizing for dense and sparse tensors, avoiding unnecessary request splitting
+    and accounting for sparse indices.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

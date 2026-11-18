@@ -1,0 +1,12 @@
+New:
+  - >-
+    Use the restored public `DimuonOptimizerConfig` and `DimuonParams` to configure [Dimuon](https://tinker-docs.thinkingmachines.ai/tinker/optimizers/#dimuon)
+    requests in the SDK. Execution requires server enablement.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes:
+  - >-
+    When upgrading Dimuon code from `0.30.2` or earlier, remove `damping` and `rank_lr_correction_exponent`
+    from `DimuonParams(...)`; these arguments are no longer accepted.
+Dependencies: []

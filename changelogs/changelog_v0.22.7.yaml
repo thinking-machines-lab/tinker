@@ -1,0 +1,8 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    Uses the supplied `weights_access_token` correctly when loading checkpoint weights through [`ServiceClient.create_training_client_from_state()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#create_training_client_from_state).
+Deprecations: []
+Breaking changes: []
+Dependencies: []

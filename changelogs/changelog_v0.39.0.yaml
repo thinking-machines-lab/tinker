@@ -1,0 +1,21 @@
+New:
+  - >-
+    Experimental: call [`RestClient.external_weights_upload_start(base_model=..., lora_config=...,
+    destination_project_id=...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#external_weights_upload_start),
+    PUT every file to its returned signed URL, and call [`external_weights_upload_finish(upload_id)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#external_weights_upload_finish).
+    The files must match the format exported by [`save_weights_external()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_external)
+    for that base model and LoRA configuration. The completed upload returns a checkpoint path;
+    upload support is gated by the server.
+  - >-
+    Experimental: call [`RestClient.search_checkpoints(CheckpointSearchRequest(...))`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#search_checkpoints)
+    to list matching checkpoints newest first. Filter by `project_ids`, `user_metadata`, `checkpoint_type`,
+    `owner`, or `base_models`, and page with `next_cursor`. Results are limited to projects you
+    can list, and the default owner filter selects your own checkpoints.
+  - >-
+    Read [`Checkpoint.base_model`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/checkpoint/#checkpoint) to get the base model a
+    checkpoint was trained from. It is `None` when the server does not send it.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

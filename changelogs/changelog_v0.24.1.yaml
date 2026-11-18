@@ -1,0 +1,16 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    Preserves each example's tensor shape and dtype in forward/backward results when loss outputs
+    have different shapes or dtypes. Previously, later examples could use the first example's shape
+    and dtype.
+Deprecations: []
+Breaking changes:
+  - >-
+    The checkpoint restore methods add `base_model` as the second positional argument, so callers
+    must pass metadata and credentials by keyword: `client.create_training_client_from_state(path,
+    user_metadata=metadata, weights_access_token=token)`. This also applies to the optimizer and
+    async variants. Use `base_model=...` to choose a checkpoint-compatible model variant, such as
+    one with a different context length.
+Dependencies: []

@@ -1,0 +1,14 @@
+New:
+  - >-
+    Pass `topk_sample_logprobs=k` to [`SamplingClient.sample()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample)
+    to return the top token alternatives at each generated position. Read each sequence’s `.topk_logprobs`
+    as token-ID/log-probability pairs or `.topk_logprobs_np` as arrays.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes:
+  - >-
+    `tinker auth login` now opens the console’s API-key creation page and prompts you to paste a
+    key. The `--api-key` flag is removed; replace `tinker auth login --api-key` with `tinker auth
+    login`.
+Dependencies: []

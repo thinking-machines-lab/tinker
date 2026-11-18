@@ -36,6 +36,7 @@ from tinker.lib.base_url import resolve_base_url
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.credentials import JsonCredentialStore, default_credentials_path
 from tinker.lib.public_interfaces.api_future import AwaitableConcurrentFuture
+from tinker.lib.retry_detector import RetryDetector
 from tinker.lib.sdk_method import without_sdk_method_telemetry
 from tinker.lib.telemetry import Telemetry, init_telemetry, is_user_error
 from tinker.lib.telemetry_provider import TelemetryProvider
@@ -309,6 +310,9 @@ class InternalClientHolder(AsyncTinkerProvider, TelemetryProvider):
         # Custom losses this session created, by LossHandle.key.
         self._custom_losses: dict[str, LossHandle] = {}
         self._telemetry: Telemetry | None = None
+        self._retry_detector = RetryDetector(
+            self, clock=time.monotonic, dynamic_config=self.get_client_dynamic_config
+        )
 
         # Fetch server-side client config before any server contact so that
         # flags are available for subsequent setup steps.  Shadow holders

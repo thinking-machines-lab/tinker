@@ -1,0 +1,21 @@
+New:
+  - >-
+    Use `with tinker.ServiceClient() as client:` to close a session automatically. Normal completion
+    marks it successful, an exception marks it errored, and an interruption marks it interrupted.
+  - >-
+    Use `optimizer=types.DimuonOptimizerConfig()` and `optim_step(types.DimuonParams(learning_rate=...))`
+    to configure the SDK’s [Dimuon](https://tinker-docs.thinkingmachines.ai/tinker/optimizers/#dimuon)
+    requests. Execution requires server enablement. Existing Adam calls, including `optim_step(adam_params=...)`,
+    still work.
+Changes: []
+Fixed:
+  - >-
+    Points `SaveWeightsForSamplerResponse.get_console_url()` at the saved checkpoint instead of
+    a malformed checkpoint URL.
+Deprecations: []
+Breaking changes:
+  - >-
+    Checkpoint expiration now has a maximum of 10 years. If you pass a larger `ttl_seconds` when
+    saving or copying weights, reduce it to at most `315360000`, or use `None` for a checkpoint
+    that never expires.
+Dependencies: []

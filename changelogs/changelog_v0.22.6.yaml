@@ -1,0 +1,12 @@
+New:
+  - >-
+    Pass `project_id` to [`RestClient.list_training_runs()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#list_training_runs)
+    to list only runs in that project.
+Changes: []
+Fixed:
+  - >-
+    Loads checkpoints using a different account's `weights_access_token` without requiring permission
+    to create a session in that account's Default project.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

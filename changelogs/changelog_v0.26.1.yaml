@@ -1,0 +1,9 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    Returns the stored static API key from `get_tinker_token()` even when `TINKER_CREDENTIAL_CMD`
+    is configured, without executing the credential command.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

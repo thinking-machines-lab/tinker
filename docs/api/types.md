@@ -865,6 +865,17 @@ server's SDK-heartbeat-expiry path.
 Maximum number of queued sampling cancellations the client dispatches in
 parallel per drain iteration.
 
+#### `retry_detector_cancelled_request_ttl_sec`
+
+How long after a caller cancels a request an identical new request still
+counts as a resubmission of it, which the SDK warns about and reports to
+telemetry. 0 turns the detection off.
+
+#### `retry_detector_warning_interval_sec`
+
+The resubmission warning is logged at most once per this interval; every
+resubmission is still reported to telemetry.
+
 ## `CopyWeightsRequest` Objects
 
 ```python

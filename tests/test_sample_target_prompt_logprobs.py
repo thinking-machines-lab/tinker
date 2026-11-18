@@ -7,6 +7,7 @@ transport is covered by the proto tests and the end-to-end debug-server test."""
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 from unittest.mock import Mock
 
@@ -21,6 +22,7 @@ from tinker.lib.public_interfaces.sampling_client import (
     _check_target_prompt_logprobs,
     _tensor_data_to_model,
 )
+from tinker.lib.retry_detector import RetryDetector
 from tinker.types._pydantic_types.tensor_data import TensorData as TensorDataModel
 
 
@@ -34,6 +36,10 @@ def _make_client() -> SamplingClient:
     )
     holder._client_config = holder.get_client_config.return_value
     holder.get_telemetry.return_value = None
+    holder.get_client_dynamic_config.return_value = types.ClientDynamicConfigResponse()
+    holder._retry_detector = RetryDetector(
+        holder, clock=time.monotonic, dynamic_config=holder.get_client_dynamic_config
+    )
     holder.run_coroutine_threadsafe = lambda coro: _Future(asyncio.ensure_future(coro))
     return SamplingClient(holder, sampling_session_id="sampling-session-test", base_model="base")
 

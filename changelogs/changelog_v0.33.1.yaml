@@ -1,0 +1,13 @@
+New: []
+Changes: []
+Fixed: []
+Deprecations:
+  - >-
+    `RestClient.get_checkpoint_archive_url*()` is deprecated, including async and Tinker-path variants.
+    Export with [`TrainingClient.save_weights_external()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_external)
+    and fetch per-file URLs with [`RestClient.get_external_weights_urls()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#get_external_weights_urls)
+    instead. These methods remain in this release, although the server may already reject archive
+    downloads for some organizations. The notice specifies a future SDK removal without a version
+    or date.
+Breaking changes: []
+Dependencies: []

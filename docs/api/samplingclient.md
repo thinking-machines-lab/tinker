@@ -91,7 +91,9 @@ Args:
 
 Returns:
 - An `APIFuture` containing the `SampleResponse` with generated text and other logprob
-    information. Await it, or call `.result()`.
+    information. Await it, or call `.result()`. The SDK retries failed requests
+    itself; keep waiting on this future rather than cancelling it and calling
+    `sample()` again, which only moves the request to the back of the queue.
 
 Example:
 ```python

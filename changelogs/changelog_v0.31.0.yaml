@@ -1,0 +1,18 @@
+New:
+  - >-
+    Set `prompt_alt_tokens_k=k` on [`SamplingClient.sample()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample)
+    to draw alternatives at each prompt position after the first. Read `SampleResponse.prompt_alt_tokens.tokens`
+    and `.logprobs`; both have shape `[len(prompt) - 1, k]`, and row `i` describes prompt position
+    `i + 1`. Draws use the request's temperature.
+Changes:
+  - >-
+    Estimated usage costs returned by `RestClient.get_billing_usage()` and [`tinker billing usage`](https://tinker-docs.thinkingmachines.ai/tinker/cli/billing/)
+    are priced independently for each model and usage category on completed days, so one unreconciled
+    group does not leave the whole day unpriced. `cost_data_through` separates invoice-derived estimates
+    from published-rate estimates; unavailable costs can still be null on either side. These are
+    usage estimates, not invoice amounts due.
+Fixed:
+  - Tolerates unknown billing event fields during strict parsing while preserving known fields.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

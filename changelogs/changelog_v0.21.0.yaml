@@ -1,0 +1,14 @@
+New: []
+Changes:
+  - Updates the tokenizer revision used for Kimi-K2.6.
+Fixed:
+  - >-
+    Refreshes expiring authentication tokens before sending a request, preventing authentication
+    failures after a delayed background refresh.
+  - >-
+    Reuses sampling request IDs across submission retries, preventing a retry from being treated
+    as a new sampling request.
+Deprecations: []
+Breaking changes: []
+Dependencies:
+  - Adds grpcio `>=1.75.1`.

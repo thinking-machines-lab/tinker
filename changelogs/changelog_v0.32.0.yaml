@@ -1,0 +1,39 @@
+New:
+  - >-
+    Call `RestClient.get_current_checkpoint_storage_usage(project_id=...)` or [`tinker billing checkpoint-storage
+    --project-id ... --csv ...`](https://tinker-docs.thinkingmachines.ai/tinker/cli/billing/) to
+    report checkpoint counts, sizes, and projected costs grouped by project and owner. The project
+    filter is optional; data may lag by 1–2 hours, and costs are gross 720-hour projections rather
+    than invoices.
+  - >-
+    Pass [`SamplingClient.get_sampler_handle()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#get_sampler_handle)
+    to another process and reconstruct it with [`SamplingClient.from_sampler_handle(handle, api_key=...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#from_sampler_handle).
+    The receiving process resolves its credentials; the handle is the pickle-free alternative to
+    serializing the client.
+  - >-
+    Custom losses can consume additional tensors in `Datum.loss_fn_inputs`, which previously raised
+    `ValueError`. Only `target_tokens` and `weights` are sent for the server forward pass; other
+    fields remain available to the local loss function.
+Changes:
+  - >-
+    Copies of a `SamplingClient` in other processes get request IDs from the server, so their
+    requests never collide.
+Fixed:
+  - >-
+    Sends requests from an unpickled `SamplingClient` to the parent's server when the parent set it
+    with `TINKER_BASE_URL`. Before, a worker without that variable used the default server.
+  - >-
+    Raises an error on the first request when `TINKER_CREDENTIAL_CMD` fails or prints nothing.
+    Before, the SDK retried it as a connection error and raised `APIConnectionError` after about
+    six minutes.
+Deprecations: []
+Breaking changes:
+  - >-
+    Callers passing HTTP-client options through [`ServiceClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/)
+    must migrate: options previously forwarded through `**kwargs` are now ignored with `FutureWarning`.
+    Use the supported `base_url`, `api_key`, and `default_headers_overrides` arguments. For custom
+    headers, replace `ServiceClient(default_headers={"X-Example": "value"})` with `ServiceClient(default_headers_overrides={"X-Example":
+    "value"})`. Remove other unsupported options and do not rely on them taking effect. There is
+    no replacement for `timeout`, `max_retries`, `default_query` or `http_client`; if you need them,
+    stay on 0.31.0. A future SDK release makes these arguments an error; no version or date is set.
+Dependencies: []

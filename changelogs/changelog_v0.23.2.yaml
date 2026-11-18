@@ -1,0 +1,14 @@
+New:
+  - >-
+    Call [`RestClient.whoami().result()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#whoami)
+    to get the credential's user URN and email; service identities can have no email. JWT authentication
+    must be enabled or the credential must itself be a JWT.
+Changes:
+  - >-
+    Creates sessions only when a training or sampling client needs one. Constructing `ServiceClient()`
+    and making REST-only calls no longer create a session, allowing read-only account access without
+    session-creation permissions.
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []
