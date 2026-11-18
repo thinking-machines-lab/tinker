@@ -1,0 +1,11 @@
+New:
+  - >-
+    Run `tinker session export-trace SESSION_ID` to download a session's training and sampling timeline
+    as a Perfetto trace. Use `--output PATH` for a custom file or `--url-only` to print its download
+    URL. The SDK exposes the same export through [`RestClient.export_session_trace(session_id)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#export_session_trace).
+Changes:
+  - Updates the tokenizer revision used for Kimi-K2.5.
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

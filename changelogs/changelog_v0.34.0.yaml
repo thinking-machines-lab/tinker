@@ -1,0 +1,38 @@
+New:
+  - >-
+    Pass [`loss_fn="gspo"`](https://tinker-docs.thinkingmachines.ai/tinker/losses/gspo/) to training
+    calls; `sequence_ratio_mask` is recognized as a float32 loss input.
+  - >-
+    Set [`ServiceClient(display_name=...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/)
+    to give the session a human-readable name. Session responses include that name; it need not
+    be unique.
+  - >-
+    Run `tinker model list [substring]` to list the models available to your organization, including
+    context limits and whether each model can train or sample. The optional name filter is case-insensitive.
+  - >-
+    Run [`tinker auth whoami`](https://tinker-docs.thinkingmachines.ai/tinker/cli/auth/) to display
+    the active credential's email, user URN, and organization URN. `RestClient.whoami().result().org_urn`
+    also returns the organization URN.
+  - >-
+    Use [`RestClient.copy_weights(path, destination_project_id=..., ttl_seconds=..., weights_access_token=...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#copy_weights)
+    to copy a checkpoint into a selected project. The copy preserves its checkpoint kind and shares
+    storage with the source. It belongs to a new training run that cannot itself be trained on.
+Changes:
+  - >-
+    Server-sent deprecation notices are now logged at the warning or error level indicated by the
+    response.
+Fixed:
+  - >-
+    Sends one idempotency key for all retries of a `copy_weights()` call, so a retry does not create
+    a second copy.
+  - Excludes cross-account checkpoint-copy credentials from debug logs.
+Deprecations: []
+Breaking changes:
+  - >-
+    [`ServiceClient.copy_weights()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#copy_weights)
+    now delegates to the REST copy API and creates a new session for the copy instead of using the
+    client's current session. Callers must provide a destination project, either through the service
+    client's `project_id`, the REST method's `destination_project_id`, or `TINKER_PROJECT_ID`; missing
+    project selection raises `ValueError`. Update code that assumed the copy belonged to the existing
+    session.
+Dependencies: []

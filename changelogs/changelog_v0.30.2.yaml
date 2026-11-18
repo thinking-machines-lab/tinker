@@ -1,0 +1,13 @@
+New:
+  - >-
+    Use `RestClient.get_billing_usage()` or [`tinker billing usage --csv`](https://tinker-docs.thinkingmachines.ai/tinker/cli/billing/)
+    to read estimated USD usage costs and effective token or storage rates. `cost_data_through`
+    marks the end of invoice-reconciled cost coverage. Estimates can be unavailable and exclude
+    credits and committed spend; they are not invoice amounts due. Requires billing-view access
+    in your organization.
+Changes: []
+Fixed:
+  - Rejects malformed sparse-CSR indices when converting `TensorData` to PyTorch tensors.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

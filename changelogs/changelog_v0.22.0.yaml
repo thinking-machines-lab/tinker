@@ -1,0 +1,15 @@
+New:
+  - >-
+    Use [`RestClient.assign_session_project(session_id, project_id)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#assign_session_project)
+    to move a session and its training runs and samplers into a project. Sessions can move between
+    projects but cannot be moved out of a project.
+Changes: []
+Fixed:
+  - >-
+    Copies read-only NumPy arrays when constructing `TensorData`, avoiding warnings and unsafe writes
+    when converting them to PyTorch tensors.
+  - Suppresses spurious telemetry warnings during sampling.
+Deprecations: []
+Breaking changes: []
+Dependencies:
+  - Adds pyqwest `>=0.4.1`.

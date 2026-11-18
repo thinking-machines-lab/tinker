@@ -1,0 +1,11 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    Reports the custom loss in `forward_backward_custom()` metrics under `loss:sum`, rather than
+    the surrogate loss. The previous value is available under `surrogate_loss:sum`; this changes
+    metrics recorded by custom-loss training runs.
+  - Suppresses PyTorch’s sparse-CSR beta warning during tensor conversions.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

@@ -1,0 +1,11 @@
+New:
+  - >-
+    Call [`RestClient.get_billing_usage(starting_on, ending_before)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#get_billing_usage)
+    or run `tinker billing usage STARTING_ON ENDING_BEFORE` to inspect hourly usage. Requires billing view access in your organization. Use UTC hour
+    boundaries no more than 14 days apart; results report quantities rather than dollar charges.
+    The CLI supports `--csv PATH` for usage rows and `--sessions-csv PATH` for session metadata.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

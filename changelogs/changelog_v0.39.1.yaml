@@ -1,0 +1,20 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    [`RestClient.search_sessions()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#search_sessions)
+    parses session-level failures as `SessionFailedSessionReason` instead of failing response validation.
+  - >-
+    [`RestClient.search_sessions()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#search_sessions),
+    [`RestClient.get_billing_usage()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#get_billing_usage),
+    and [`AdminClient.get_billing_usage()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/adminclient/#get_billing_usage)
+    return unrecognized session statuses, failure and finish reasons, and billing events as
+    `UnrecognizedType` instead of failing response validation. The original data is available in `raw_object`.
+  - >-
+    Corrects tokenizer-loading failures in
+    [`get_tokenizer()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#get_tokenizer)
+    for `moonshotai/Kimi-K3.1-Pro`.
+Deprecations: []
+Breaking changes: []
+Dependencies:
+  - "Added: tiktoken"

@@ -1,0 +1,12 @@
+New: []
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes:
+  - >-
+    `RestClient.get_external_weights_urls()` now accepts one Tinker path instead of a training-run
+    ID and checkpoint ID. Replace `rest_client.get_external_weights_urls(run_id, "external_weights/name")`
+    with `rest_client.get_external_weights_urls(f"tinker://{run_id}/external_weights/name")`, or
+    pass the `.path` returned by `save_weights_external(...).result()`. Apply the same change to
+    the async method.
+Dependencies: []

@@ -1,0 +1,11 @@
+New:
+  - >-
+    Call [`ServiceClient.close(status, detail=None)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#close)
+    to finish a session with status `"success"`, `"errored"`, or `"interrupted"`. Await the returned
+    future or call `.result()` before exiting.
+Changes: []
+Fixed:
+  - Prevents pending-task warnings when a sampling client is garbage-collected.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

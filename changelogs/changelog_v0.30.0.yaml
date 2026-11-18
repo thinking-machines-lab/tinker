@@ -1,0 +1,15 @@
+New:
+  - >-
+    Pass `target_prompt_logprobs` to [`SamplingClient.sample()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample)
+    to score selected token IDs at prompt positions. Supply an `int64` `TensorData` with shape `[len(prompt)
+    - 1, K]`, using `-1` for unused cells, and read `SampleResponse.target_prompt_logprobs`.
+  - >-
+    Use an integer `pad_value` with `TensorData.from_torch_sparse()`, `.to_numpy()`, `.to_torch()`,
+    or `.tolist()` to represent omitted sparse entries with a value other than zero, such as `-1`.
+  - >-
+    Use `RestClient.get_session(session_id)` to retrieve the session’s custom metadata in `GetSessionResponse.user_metadata`.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

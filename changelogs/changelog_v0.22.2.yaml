@@ -1,0 +1,8 @@
+New: []
+Changes: []
+Fixed:
+  - Follows checkpoint download redirects without failing with a reset HTTP stream.
+Deprecations: []
+Breaking changes: []
+Dependencies:
+  - grpcio `>=1.75.1` → `none`.

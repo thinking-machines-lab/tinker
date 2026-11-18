@@ -1,0 +1,10 @@
+New: []
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes:
+  - >-
+    `DimuonOptimizerConfig` and `DimuonParams` are removed from the public API. If you use Dimuon,
+    remain on `0.30.2` until a release restores public support. Adam-based training continues to
+    work.
+Dependencies: []

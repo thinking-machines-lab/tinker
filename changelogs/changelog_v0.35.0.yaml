@@ -1,0 +1,17 @@
+New:
+  - >-
+    Use [`loss_fn="stable_reinforce"`](https://tinker-docs.thinkingmachines.ai/tinker/losses/stable-reinforce/)
+    for StableReinforce training. Create sampling clients with `record_stability_info=True` when
+    recording the sequence stability information required by that workflow; the recorded information
+    is session-scoped and expires after inactivity.
+  - >-
+    Import the shared provenance-span type as `tinker.types.ProvenanceSpans` when constructing or
+    annotating datum provenance.
+Changes: []
+Fixed:
+  - >-
+    Accepts zero-length spans in `PromptProvenanceSpan` and `SampledProvenanceSpan`. A one-token
+    generation, whose sampled run in the model input is empty, no longer needs a special case.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

@@ -1,0 +1,16 @@
+New:
+  - >-
+    Use `prompt_logprobs_last_n=N` with [`SamplingClient.sample(..., include_prompt_logprobs=True)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#sample)
+    or [`compute_logprobs(...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/samplingclient/#compute_logprobs)
+    to score the last N prompt tokens. Earlier entries are `None`; N must be between 1 and `len(prompt)
+    - 1`. This also limits top-k prompt logprobs, but does not affect target-token scoring or alternative
+    prompt-token draws.
+  - >-
+    Pass `age_encryption_recipients=[...]` to [`TrainingClient.save_weights_external()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_external)
+    to encrypt each exported file to up to 10 age or SSH recipients. Exported files have a `.age`
+    suffix; decrypt them with `age -d -i <identity>`. Omitting the argument keeps exports unencrypted.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

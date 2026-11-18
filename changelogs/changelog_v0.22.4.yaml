@@ -1,0 +1,13 @@
+New:
+  - >-
+    Set `TINKER_PROJECT_ID` to select the project used by `ServiceClient()` when no `project_id`
+    argument is supplied.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes:
+  - >-
+    Sampling concurrency now follows the server-provided limit, overriding `RetryConfig.max_connections`.
+    If your application needs a lower cap, limit concurrent sampling calls in the application.
+Dependencies:
+  - zstandard `>=0.22.0` → `>=0.24.0`.

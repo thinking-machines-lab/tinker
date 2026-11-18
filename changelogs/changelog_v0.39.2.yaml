@@ -1,0 +1,10 @@
+New: []
+Changes:
+  - >-
+    Log a warning if user code cancels a sampling request and retries the same request.
+    The SDK already handles retries automatically. If a request is taking longer than expected,
+    keep waiting on its original future; canceling and resubmitting moves it to the back of the queue.
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

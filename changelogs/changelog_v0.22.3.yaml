@@ -1,0 +1,12 @@
+New:
+  - >-
+    Pass `RetryConfig(enable_stuck_detection=False)` when creating a sampling client to disable
+    the no-progress timeout. Requests can then wait indefinitely for progress.
+Changes: []
+Fixed:
+  - >-
+    Accepts explicit checkpoint paths in `tinker checkpoint delete -y` without an argument-handling
+    error, and restores `tinker checkpoint push-hf` upload filters.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

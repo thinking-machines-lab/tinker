@@ -1,0 +1,7 @@
+New: []
+Changes: []
+Fixed:
+  - Follows audit-log download redirects without failing with a reset HTTP stream.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

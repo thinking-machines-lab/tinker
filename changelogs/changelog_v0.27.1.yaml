@@ -1,0 +1,23 @@
+New:
+  - >-
+    Pass `user_metadata` to [`save_state()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_state)
+    or [`save_weights_for_sampler()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_for_sampler)
+    to attach custom metadata to a checkpoint. Overwriting a state checkpoint replaces its metadata;
+    omitting `user_metadata` clears the previous values.
+  - >-
+    Call `get_console_url()` on service and training clients or checkpoint-save responses to open
+    them in the console. Call `get_playground_url()` on a sampler-checkpoint response to open the
+    saved model in the playground.
+  - >-
+    Pass `stop=[]` in `SamplingParams` to disable implicit end-of-sequence stopping and sample until
+    `max_tokens`.
+Changes: []
+Fixed:
+  - Surfaces terminal sampling errors instead of leaving pending sampling futures waiting indefinitely.
+Deprecations: []
+Breaking changes:
+  - >-
+    Subprocess-isolated sampling is removed. Remove `subprocess_sampling=` from direct `SamplingClient`
+    construction; `TINKER_SUBPROCESS_SAMPLING` no longer has an effect. Move CPU-heavy grading or
+    environment work into your own process or thread pool if it would block sampling.
+Dependencies: []

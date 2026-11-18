@@ -1,0 +1,56 @@
+New:
+  - >-
+    Alpha: call [`ServiceClient.create_custom_loss(fn, input_ranks=...).result()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#create_custom_loss)
+    to create a session-scoped `LossHandle`, then pass it to [`TrainingClient.forward_backward_custom()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#forward_backward_custom).
+    The function receives logprobs and named tensor inputs per datum and returns a scalar loss plus
+    scalar metrics. It must satisfy the documented torch tracing constraints. When the server enables
+    it for your organization, the loss runs on the server in one request; otherwise it runs locally.
+  - >-
+    Construct [`tinker.RestClient(base_url=..., api_key=...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/)
+    directly for REST operations. It needs no [`ServiceClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/),
+    creates no server session, and shares connections with clients using the same configuration.
+  - >-
+    Use [`tinker.AdminClient()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/adminclient/)
+    for `get_billing_usage()`, `get_current_checkpoint_storage_usage()`, and `get_audit_log()`.
+    `get_billing_usage()` and `get_current_checkpoint_storage_usage()` require the admin or
+    billing-admin role; `get_audit_log()` requires the admin role.
+  - >-
+    Experimental: search sessions with `RestClient.search_sessions(SessionSearchRequest(...))`,
+    using project, owner, metadata, display-name, and status filters. Page through results with
+    `next_cursor`. Experimental APIs emit `tinker.ExperimentalWarning` and may change without a
+    deprecation period.
+Changes: []
+Fixed: []
+Deprecations:
+  - >-
+    `TrainingClient.load_state*()` is deprecated. Create a new client using [`ServiceClient.create_training_client_from_state()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#create_training_client_from_state)
+    or [`create_training_client_from_state_with_optimizer()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#create_training_client_from_state_with_optimizer)
+    instead. Removal is announced for a future SDK release without a version or date.
+  - >-
+    [`ServiceClient.create_rest_client()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/serviceclient/#create_rest_client)
+    is deprecated; construct [`tinker.RestClient()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/)
+    directly with the appropriate URL and credentials. Removal is announced for a future release
+    without a version or date.
+  - >-
+    Billing, current-storage, and audit-log methods on [`RestClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/)
+    are deprecated in favor of the corresponding [`AdminClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/adminclient/)
+    methods. Their async variants are also deprecated on `RestClient`; no removal version or date
+    is specified.
+  - >-
+    The `loss_type_input` parameter of [`forward_backward_custom()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#forward_backward_custom)
+    and its async variant is deprecated because custom losses always receive logprobs. Remove the
+    argument; no removal version or date is specified.
+Breaking changes:
+  - >-
+    All `RestClient.get_checkpoint_archive_url*()` variants and `CheckpointArchiveUrlResponse` are
+    removed. Export weights with [`TrainingClient.save_weights_external()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_external),
+    then get one URL for each file with [`RestClient.get_external_weights_urls()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#get_external_weights_urls).
+  - >-
+    [`tinker checkpoint download`](https://tinker-docs.thinkingmachines.ai/tinker/cli/checkpoint/)
+    and `tinker checkpoint push-hf` no longer accept sampler checkpoint paths
+    (`tinker://<run-id>/sampler_weights/<name>`). Pass a training checkpoint
+    (`tinker://<run-id>/weights/<name>`) or an external weights path
+    (`tinker://<run-id>/external_weights/<name>`). A training checkpoint download starts a temporary
+    training session, exports the weights, and deletes the export afterwards. Encrypted files keep
+    `.age`; decrypt encrypted adapters before Hugging Face upload.
+Dependencies: []

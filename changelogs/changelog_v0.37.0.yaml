@@ -1,0 +1,41 @@
+New:
+  - >-
+    Call [`save_weights_and_get_sampling_client(kind="inflight")`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#save_weights_and_get_sampling_client)
+    to publish mutable weights shared by that training model's inflight clients. Each returned client
+    has a fresh KV-cache namespace and uses the just-published weights or newer; existing clients
+    adopt updates asynchronously. Active generations can span updates. The default `kind="snapshot"`
+    still keeps fixed weights.
+  - >-
+    Read `StorageBillingEvent.free` to distinguish free storage from paid storage in billing usage
+    responses. Older responses without the field default to `False`.
+Changes:
+  - >-
+    [`forward_backward_custom()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#forward_backward_custom)
+    returns its future at once. It no longer waits for the forward pass and the local loss. Requests
+    still run in submission order, so you can call [`optim_step()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/#optim_step)
+    right after it.
+  - >-
+    Capacity-pause messages are emitted only after the pause has lasted 15 minutes, reducing warnings
+    for short periods spent waiting for capacity.
+  - >-
+    An expired JWT credential, from `api_key`, `TINKER_API_KEY` or `TINKER_CREDENTIAL_CMD`, now raises
+    a local `TinkerError`, and the SDK sends no request. Before, the server rejected it with
+    `AuthenticationError`. A JWT credential without an `exp` claim raises `ValueError`.
+Fixed:
+  - Prevents a slow custom loss from delaying session heartbeats and other API calls.
+  - >-
+    Recovers when the server rejects the SDK's short-lived session token as expired or signed with
+    a retired key: the SDK gets a new token and sends the request again once. Concurrent rejections
+    share one new token.
+  - Surfaces credential rejection during token exchange instead of continuing to use a cached JWT.
+  - >-
+    Refreshes the session token in time when the local clock runs behind the server's. Before, a
+    clock more than five minutes behind made requests fail with `AuthenticationError` near the end
+    of each token's lifetime.
+Deprecations: []
+Breaking changes:
+  - >-
+    After a client-side custom loss fails or is cancelled, the [`TrainingClient`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/trainingclient/)
+    rejects all queued and later requests with `RuntimeError`. Create a new training client, for
+    example from your last checkpoint, before you continue.
+Dependencies: []

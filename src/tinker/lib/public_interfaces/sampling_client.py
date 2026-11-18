@@ -16,7 +16,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
-from typing_extensions import deprecated
+from typing_extensions import Required, TypedDict, deprecated
 
 import tinker
 from tinker import types
@@ -88,6 +88,20 @@ def _attach_sequence_ids(
             for seq, sequence_id in zip(response.sequences, sample_sequence_ids, strict=True)
         ],
     )
+
+
+class _SampleArgs(TypedDict, total=False):
+    """Keyword arguments of `SamplingClient._sample_async_impl`."""
+
+    prompt: Required[types.ModelInput]
+    num_samples: Required[int]
+    sampling_params: Required[types.SamplingParams]
+    include_prompt_logprobs: Required[bool]
+    topk_prompt_logprobs: int
+    topk_sample_logprobs: int
+    target_prompt_logprobs: _TensorDataModel | None
+    prompt_alt_tokens_k: int
+    prompt_logprobs_last_n: int | None
 
 
 def _tensor_data_to_model(td: types.TensorData) -> _TensorDataModel:
@@ -519,7 +533,9 @@ class SamplingClient(QueueStateObserver, TelemetryProvider):
 
         Returns:
         - An `APIFuture` containing the `SampleResponse` with generated text and other logprob
-            information. Await it, or call `.result()`.
+            information. Await it, or call `.result()`. The SDK retries failed requests
+            itself; keep waiting on this future rather than cancelling it and calling
+            `sample()` again, which only moves the request to the back of the queue.
 
         Example:
         ```python
@@ -578,30 +594,33 @@ class SamplingClient(QueueStateObserver, TelemetryProvider):
         _check_prompt_alt_tokens_k(prompt_alt_tokens_k)
         _check_prompt_logprobs_last_n(prompt_logprobs_last_n, include_prompt_logprobs)
 
+        sample_args = _SampleArgs(
+            prompt=prompt,
+            num_samples=num_samples,
+            sampling_params=sampling_params,
+            include_prompt_logprobs=include_prompt_logprobs,
+            topk_prompt_logprobs=topk_prompt_logprobs,
+            topk_sample_logprobs=topk_sample_logprobs,
+            target_prompt_logprobs=target_prompt_logprobs_model,
+            prompt_alt_tokens_k=prompt_alt_tokens_k,
+            prompt_logprobs_last_n=prompt_logprobs_last_n,
+        )
+        retry_key = (self._sampling_session_id, sample_args)
+
         async def _sample_async():
-            return await self._sample_async_impl(
-                prompt,
-                num_samples,
-                sampling_params,
-                include_prompt_logprobs,
-                topk_prompt_logprobs,
-                topk_sample_logprobs,
-                target_prompt_logprobs_model,
-                prompt_alt_tokens_k,
-                prompt_logprobs_last_n,
-            )
+            return await self._sample_async_impl(**sample_args)
 
         @capture_exceptions(fatal=True)
         async def _sample_async_with_retries() -> types.SampleResponse:
-            return await self.retry_handler.execute(_sample_async)
+            async with self.holder._retry_detector.watch(retry_key):
+                return await self.retry_handler.execute(_sample_async)
 
         @capture_exceptions(fatal=True)
         async def _sample_async_without_retries() -> types.SampleResponse:
-            # Reference `self` so it lands in this function's closure;
-            # @capture_exceptions discovers the TelemetryProvider via
-            # `inspect.getclosurevars(...).nonlocals["self"]`.
-            _ = self
-            return await _sample_async()
+            # `self` must stay in this closure: @capture_exceptions finds the
+            # TelemetryProvider through `inspect.getclosurevars(...).nonlocals["self"]`.
+            async with self.holder._retry_detector.watch(retry_key):
+                return await _sample_async()
 
         # TODO make max_tokens a required field
         if self.holder._client_config.sample_no_retries:
@@ -687,19 +706,23 @@ class SamplingClient(QueueStateObserver, TelemetryProvider):
         """
         _check_prompt_logprobs_last_n(prompt_logprobs_last_n, include_prompt_logprobs=True)
 
+        sample_args = _SampleArgs(
+            prompt=prompt,
+            num_samples=1,
+            sampling_params=types.SamplingParams(max_tokens=1),
+            include_prompt_logprobs=True,
+            prompt_logprobs_last_n=prompt_logprobs_last_n,
+        )
+        retry_key = (self._sampling_session_id, sample_args)
+
         async def _compute_logprobs_async() -> list[float | None]:
-            sample_res = await self._sample_async_impl(
-                prompt,
-                num_samples=1,
-                sampling_params=types.SamplingParams(max_tokens=1),
-                include_prompt_logprobs=True,
-                prompt_logprobs_last_n=prompt_logprobs_last_n,
-            )
+            sample_res = await self._sample_async_impl(**sample_args)
             return cast(list[float | None], sample_res.prompt_logprobs)
 
         @capture_exceptions(fatal=True)
         async def _compute_logprobs_async_with_retries() -> list[float | None]:
-            return await self.retry_handler.execute(_compute_logprobs_async)
+            async with self.holder._retry_detector.watch(retry_key):
+                return await self.retry_handler.execute(_compute_logprobs_async)
 
         return _AwaitableFutureCompatWrapper(
             self.holder.run_coroutine_threadsafe(_compute_logprobs_async_with_retries()).future()

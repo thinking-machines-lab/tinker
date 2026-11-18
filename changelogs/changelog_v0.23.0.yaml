@@ -1,0 +1,14 @@
+New:
+  - >-
+    Use [`DmelChunk(dmel=...)`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/dmelchunk/)
+    to include serialized DMel tensors in `ModelInput`. Its `length` property reads the token count
+    from the tensor.
+  - >-
+    Read [`SampleResponse.prompt_cache_hit_tokens`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/types/sampleresponse/)
+    for the number of prompt tokens billed as prefix-cache hits. The count refers to the shared
+    prompt and is not multiplied by `num_samples`.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

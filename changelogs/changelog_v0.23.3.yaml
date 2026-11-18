@@ -1,0 +1,9 @@
+New: []
+Changes: []
+Fixed:
+  - >-
+    Trusts operating-system certificate authorities when using pyqwest, fixing `UnknownIssuer` errors
+    behind TLS-inspecting proxies and VPNs.
+Deprecations: []
+Breaking changes: []
+Dependencies: []

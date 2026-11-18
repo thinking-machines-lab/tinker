@@ -1,0 +1,24 @@
+New:
+  - >-
+    Use `tinker auth login` to sign in through a browser and save credentials for future SDK and
+    CLI sessions. Use `tinker auth status` to check access and `tinker auth logout` to sign out.
+  - >-
+    Call `tinker.get_tinker_token()` to retrieve a static API key, `tinker.tinker_has_credentials()`
+    to check whether credentials are configured, or `tinker.raise_if_tinker_not_accessible()` to
+    check server access. Payment-required responses raise `BillingError`.
+  - >-
+    Use `Datum.with_provenance()` with `PromptProvenanceSpan` and `SampledProvenanceSpan` to identify
+    the prompt and sampled tokens in training data. Sampling results include `SampledSequence.sequence_id`
+    for linking sampled spans.
+  - >-
+    Use `SupportedModel.trainable` and `.sampleable` from server capabilities to check which operations
+    a model supports. Either field can be `None` when the server does not report it.
+Changes: []
+Fixed: []
+Deprecations: []
+Breaking changes:
+  - >-
+    Code that constructs `SampledSequence` directly must now pass `sequence_id` along with `stop_reason`,
+    `tokens_np`, and `logprobs_np`. When reconstructing a sampling result, preserve its returned
+    sequence ID.
+Dependencies: []
