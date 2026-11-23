@@ -1,0 +1,12 @@
+New: []
+Changes:
+  - >-
+    Experimental: [`RestClient.external_weights_upload_start()`](https://tinker-docs.thinkingmachines.ai/tinker/api-reference/restclient/#external_weights_upload_start)
+    returns an `UploadURL` per file instead of a string. Upload each file with `UploadURL.upload(path)`,
+    which streams it with the headers the server requires; read `UploadURL.url` for the URL itself. Servers
+    limit each signed upload URL to the largest file finishing can accept and to 3 hours, and
+    can refuse uploads from earlier SDK versions, which cannot send that limit.
+Fixed: []
+Deprecations: []
+Breaking changes: []
+Dependencies: []

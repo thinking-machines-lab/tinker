@@ -518,7 +518,7 @@ class RestClient(TelemetryProvider):
 
         Experimental: this API may change or be removed in any release.
 
-        Upload each file in the result's `urls` with an HTTP PUT of its bytes, then call
+        Upload each file with `result.urls[file_name].upload(path)`, then call
         `external_weights_upload_finish`. The files must be exactly what
         `save_weights_external` exports for `base_model` and `lora_config`; finishing
         rejects anything else.
@@ -549,8 +549,20 @@ class RestClient(TelemetryProvider):
                     return await client.weights.external_upload_start(request=request)
 
             response = await self.holder.execute_with_retries(_send_request)
+            if response.urls_v2 is not None:
+                urls = {
+                    name: types.UploadURL(url=url.url, headers=url.headers)
+                    for name, url in response.urls_v2.items()
+                }
+            elif response.urls is not None:
+                urls = {
+                    name: types.UploadURL(url=url, headers={})
+                    for name, url in response.urls.items()
+                }
+            else:
+                raise ValueError(f"Upload {response.upload_id} has no URLs")
             return types.ExternalWeightsUploadStartResult(
-                upload_id=response.upload_id, urls=response.urls, expires=response.expires
+                upload_id=response.upload_id, urls=urls, expires=response.expires
             )
 
         return self.holder.run_coroutine_threadsafe(_start_async())
