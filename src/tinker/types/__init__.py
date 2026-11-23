@@ -89,6 +89,7 @@ from .external_weights_upload import (
 from .external_weights_upload import (
     ExternalWeightsUploadStartResult as ExternalWeightsUploadStartResult,
 )
+from .external_weights_upload import UploadURL as UploadURL
 from .external_weights_urls_response import (
     ExternalWeightsUrlsResponse as ExternalWeightsUrlsResponse,
 )

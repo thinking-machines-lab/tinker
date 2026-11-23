@@ -308,7 +308,7 @@ training run, which cannot be trained on.
 
 Experimental: this API may change or be removed in any release.
 
-Upload each file in the result's `urls` with an HTTP PUT of its bytes, then call
+Upload each file with `result.urls[file_name].upload(path)`, then call
 `external_weights_upload_finish`. The files must be exactly what
 `save_weights_external` exports for `base_model` and `lora_config`; finishing
 rejects anything else.

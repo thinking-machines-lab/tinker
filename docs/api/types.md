@@ -1229,6 +1229,31 @@ class EncodedTextChunk(StrictBase)
 
 Array of token IDs
 
+## `UploadURL` Objects
+
+```python
+@dataclass(frozen=True)
+class UploadURL()
+```
+
+Where to upload one file of an external weights upload.
+
+#### `url`
+
+Signed URL to PUT the file to
+
+#### `headers`
+
+Headers the PUT must send
+
+#### `upload`
+
+```python
+def upload(path: str | os.PathLike[str]) -> None
+```
+
+Upload the file at `path`, streaming it in an HTTP PUT that sends `headers`.
+
 ## `ExternalWeightsUploadStartResult` Objects
 
 ```python
@@ -1244,7 +1269,7 @@ Identifies the upload when finishing it
 
 #### `urls`
 
-Signed URL per file to upload, keyed by file name; upload each file with an HTTP PUT
+Where to upload each file, keyed by file name; upload each with `UploadURL.upload`
 
 #### `expires`
 
