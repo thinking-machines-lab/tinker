@@ -402,44 +402,52 @@ class SamplingClient(QueueStateObserver, TelemetryProvider):
         estimated_bytes_count = self.holder.estimate_bytes_count_in_model_input(prompt)
         request_id = self._request_id_counter
         self._request_id_counter += 1
-        async with self.holder.sample_dispatch_rate_limit(estimated_bytes_count):
-            while True:
-                if (
-                    self.holder._sample_backoff_until is not None
-                    and time.monotonic() < self.holder._sample_backoff_until
-                ):
-                    await asyncio.sleep(1)
+        try:
+            async with self.holder.sample_dispatch_rate_limit(estimated_bytes_count):
+                while True:
+                    if (
+                        self.holder._sample_backoff_until is not None
+                        and time.monotonic() < self.holder._sample_backoff_until
+                    ):
+                        await asyncio.sleep(1)
+                        continue
+
+                    untyped_future = await self.holder.execute_with_retries(
+                        self._send_asample_request,
+                        request_id,
+                        num_samples,
+                        prompt,
+                        sampling_params,
+                        include_prompt_logprobs,
+                        topk_prompt_logprobs,
+                        topk_sample_logprobs,
+                        target_prompt_logprobs,
+                        prompt_alt_tokens_k,
+                        prompt_logprobs_last_n,
+                    )
+                    if untyped_future is not None:
+                        break
+                    # Handle backoff
+                    backoff_duration = 1 if estimated_bytes_count <= 128 * 1024 else 5
+                    self.holder._sample_backoff_until = time.monotonic() + backoff_duration
                     continue
 
-                untyped_future = await self.holder.execute_with_retries(
-                    self._send_asample_request,
-                    request_id,
-                    num_samples,
-                    prompt,
-                    sampling_params,
-                    include_prompt_logprobs,
-                    topk_prompt_logprobs,
-                    topk_sample_logprobs,
-                    target_prompt_logprobs,
-                    prompt_alt_tokens_k,
-                    prompt_logprobs_last_n,
-                )
-                if untyped_future is not None:
-                    break
-                # Handle backoff
-                backoff_duration = 1 if estimated_bytes_count <= 128 * 1024 else 5
-                self.holder._sample_backoff_until = time.monotonic() + backoff_duration
-                continue
-
-        response = await _APIFuture(
-            types.SampleResponse,
-            self.holder,
-            untyped_future,
-            request_start_time=time.time(),
-            request_type="Sample",
-            queue_state_observer=self,
-            futures_poller=self._get_futures_poller(),
-        ).result_async()
+            response = await _APIFuture(
+                types.SampleResponse,
+                self.holder,
+                untyped_future,
+                request_start_time=time.time(),
+                request_type="Sample",
+                queue_state_observer=self,
+                futures_poller=self._get_futures_poller(),
+            ).result_async()
+        except asyncio.CancelledError:
+            # The request may have reached the server and will complete there
+            # with nobody waiting; keep draining so its event gets acked.
+            futures_poller = self._get_futures_poller()
+            if futures_poller is not None:
+                futures_poller.drain_after_cancel()
+            raise
         _check_prompt_alt_tokens_returned(response, prompt_alt_tokens_k)
         _check_prompt_logprobs_last_n_honored(response, prompt_logprobs_last_n)
         return _attach_sequence_ids(response, untyped_future.sample_sequence_ids)

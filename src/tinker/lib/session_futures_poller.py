@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from tinker._exceptions import APIStatusError, TinkerError
@@ -41,6 +42,13 @@ class SessionFuturesPoller:
     Lives entirely on the holder's event loop; it must be constructed there and
     every method must be awaited from that loop. The poll task starts at
     construction and idles until the first waiter registers.
+
+    A cancelled request still completes server-side, and its event must be
+    acked before the server expires it, or the session fails. After any
+    cancellation (:meth:`drain_after_cancel`) the idle loop therefore drains
+    every ``sample_drain_after_cancel_period_sec`` until
+    ``sample_drain_after_cancel_duration_sec`` passed and one more drain
+    succeeded.
     """
 
     def __init__(
@@ -71,6 +79,9 @@ class SessionFuturesPoller:
         # Set once the poll loop hits a non-retryable error. Terminal: every
         # current and future waiter fails with this message.
         self._failure: str | None = None
+        # Monotonic time until which the idle loop keeps draining, set by
+        # drain_after_cancel; cleared by the first drain that starts after it.
+        self._drain_after_cancel_deadline: float | None = None
         # Signals the poll loop that there is at least one waiter to poll for,
         # so it can idle instead of long-polling while no requests are active.
         self._has_work: asyncio.Event = asyncio.Event()
@@ -119,6 +130,14 @@ class SessionFuturesPoller:
         assert self._failure is not None
         raise TinkerError(self._failure)
 
+    def drain_after_cancel(self) -> None:
+        """A request was cancelled: keep draining while its completion may land."""
+        duration = self._holder.get_client_dynamic_config().sample_drain_after_cancel_duration_sec
+        if duration is None:
+            return
+        self._drain_after_cancel_deadline = time.monotonic() + duration
+        self._has_work.set()
+
     def mark_retrieved(self, request_id: str) -> None:
         """Report ``request_id``'s result as fully retrieved on the next poll."""
         self._retrieved.add(request_id)
@@ -153,7 +172,15 @@ class SessionFuturesPoller:
                     and self._cursor <= self._acked_cursor
                 ):
                     self._has_work.clear()
-                    await self._has_work.wait()
+                    if self._drain_after_cancel_deadline is None:
+                        await self._has_work.wait()
+                    else:
+                        period = self._holder.get_client_dynamic_config().sample_drain_after_cancel_period_sec
+                        try:
+                            await asyncio.wait_for(self._has_work.wait(), period)
+                        except asyncio.TimeoutError:
+                            pass
+                poll_started = time.monotonic()
                 retrieved = set(self._retrieved)
                 # With no waiter this poll only reports acks: ask for an
                 # immediate return instead of holding the long poll.
@@ -218,6 +245,11 @@ class SessionFuturesPoller:
 
             # A completed round-trip clears the transient-400 budget.
             bad_request_retries = 0
+            if (
+                self._drain_after_cancel_deadline is not None
+                and poll_started >= self._drain_after_cancel_deadline
+            ):
+                self._drain_after_cancel_deadline = None
             self._retrieved -= retrieved
             # Only a completed send counts as reported; the loop (or the
             # cancellation ack) retries anything less.

@@ -117,6 +117,7 @@ from .get_session_response import GetSessionResponse as GetSessionResponse
 from .health_response import HealthResponse as HealthResponse
 from .image_asset_pointer_chunk import ImageAssetPointerChunk as ImageAssetPointerChunk
 from .image_chunk import ImageChunk as ImageChunk
+from .image_dimensions import ImageDimensions as ImageDimensions
 from .join_sampling_session_request import (
     JoinSamplingSessionRequest as JoinSamplingSessionRequest,
 )

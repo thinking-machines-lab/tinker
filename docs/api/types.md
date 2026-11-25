@@ -865,6 +865,18 @@ server's SDK-heartbeat-expiry path.
 Maximum number of queued sampling cancellations the client dispatches in
 parallel per drain iteration.
 
+#### `sample_drain_after_cancel_duration_sec`
+
+How long after a sample is cancelled the retrieve_futures poller keeps
+draining completions nobody waits for. A cancelled request still pushes a
+completion event, which the server expires (failing the session) if no
+poll acknowledges it. None disables draining after cancellation.
+
+#### `sample_drain_after_cancel_period_sec`
+
+How often the otherwise idle retrieve_futures poller drains completions
+during `sample_drain_after_cancel_duration_sec`.
+
 #### `retry_detector_cancelled_request_ttl_sec`
 
 How long after a caller cancels a request an identical new request still
@@ -1547,6 +1559,10 @@ Optional human-readable display name for the session. Does not need to be unique
 class ImageAssetPointerChunk(StrictBase)
 ```
 
+This input type is not currently accepted by the public API.
+
+Use ImageChunk to provide image bytes instead.
+
 #### `format`
 
 Image format
@@ -1554,6 +1570,18 @@ Image format
 #### `location`
 
 Path or URL to the image asset
+
+#### `width`
+
+Physical image width in pixels.
+
+#### `height`
+
+Physical image height in pixels.
+
+#### `override_dimensions`
+
+Optional dimensions used for token counting and preprocessing.
 
 #### `expected_tokens`
 
@@ -1598,6 +1626,14 @@ def serialize_data(value: bytes) -> str
 ```
 
 Serialize bytes to base64 string for JSON.
+
+## `ImageDimensions` Objects
+
+```python
+class ImageDimensions(StrictBase)
+```
+
+Image dimensions used in model input requests.
 
 ## `JoinSamplingSessionRequest` Objects
 

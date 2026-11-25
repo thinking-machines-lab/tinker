@@ -766,15 +766,19 @@ def _default_pyqwest_transport() -> httpx.AsyncBaseTransport:
     import pyqwest
     from pyqwest.httpx import AsyncPyqwestTransport
 
+    # use_system_dns resolves through the system, matching httpx's default
+    # transport. pyqwest's built-in Rust resolver can get no answer behind VPNs
+    # that run a local DNS proxy, which hangs every request.
+    #
     # pyqwest 0.7.0 added tls_include_system_certs, defaulting to False. That
     # stops the transport from trusting OS trust-store CAs, which breaks
     # TLS-intercepting proxies/VPNs with "invalid peer certificate:
     # UnknownIssuer". Turn it back on where the flag exists; older pyqwest
     # rejects the kwarg with a TypeError and always includes system certs.
     try:
-        transport = pyqwest.HTTPTransport(tls_include_system_certs=True)
+        transport = pyqwest.HTTPTransport(tls_include_system_certs=True, use_system_dns=True)
     except TypeError:
-        transport = pyqwest.HTTPTransport()
+        transport = pyqwest.HTTPTransport(use_system_dns=True)
     return AsyncPyqwestTransport(transport=transport)
 
 

@@ -625,22 +625,26 @@ class Chunk(google.protobuf.message.Message):
     ENCODED_TEXT_FIELD_NUMBER: builtins.int
     IMAGE_FIELD_NUMBER: builtins.int
     DMEL_FIELD_NUMBER: builtins.int
+    IMAGE_ASSET_POINTER_FIELD_NUMBER: builtins.int
     @property
     def encoded_text(self) -> Global___EncodedTextChunk: ...
     @property
     def image(self) -> Global___ImageChunk: ...
     @property
     def dmel(self) -> Global___DmelChunk: ...
+    @property
+    def image_asset_pointer(self) -> Global___ImageAssetPointerChunk: ...
     def __init__(
         self,
         *,
         encoded_text: Global___EncodedTextChunk | None = ...,
         image: Global___ImageChunk | None = ...,
         dmel: Global___DmelChunk | None = ...,
+        image_asset_pointer: Global___ImageAssetPointerChunk | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["chunk", b"chunk", "dmel", b"dmel", "encoded_text", b"encoded_text", "image", b"image"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing.Literal["chunk", b"chunk", "dmel", b"dmel", "encoded_text", b"encoded_text", "image", b"image"]) -> None: ...
-    def WhichOneof(self, oneof_group: typing.Literal["chunk", b"chunk"]) -> typing.Literal["encoded_text", "image", "dmel"] | None: ...
+    def HasField(self, field_name: typing.Literal["chunk", b"chunk", "dmel", b"dmel", "encoded_text", b"encoded_text", "image", b"image", "image_asset_pointer", b"image_asset_pointer"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["chunk", b"chunk", "dmel", b"dmel", "encoded_text", b"encoded_text", "image", b"image", "image_asset_pointer", b"image_asset_pointer"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["chunk", b"chunk"]) -> typing.Literal["encoded_text", "image", "dmel", "image_asset_pointer"] | None: ...
 
 Global___Chunk: typing_extensions.TypeAlias = Chunk
 
@@ -693,6 +697,42 @@ class ImageChunk(google.protobuf.message.Message):
     def WhichOneof(self, oneof_group: typing.Literal["_override_dimensions", b"_override_dimensions"]) -> typing.Literal["override_dimensions"] | None: ...
 
 Global___ImageChunk: typing_extensions.TypeAlias = ImageChunk
+
+@typing.final
+class ImageAssetPointerChunk(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    LOCATION_FIELD_NUMBER: builtins.int
+    FORMAT_FIELD_NUMBER: builtins.int
+    WIDTH_FIELD_NUMBER: builtins.int
+    HEIGHT_FIELD_NUMBER: builtins.int
+    EXPECTED_TOKENS_FIELD_NUMBER: builtins.int
+    OVERRIDE_DIMENSIONS_FIELD_NUMBER: builtins.int
+    location: builtins.str
+    format: builtins.str
+    width: builtins.int
+    height: builtins.int
+    expected_tokens: builtins.int
+    @property
+    def override_dimensions(self) -> Global___ImageDimensions: ...
+    def __init__(
+        self,
+        *,
+        location: builtins.str = ...,
+        format: builtins.str = ...,
+        width: builtins.int = ...,
+        height: builtins.int = ...,
+        expected_tokens: builtins.int | None = ...,
+        override_dimensions: Global___ImageDimensions | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "_override_dimensions", b"_override_dimensions", "expected_tokens", b"expected_tokens", "override_dimensions", b"override_dimensions"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_expected_tokens", b"_expected_tokens", "_override_dimensions", b"_override_dimensions", "expected_tokens", b"expected_tokens", "format", b"format", "height", b"height", "location", b"location", "override_dimensions", b"override_dimensions", "width", b"width"]) -> None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_expected_tokens", b"_expected_tokens"]) -> typing.Literal["expected_tokens"] | None: ...
+    @typing.overload
+    def WhichOneof(self, oneof_group: typing.Literal["_override_dimensions", b"_override_dimensions"]) -> typing.Literal["override_dimensions"] | None: ...
+
+Global___ImageAssetPointerChunk: typing_extensions.TypeAlias = ImageAssetPointerChunk
 
 @typing.final
 class ImageDimensions(google.protobuf.message.Message):

@@ -15,6 +15,7 @@ from tinker.types.dmel_chunk import DmelChunk
 from tinker.types.encoded_text_chunk import EncodedTextChunk
 from tinker.types.forward_backward_request import ForwardBackwardRequest
 from tinker.types.image_chunk import ImageChunk
+from tinker.types.image_asset_pointer_chunk import ImageAssetPointerChunk
 from tinker.types.model_input_chunk import ModelInputChunk
 from tinker.types.tensor_data import TensorData
 from tinker.types.provenance_spans import SampledProvenanceSpan, PromptProvenanceSpan
@@ -86,6 +87,18 @@ def _write_chunk(msg: public_pb.Chunk, chunk: ModelInputChunk) -> None:
         return
     if isinstance(chunk, DmelChunk):
         msg.dmel.dmel = chunk.dmel
+        return
+    if isinstance(chunk, ImageAssetPointerChunk):
+        pointer = msg.image_asset_pointer
+        pointer.location = chunk.location
+        pointer.format = chunk.format
+        pointer.width = chunk.width
+        pointer.height = chunk.height
+        if chunk.expected_tokens is not None:
+            pointer.expected_tokens = chunk.expected_tokens
+        if chunk.override_dimensions is not None:
+            pointer.override_dimensions.width = chunk.override_dimensions.width
+            pointer.override_dimensions.height = chunk.override_dimensions.height
         return
     raise ValueError(f"Unsupported model input chunk type: {type(chunk).__name__}")
 
