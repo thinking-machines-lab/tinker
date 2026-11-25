@@ -13,6 +13,7 @@ from tinker._exceptions import APIStatusError
 from tinker.lib.client_connection_pool_type import ClientConnectionPoolType
 from tinker.lib.internal_client_holder import InternalClientHolder
 from tinker.lib.session_futures_poller import SessionFuturesPoller
+from tinker.types.client_dynamic_config_response import ClientDynamicConfigResponse
 from tinker.types.future_completion import FutureFinished
 from tinker.types.futures_retrieve_request import FuturesRetrieveRequest
 from tinker.types.futures_retrieve_response import FuturesRetrieveResponse
@@ -60,6 +61,10 @@ class _FakeHolder:
         # holder does once the max-pause window is exceeded.
         self._max_pause_calls = 2
         self.tracked_tasks: set[asyncio.Task[None]] = set()
+        self.dynamic_config = ClientDynamicConfigResponse()
+
+    def get_client_dynamic_config(self) -> ClientDynamicConfigResponse:
+        return self.dynamic_config
 
     def track_futures_poller_task(self, task: asyncio.Task[None]) -> None:
         self.tracked_tasks.add(task)
@@ -596,5 +601,58 @@ async def test_cancel_ack_noop_when_loop_delivered_everything() -> None:
         with pytest.raises(asyncio.CancelledError):
             await poller._task
         assert futures.seen_cursors == [0, 1, 1]  # no extra request
+    finally:
+        poller.close()
+
+
+@pytest.mark.asyncio
+async def test_drains_periodically_after_cancel_until_deadline() -> None:
+    # A cancelled request's late event is acked even though nobody waits for
+    # it, and the periodic drains stop once the deadline passed.
+    responses: list[FuturesRetrieveResponse | Exception] = [_resp("s:sample:0:1", cursor=1)]
+    responses += [FuturesRetrieveResponse(completions=[], cursor=1)] * 100
+    futures = _FakeFutures(responses)
+    holder = _FakeHolder(_FakeClient(futures))
+    holder.dynamic_config = ClientDynamicConfigResponse(
+        sample_drain_after_cancel_duration_sec=0.2,
+        sample_drain_after_cancel_period_sec=0.02,
+    )
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    try:
+        poller.drain_after_cancel()
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if poller._drain_after_cancel_deadline is None:
+                break
+        assert poller._drain_after_cancel_deadline is None
+        assert poller._acked_cursor == 1
+        polls = len(futures.seen_cursors)
+        assert polls > 3  # periodic drains, not just the ack
+        assert set(futures.seen_timeouts) == {0}
+        await asyncio.sleep(0.1)
+        assert len(futures.seen_cursors) == polls  # idle again
+    finally:
+        poller.close()
+
+
+@pytest.mark.asyncio
+async def test_drain_after_cancel_disabled_by_null_duration() -> None:
+    futures = _FakeFutures([])
+    holder = _FakeHolder(_FakeClient(futures))
+    holder.dynamic_config = ClientDynamicConfigResponse(sample_drain_after_cancel_duration_sec=None)
+    poller = SessionFuturesPoller(
+        holder,  # type: ignore[arg-type]
+        sampling_session_id="s:sample:0",
+        cloned_sampler_id=0,
+    )
+    try:
+        poller.drain_after_cancel()
+        await asyncio.sleep(0.05)
+        assert poller._drain_after_cancel_deadline is None
+        assert futures.seen_cursors == []
     finally:
         poller.close()

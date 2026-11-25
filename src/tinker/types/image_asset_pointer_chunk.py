@@ -1,16 +1,31 @@
 from typing_extensions import Literal
 
 from .._models import StrictBase
+from .image_dimensions import ImageDimensions
 
 __all__ = ["ImageAssetPointerChunk"]
 
 
 class ImageAssetPointerChunk(StrictBase):
+    """This input type is not currently accepted by the public API.
+
+    Use ImageChunk to provide image bytes instead.
+    """
+
     format: Literal["png", "jpeg"]
     """Image format"""
 
     location: str
     """Path or URL to the image asset"""
+
+    width: int
+    """Physical image width in pixels."""
+
+    height: int
+    """Physical image height in pixels."""
+
+    override_dimensions: ImageDimensions | None = None
+    """Optional dimensions used for token counting and preprocessing."""
 
     expected_tokens: int | None = None
     """Expected number of tokens this image represents.

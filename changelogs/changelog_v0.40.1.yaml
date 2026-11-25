@@ -1,0 +1,12 @@
+New: []
+Changes:
+  - >-
+    Resolves hostnames using the operating system's DNS resolver across all HTTP requests.
+Fixed:
+  - >-
+    Cancelling a sampling request no longer risks failing its sampling session with
+    "completed results expired before the client retrieved them" when the client then stays
+    idle for a while.
+Deprecations: []
+Breaking changes: []
+Dependencies: []
